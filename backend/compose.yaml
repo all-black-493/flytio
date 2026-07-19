@@ -1,0 +1,35 @@
+services:
+  fastapi-app:
+    build: .
+    ports:
+      - "8000:80"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/backend
+      - /backend/.venv
+    command: ["uv", "run", "fastapi","dev","main.py", "--port", "80", "--host", "0.0.0.0"]
+    
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
