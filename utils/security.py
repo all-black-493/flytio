@@ -5,13 +5,16 @@ import jwt
 import os
 from sqlmodel import Session, select
 from backend.models.users import UserInDB
+from fastapi import Depends, HTTPException, status
+from jwt.exceptions import InvalidTokenError
+from backend.crud.db import get_session
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 
@@ -43,4 +46,26 @@ def authenticate_user(session: Session, email: str, password: str):
         return False
     if not verify_password(password, user.password):
         return False
+    return user
+
+
+def get_current_user(token: str = Depends(oauth2_scheme), session=Depends(get_session)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+
+        session = get_session()
+        user = session.exec(select(UserInDB).where(UserInDB.email == email)).first()
+        if user is None:
+            raise credentials_exception
+    except InvalidTokenError:
+        raise credentials_exception
+
     return user

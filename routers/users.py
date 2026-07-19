@@ -11,6 +11,7 @@ from backend.schemas.users import UserCreate, UserRead
 from backend.utils.email import send_email_async
 from backend.utils.security import authenticate_user, create_access_token
 
+
 router = APIRouter(prefix="/api")
 
 

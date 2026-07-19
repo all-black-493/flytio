@@ -1,59 +1,91 @@
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import date, time, datetime
 from typing import Any
+import enum
 
 
 class BaseSchema(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class TravelerType(str, enum.Enum):
+    ADULT = "ADULT"
+    CHILD = "CHILD"
+    HELD_INFANT = "HELD_INFANT"
+
+
+class CabinType(str, enum.Enum):
+    ECONOMY = "ECONOMY"
+    PREMIUM_ECONOMY = "PREMIUM_ECONOMY"
+    BUSINESS = "BUSINESS"
+    FIRST = "FIRST"
+
+
 class DepartureDateTimeRange(BaseSchema):
-    departure_date: date = Field(
-        ..., alias="date", description="Departure date in YYY-MM-DD format"
-    )
-    departure_time: time = Field(
-        ..., alias="time", description="Departure time in HH:MM:SS format"
-    )
+    departure_date: date = Field(..., alias="date")
+    departure_time: time = Field(..., alias="time")
 
 
 class OriginDestination(BaseSchema):
-    id: str = Field(..., description="Unique identifier for the origin destination")
-    originLocationCode: str = Field(..., description="IATA code for the origin airport")
-    destinationLocationCode: str = Field(
-        ..., description="IATA code for the destination airport"
-    )
-    departureDateTimeRange: DepartureDateTimeRange = Field(
-        ..., description="Departure date and time range"
-    )
+    id: str
+    originLocationCode: str
+    destinationLocationCode: str
+    departureDateTimeRange: DepartureDateTimeRange
 
 
 class Traveler(BaseSchema):
     id: str = Field(..., description="Unique identifier for the traveler")
-    travelerType: str = Field(
-        ..., description="Type of Traveler (e.g., ADULT, CHILD, SENIOR)"
-    )
+    travelerType: TravelerType
     associatedAdultId: str | None = None
 
 
 class CabinRestriction(BaseSchema):
-    cabin: str = Field(
-        ..., description="Cabin class(e.g., ECONOMY, PREMIUM_ECONOMY, BUSINESS, FIRST)"
-    )
-    coverage: str = Field(
-        ..., description="Coverage type (e.g., MOST_SEGMENTS, ALL_SEGMENTS)"
-    )
-    originDestinationIds: list[str] = Field(
-        ..., description="List of origin-destination IDs"
-    )
+    cabin: CabinType
+    coverage: str = "MOST_SEGMENTS"
+    originDestinationIds: list[str]
+
+
+class ConnectionRestriction(BaseSchema):
+    airportChangeAllowed: bool
+    technicalStopsAllowed: bool
+
+
+class CarrierRestrictions(BaseSchema):
+    blacklistedInEUAllowed: bool
+    includedCarrierCodes: list[str]
 
 
 class FlightFilters(BaseSchema):
-    cabinRestrictions: list[CabinRestriction] | None = None
+    cabinRestrictions: list[CabinRestriction]
+    crossBorderAllowed: bool
+    moreOvernightsAllowed: bool
+    returnToDepartureAirport: bool
+    railSegmentAllowed: bool
+    busSegmentAllowed: bool
+    carrierRestrictions: CarrierRestrictions
+    connectionRestriction: ConnectionRestriction
+
+
+class PricingOptions(BaseSchema):
+    fareType: list[str]
+    includedCheckedBagsOnly: bool
+
+
+class AdditionalInformation(BaseSchema):
+    chargeableCheckedBags: bool
+    brandedFares: bool
+    fareRules: bool
 
 
 class SearchCriteria(BaseSchema):
-    maxFlightOffers: int | None = None
-    flightFilters: FlightFilters | None = None
+    excludeAllotments: bool
+    addOneWayOffers: bool
+    maxFlightOffers: int
+    allowAlternativeFareOptions: bool
+    oneFlightOfferPerDay: bool
+    additionalInformation: AdditionalInformation
+    pricingOptions: PricingOptions
+    flightFilters: FlightFilters
 
 
 class AmadeusFlightSearchRequest(BaseSchema):
@@ -70,7 +102,7 @@ class AmadeusFlightSearchRequest(BaseSchema):
     searchCriteria: SearchCriteria | None = None
 
 
-class IncludedCheckedBags(BaseSchema):
+class Bags(BaseSchema):
     quantity: int | None = None
     weight: int | None = None
     weightUnit: str | None = None
@@ -120,29 +152,51 @@ class Price(BaseSchema):
     currency: str
     total: str
     base: str
-    fees: list[Fee] | None = None
-    grandTotal: str | None = None
+    fees: list["Fee"]
+    grandTotal: str
+    additionalServices: list["AdditionalService"]
 
 
-class PricingOptions(BaseSchema):
-    fareType: list[str]
-    includedCheckedBagsOnly: bool
+class AdditionalService(BaseModel):
+    amount: str
+    type: str
 
 
 class FareDetailsBySegment(BaseSchema):
     segmentId: str
     cabin: str
     fareBasis: str
+    brandedFare: str
+    brandedFareLabel: str
     class_: str = Field(alias="class")
-    includedCheckedBags: IncludedCheckedBags | None = None
+    includedCheckedBags: "Bags"
+    includedCabinBags: "Bags"
+    amenities: list["Amenity"]
 
 
 class TravelerPricing(BaseSchema):
     travelerId: str
     fareOption: str
     travelerType: str
-    price: Price
+    price: "TravelerPrice"
     fareDetailsBySegment: list[FareDetailsBySegment]
+
+
+class TravelerPrice(BaseSchema):
+    currency: str
+    total: str
+    base: str
+
+
+class Amenity(BaseSchema):
+    description: str
+    isChargeable: bool
+    amenityType: str
+    amenityProvider: "AmenityProvider"
+
+
+class AmenityProvider(BaseSchema):
+    name: str
 
 
 class FlightOfferRequest(BaseSchema):
@@ -152,9 +206,9 @@ class FlightOfferRequest(BaseSchema):
     instantTicketingRequired: bool
     nonHomogeneous: bool
     oneWay: bool
-    isUpsellOffer: bool | None = None
+    isUpsellOffer: bool
     lastTicketingDate: date
-    lastTicketingDateTime: datetime | None = None
+    lastTicketingDateTime: datetime
     numberOfBookableSeats: int
     itineraries: list[Itinerary]
     price: Price
@@ -177,17 +231,16 @@ class LocationInfo(BaseSchema):
     countryCode: str
 
 
-class Dictionaries(BaseSchema):
-    locations: dict[str, LocationInfo]
-    aircraft: dict[str, str]
-    currencies: dict[str, str]
-    carriers: dict[str, str]
-
-
 class FlightSearchResponse(BaseSchema):
     meta: dict[str, Any]
     data: list[FlightOfferRequest]
-    dictionaries: Dictionaries
+    dictionaries: dict[str, Any] | None = None
+
+
+class FlightPricingResponse(BaseSchema):
+    data: dict[str, Any] | None = None
+    result: dict[str, Any] | None = None
+    meta: dict[str, Any] | None = None
 
 
 class ErrorSource(BaseSchema):
