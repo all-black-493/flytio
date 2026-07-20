@@ -61,7 +61,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), session=Depends(get_se
         if email is None:
             raise credentials_exception
 
-        session = get_session()
         user = session.exec(select(UserInDB).where(UserInDB.email == email)).first()
         if user is None:
             raise credentials_exception
