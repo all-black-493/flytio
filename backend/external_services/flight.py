@@ -156,5 +156,10 @@ class DuffelFlightService:
             f"/air/order_cancellations/{order_cancellation_id}/actions/confirm",
         )
 
+    async def search_places(self, params: dict) -> dict:
+        """Search airports and cities via Duffel's places suggestions
+        endpoint, in either text-query or lat/lng/rad mode."""
+        return await self._request("GET", "/places/suggestions", params=params)
+
 
 duffel_flight_service = DuffelFlightService()

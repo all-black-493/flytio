@@ -1,18 +1,25 @@
 from fastapi import APIRouter, HTTPException, status, Query, Depends, Path
 
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
-from backend.utils.cache import make_cache_key, get_cached, set_cached
+from backend.external_services.cache import (
+    build_places_cache_key,
+    build_search_cache_key,
+    build_seatmap_cache_key,
+    redis_cache,
+)
 from backend.schemas.duffel_flights import (
+    FlightSearchQueryParams,
     FlightSearchResponse,
     OfferPriceRequest,
     OfferRequestCreate,
     OfferResponse,
     OrderCancellationResponse,
     OrderCreate,
+    OrderListQueryParams,
     OrderListResponse,
     OrderResponse,
-    SearchPassenger,
-    SlicePlan,
+    PlaceSuggestionsQuery,
+    PlaceSuggestionsResponse,
 )
 
 from typing import Annotated
@@ -21,7 +28,8 @@ from backend.models.users import UserInDB
 
 router = APIRouter()
 
-FLIGHT_SEARCH_CACHE_TTL_SECONDS = 60
+CACHE_TTL_SECONDS = 60
+PLACES_CACHE_TTL_SECONDS = 60 * 60 * 24
 
 
 def _duffel_http_exception(error: DuffelAPIError) -> HTTPException:
@@ -45,15 +53,14 @@ async def search_flights(request: OfferRequestCreate):
     Responses are cached in Redis for one minute per unique search request.
     """
     try:
-        request_body = request.model_dump(mode="json", exclude_none=True)
-
-        cache_key = make_cache_key("flights:search", request_body)
-        cached_response = await get_cached(cache_key)
+        cache_key = build_search_cache_key(request)
+        cached_response = redis_cache.get(cache_key)
         if cached_response is not None:
             return cached_response
-        response = await duffel_flight_service.search_flights(request_body)
-        await set_cached(cache_key, response, FLIGHT_SEARCH_CACHE_TTL_SECONDS)
 
+        request_body = request.model_dump(mode="json", exclude_none=True)
+        response = await duffel_flight_service.search_flights(request_body)
+        redis_cache.set(cache_key, response, CACHE_TTL_SECONDS)
         return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
@@ -68,47 +75,25 @@ async def search_flights(request: OfferRequestCreate):
 
 
 @router.get("/shopping/flight-offers", response_model=FlightSearchResponse)
-async def search_flights_2(
-    origin: Annotated[str, Query(min_length=3, max_length=3)],
-    destination: Annotated[str, Query(min_length=3, max_length=3)],
-    departure_date: Annotated[str, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")],
-    return_date: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
-    adults: Annotated[int, Query(ge=1)] = 1,
-    children: Annotated[int, Query(ge=0)] = 0,
-    infants: Annotated[int, Query(ge=0)] = 0,
-    cabin_class: Annotated[str | None, Query()] = None,
-    max_connections: Annotated[int | None, Query(ge=0, le=2)] = None,
-):
+async def search_flights_2(params: Annotated[FlightSearchQueryParams, Query()]):
     """
     Simple flight search via query parameters.
 
     Duffel has no GET search endpoint, so the parameters are translated into
-    an offer request (slices + passengers) and posted to Duffel.
+    an offer request (slices + passengers) and posted to Duffel. Shares its
+    cache namespace with the POST endpoint, since an equivalent request via
+    either path resolves to the same offer request body.
     """
-    slices = [
-        SlicePlan(origin=origin, destination=destination, departure_date=departure_date)
-    ]
-    if return_date:
-        slices.append(
-            SlicePlan(
-                origin=destination, destination=origin, departure_date=return_date
-            )
-        )
-    passengers = (
-        [SearchPassenger(type="adult")] * adults
-        + [SearchPassenger(type="child")] * children
-        + [SearchPassenger(type="infant_without_seat")] * infants
-    )
-    offer_request = OfferRequestCreate(
-        slices=slices,
-        passengers=passengers,
-        cabin_class=cabin_class,
-        max_connections=max_connections,
-    )
+    offer_request = params.to_offer_request()
     try:
-        response = await duffel_flight_service.search_flights(
-            offer_request.model_dump(mode="json", exclude_none=True)
-        )
+        cache_key = build_search_cache_key(offer_request)
+        cached_response = redis_cache.get(cache_key)
+        if cached_response is not None:
+            return cached_response
+
+        request_body = offer_request.model_dump(mode="json", exclude_none=True)
+        response = await duffel_flight_service.search_flights(request_body)
+        redis_cache.set(cache_key, response, CACHE_TTL_SECONDS)
         return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
@@ -169,10 +154,41 @@ async def view_seat_map_get(offer_id: Annotated[str, Query()]):
     Get seat maps for an offer.
 
     Duffel exposes seat maps per offer (before booking), not per order,
-    so this takes an offer_id instead of the old flightOrderId.
+    so this takes an offer_id instead of the old flightOrderId. Cached
+    briefly per offer_id, since it's a read-only, offer-scoped lookup.
     """
+    cache_key = build_seatmap_cache_key(offer_id)
+    cached_response = redis_cache.get(cache_key)
+    if cached_response is not None:
+        return cached_response
     try:
         response = await duffel_flight_service.view_seat_map(offer_id)
+        redis_cache.set(cache_key, response, CACHE_TTL_SECONDS)
+        return response
+    except DuffelAPIError as e:
+        raise _duffel_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/shopping/places", response_model=PlaceSuggestionsResponse)
+async def search_places(params: Annotated[PlaceSuggestionsQuery, Query()]):
+    """
+    Search for airports and cities.
+
+    Give either `query` (a free-text name or IATA code, for autocomplete)
+    or `lat`+`lng`+`rad` (a geographic radius in meters), not both. Cached
+    for a day, since airport/city reference data rarely changes.
+    """
+    try:
+        cache_key = build_places_cache_key(params)
+        cached_response = redis_cache.get(cache_key)
+        if cached_response is not None:
+            return cached_response
+
+        query_params = params.model_dump(mode="json", exclude_none=True)
+        response = await duffel_flight_service.search_places(query_params)
+        redis_cache.set(cache_key, response, PLACES_CACHE_TTL_SECONDS)
         return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
@@ -182,37 +198,16 @@ async def view_seat_map_get(offer_id: Annotated[str, Query()]):
 
 @router.get("/booking/flight-orders", response_model=OrderListResponse)
 async def list_flight_orders(
+    params: Annotated[OrderListQueryParams, Query()],
     current_user: UserInDB = Depends(get_current_user),
-    booking_reference: Annotated[str | None, Query()] = None,
-    awaiting_payment: Annotated[bool | None, Query()] = None,
-    origin: Annotated[str | None, Query(min_length=3, max_length=3)] = None,
-    destination: Annotated[str | None, Query(min_length=3, max_length=3)] = None,
-    sort: Annotated[
-        str | None,
-        Query(
-            description="created_at, -created_at, payment_required_by or -payment_required_by"
-        ),
-    ] = None,
-    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
-    before: Annotated[str | None, Query()] = None,
-    after: Annotated[str | None, Query()] = None,
 ):
     """
     List orders, most recent first, with optional filters and cursor pagination.
     """
-    params = {
-        "booking_reference": booking_reference,
-        "awaiting_payment": awaiting_payment,
-        "origin": origin,
-        "destination": destination,
-        "sort": sort,
-        "limit": limit,
-        "before": before,
-        "after": after,
-    }
-    params = {k: v for k, v in params.items() if v is not None}
     try:
-        response = await duffel_flight_service.list_flight_orders(params)
+        response = await duffel_flight_service.list_flight_orders(
+            params.to_duffel_params()
+        )
         return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)

@@ -7,7 +7,7 @@ are needed. See https://duffel.com/docs/api for the source of truth.
 import enum
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class BaseSchema(BaseModel):
@@ -25,6 +25,13 @@ class PassengerType(str, enum.Enum):
     ADULT = "adult"
     CHILD = "child"
     INFANT_WITHOUT_SEAT = "infant_without_seat"
+
+
+class OrderSort(str, enum.Enum):
+    CREATED_AT = "created_at"
+    CREATED_AT_DESC = "-created_at"
+    PAYMENT_REQUIRED_BY = "payment_required_by"
+    PAYMENT_REQUIRED_BY_DESC = "-payment_required_by"
 
 
 # Request models
@@ -54,6 +61,49 @@ class OfferRequestCreate(BaseSchema):
     passengers: list[SearchPassenger] = Field(min_length=1)
     cabin_class: CabinClass | None = None
     max_connections: int | None = Field(default=None, ge=0, le=2)
+
+
+class FlightSearchQueryParams(BaseSchema):
+    """Query params for the GET search endpoint; translated into an
+    OfferRequestCreate (slices + passengers) before calling Duffel."""
+
+    origin: str = Field(min_length=3, max_length=3)
+    destination: str = Field(min_length=3, max_length=3)
+    departure_date: date
+    return_date: date | None = None
+    adults: int = Field(default=1, ge=1)
+    children: int = Field(default=0, ge=0)
+    infants: int = Field(default=0, ge=0)
+    cabin_class: CabinClass | None = None
+    max_connections: int | None = Field(default=None, ge=0, le=2)
+
+    def to_offer_request(self) -> OfferRequestCreate:
+        slices = [
+            SlicePlan(
+                origin=self.origin,
+                destination=self.destination,
+                departure_date=self.departure_date,
+            )
+        ]
+        if self.return_date:
+            slices.append(
+                SlicePlan(
+                    origin=self.destination,
+                    destination=self.origin,
+                    departure_date=self.return_date,
+                )
+            )
+        passengers = (
+            [SearchPassenger(type=PassengerType.ADULT)] * self.adults
+            + [SearchPassenger(type=PassengerType.CHILD)] * self.children
+            + [SearchPassenger(type=PassengerType.INFANT_WITHOUT_SEAT)] * self.infants
+        )
+        return OfferRequestCreate(
+            slices=slices,
+            passengers=passengers,
+            cabin_class=self.cabin_class,
+            max_connections=self.max_connections,
+        )
 
 
 class OfferPriceRequest(BaseSchema):
@@ -246,6 +296,23 @@ class Order(BaseSchema):
     available_actions: list[str] = []
 
 
+class OrderListQueryParams(BaseSchema):
+    """Query params for listing orders; translated into Duffel's flat
+    query-string filters before calling the API."""
+
+    booking_reference: str | None = None
+    awaiting_payment: bool | None = None
+    origin: str | None = Field(default=None, min_length=3, max_length=3)
+    destination: str | None = Field(default=None, min_length=3, max_length=3)
+    sort: OrderSort | None = None
+    limit: int | None = Field(default=None, ge=1, le=200)
+    before: str | None = None
+    after: str | None = None
+
+    def to_duffel_params(self) -> dict:
+        return self.model_dump(mode="json", exclude_none=True)
+
+
 class OrderResponse(BaseSchema):
     """Duffel envelope for a single order."""
 
@@ -279,3 +346,65 @@ class OrderCancellationResponse(BaseSchema):
     """Duffel envelope for an order cancellation quote or its confirmation."""
 
     data: OrderCancellationQuote
+
+
+# Places (airport/city) search models
+
+
+class PlaceType(str, enum.Enum):
+    AIRPORT = "airport"
+    CITY = "city"
+
+
+class PlaceSuggestionsQuery(BaseSchema):
+    """Query params for GET /places/suggestions.
+
+    Duffel's endpoint runs in exactly one of two modes: text autocomplete
+    (`query`) or a geographic radius search (`lat`+`lng`+`rad`), never both.
+    """
+
+    query: str | None = Field(
+        default=None, min_length=1, description="Free-text name or IATA code"
+    )
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    rad: int | None = Field(default=None, ge=1, description="Radius in meters")
+
+    @model_validator(mode="after")
+    def _check_exactly_one_mode(self) -> "PlaceSuggestionsQuery":
+        has_query = self.query is not None
+        geo_fields = (self.lat, self.lng, self.rad)
+        has_any_geo = any(f is not None for f in geo_fields)
+        has_full_geo = all(f is not None for f in geo_fields)
+
+        if not has_query and not has_any_geo:
+            raise ValueError("Provide either `query` or `lat`+`lng`+`rad`")
+        if has_query and has_any_geo:
+            raise ValueError("Provide either `query` or `lat`+`lng`+`rad`, not both")
+        if has_any_geo and not has_full_geo:
+            raise ValueError("`lat`, `lng`, and `rad` must all be provided together")
+        return self
+
+
+class Place(BaseSchema):
+    id: str
+    type: PlaceType
+    name: str
+    iata_code: str | None = None
+    iata_country_code: str | None = None
+    iata_city_code: str | None = None
+    icao_code: str | None = None
+    city_name: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    time_zone: str | None = None
+    airports: list["Place"] | None = Field(
+        default=None, description="Present on city-type places"
+    )
+
+
+class PlaceSuggestionsResponse(BaseSchema):
+    """Duffel envelope for a list of airport/city suggestions."""
+
+    data: list[Place]
+    meta: dict | None = None
