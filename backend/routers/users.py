@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from backend.crud.db import get_session
 from backend.crud.users import create_user, get_user_by_email
-from backend.models.auth import Token
+from backend.schemas.auth import Token
 from backend.schemas.users import UserCreate, UserRead
 from backend.utils.email import send_email_async
 from backend.utils.security import authenticate_user, create_access_token

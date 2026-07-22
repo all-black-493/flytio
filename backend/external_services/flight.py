@@ -1,122 +1,165 @@
-from dotenv import load_dotenv
 import os
-from amadeus import Client, ResponseError
+
+import httpx
+from dotenv import load_dotenv
 
 load_dotenv()
 
-traveler = {
-    "id": "1",
-    "dateOfBirth": "1999-01-16",
-    "name": {"firstName": "JORGE", "lastName": "GONZALES"},
-    "gender": "MALE",
-    "contact": {
-        "emailAddress": "jorge.gonzales833@gmail.com",
-        "phones": [
-            {"deviceType": "MOBILE", "countryCallingCode": "34", "number": "480080076"}
-        ],
-    },
-    "documents": [
-        {
-            "documentType": "PASSPORT",
-            "birthPlace": "Madrid",
-            "issuanceLocation": "Madrid",
-            "issuanceDate": "2018-04-14",
-            "number": "00000000",
-            "expiryDate": "2026-09-14",
-            "issuanceCountry": "ES",
-            "validityCountry": "ES",
-            "nationality": "ES",
-            "holder": True,
-        }
-    ],
-}
+DUFFEL_BASE_URL = "https://api.duffel.com"
+DUFFEL_API_VERSION = "v2"
 
 
-class AmadeusFlightService:
-    """Service for interacting with Amadeus Flight Search API using Amadeus SDK"""
+class DuffelAPIError(Exception):
+    """Raised when the Duffel API returns an error response.
+
+    Carries the HTTP status code and the `errors` array from Duffel's
+    error envelope so callers can surface meaningful details.
+    """
+
+    def __init__(self, status_code: int, errors: list[dict]):
+        self.status_code = status_code
+        self.errors = errors
+        messages = (
+            "; ".join(e.get("message") or e.get("title", "") for e in errors)
+            or f"Duffel API returned HTTP {status_code}"
+        )
+        super().__init__(messages)
+
+
+class DuffelFlightService:
+    """Service for the Duffel Flights API (v2) over plain REST with httpx.
+
+    Duffel's official Python SDK is archived and pinned to API v1, so per
+    Duffel's guidance we call the documented REST endpoints directly:
+    https://duffel.com/docs/api
+    """
 
     def __init__(self):
-        self.api_key = os.getenv("AMADEUS_API_KEY")
-        self.api_secret = os.getenv("AMADEUS_API_SECRET")
+        self.api_token = os.getenv("DUFFEL_API_TOKEN")
+        self._client: httpx.AsyncClient | None = None
 
-        if not self.api_key or not self.api_secret:
-            raise ValueError("Amadeus API credentials not configured")
+    @property
+    def client(self) -> httpx.AsyncClient:
+        # Created lazily so the app (and tests) can import this module
+        # before DUFFEL_API_TOKEN is configured.
+        if self._client is None:
+            if not self.api_token:
+                raise ValueError(
+                    "Duffel API token not configured (set DUFFEL_API_TOKEN)"
+                )
+            self._client = httpx.AsyncClient(
+                base_url=DUFFEL_BASE_URL,
+                headers={
+                    "Authorization": f"Bearer {self.api_token}",
+                    "Duffel-Version": DUFFEL_API_VERSION,
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                },
+                timeout=httpx.Timeout(30.0),
+            )
+        return self._client
 
-        try:
-            self.amadeus = Client(client_id=self.api_key, client_secret=self.api_secret)
-            print("Amadeus client created successfully")
-        except Exception as e:
-            print(f"Error creating Amadeus client: {e}")
-            raise Exception(f"Failed to create Amadeus client: {str(e)}")
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
-    def search_flights(self, request_body: dict) -> dict:
-        try:
-            response = self.amadeus.shopping.flight_offers_search.post(request_body)
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict | None = None,
+        params: dict | None = None,
+    ) -> dict:
+        response = await self.client.request(
+            method, path, json=json_body, params=params
+        )
+        if response.is_error:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            raise DuffelAPIError(response.status_code, payload.get("errors", []))
+        return response.json()
 
-            if hasattr(response, "data"):
-                return {
-                    "meta": {"count": len(response.data)},
-                    "data": response.data,
-                    "dictionaries": (
-                        response.result.get("dictionaries", {})
-                        if hasattr(response, "result")
-                        else {}
-                    ),
-                }
+    async def search_flights(self, offer_request: dict) -> dict:
+        """Create an offer request and return it with its offers included."""
+        return await self._request(
+            "POST",
+            "/air/offer_requests",
+            json_body={"data": offer_request},
+            params={"return_offers": "true"},
+        )
 
-            return response.result if hasattr(response, "result") else {}
+    async def confirm_price(self, offer_id: str) -> dict:
+        """Fetch a single offer fresh from Duffel to confirm its live price.
 
-        except ResponseError as api_error:
-            print(f"Amadeus API error: {api_error}")
-            print("Status:", api_error.response.status_code)
-            print("Body:", api_error.response.body)
-            print("Result:", api_error.response.result)
-            raise Exception(f"Amadeus API Error: {api_error}")
+        Duffel has no separate pricing endpoint: re-fetching the offer
+        returns its up-to-date total_amount/total_currency.
+        """
+        return await self._request(
+            "GET",
+            f"/air/offers/{offer_id}",
+            params={"return_available_services": "true"},
+        )
 
-        except Exception as e:
-            print(f"Error processing flight search: {e}")
-            raise Exception(f"Error processing flight search: {e}")
+    async def create_flight_order(self, order: dict) -> dict:
+        """Book a selected offer with full passenger and payment details."""
+        return await self._request("POST", "/air/orders", json_body={"data": order})
 
-    def confirm_price(self, request_body: dict) -> dict:
-        response = self.amadeus.shopping.flight_offers.pricing.post(request_body)
-        return response.data
+    async def view_seat_map(self, offer_id: str) -> dict:
+        """Seat maps are looked up per offer (pre-booking) in Duffel."""
+        return await self._request(
+            "GET", "/air/seat_maps", params={"offer_id": offer_id}
+        )
 
-    def create_flight_order(self, request_body: dict):
-        try:
-            travelers = request_body.get("travelers")
+    async def get_flight_order(self, order_id: str) -> dict:
+        """
+        Retrieves flight order details from Duffel.
 
-            body = {
-                "originLocationCode": request_body.get("originLocationCode"),
-                "destinationLocationCode": request_body.get("destinationLocationCode"),
-                "departureDate": request_body.get("departureDate"),
-                "adults": request_body.get("adults"),
-            }
+        Args: order_id (str): The ID of the order to retrieve (ord_...)
 
-            if request_body.get("returnDate"):
-                body.update({"returnDate": request_body.get("returnDate")})
+        Returns: dict: The order details, wrapped in Duffel's `data` envelope
+        """
+        return await self._request("GET", f"/air/orders/{order_id}")
 
-            flight_search = self.amadeus.shopping.flight_offers_search.get(**body).data
+    async def list_flight_orders(self, params: dict | None = None) -> dict:
+        """
+        Lists flight orders, optionally filtered/paginated.
 
-            # price_confirm = self.amadeus.flight_offers.pricing.post(
-            #     flight_search[0]
-            # ).data
+        Args: params (dict | None): Query params such as booking_reference,
+            awaiting_payment, origin, destination, sort, limit, after, before
 
-            booked_flight = self.amadeus.booking.flight_orders.post(
-                flight_search[0], travelers
-            ).data
-            return booked_flight
+        Returns: dict: A page of orders under `data`, with pagination `meta`
+        """
+        return await self._request("GET", "/air/orders", params=params)
 
-        except ResponseError as error:
-            raise error
+    async def request_order_cancellation(self, order_id: str) -> dict:
+        """
+        Creates an unconfirmed cancellation quote for an order.
 
-    def search_flights_get(self, request_body: dict) -> dict:
-        try:
-            response = self.amadeus.shopping.flight_offers_search.get(
-                **request_body
-            ).data
-            return response
-        except ResponseError as error:
-            raise error
+        The quote states the refund amount and an expiry; it must be
+        confirmed via `confirm_order_cancellation` before it takes effect.
+        """
+        return await self._request(
+            "POST",
+            "/air/order_cancellations",
+            json_body={"data": {"order_id": order_id}},
+        )
+
+    async def confirm_order_cancellation(self, order_cancellation_id: str) -> dict:
+        """Confirms a previously created order cancellation quote, finalizing
+        the cancellation and initiating the refund."""
+        return await self._request(
+            "POST",
+            f"/air/order_cancellations/{order_cancellation_id}/actions/confirm",
+        )
+
+    async def search_places(self, params: dict) -> dict:
+        """Search airports and cities via Duffel's places suggestions
+        endpoint, in either text-query or lat/lng/rad mode."""
+        return await self._request("GET", "/places/suggestions", params=params)
 
 
-amadeus_flight_service = AmadeusFlightService()
+duffel_flight_service = DuffelFlightService()
