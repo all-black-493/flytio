@@ -57,7 +57,6 @@ resource "aws_instance" "app_server" {
   })
 
   vpc_security_group_ids = [aws_security_group.app_server_sg.id]
-  subnet_id              = module.vpc.public_subnets[0]
 
   tags = {
     Name = var.instance_name
