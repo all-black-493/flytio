@@ -15,4 +15,6 @@ def get_session():
 
 
 def init_db():
+    import backend.models  # noqa: F401  (registers all tables on SQLModel.metadata)
+
     SQLModel.metadata.create_all(engine)

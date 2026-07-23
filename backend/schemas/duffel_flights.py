@@ -27,13 +27,6 @@ class PassengerType(str, enum.Enum):
     INFANT_WITHOUT_SEAT = "infant_without_seat"
 
 
-class OrderSort(str, enum.Enum):
-    CREATED_AT = "created_at"
-    CREATED_AT_DESC = "-created_at"
-    PAYMENT_REQUIRED_BY = "payment_required_by"
-    PAYMENT_REQUIRED_BY_DESC = "-payment_required_by"
-
-
 # Request models
 
 
@@ -296,40 +289,10 @@ class Order(BaseSchema):
     available_actions: list[str] = []
 
 
-class OrderListQueryParams(BaseSchema):
-    """Query params for listing orders; translated into Duffel's flat
-    query-string filters before calling the API."""
-
-    booking_reference: str | None = None
-    awaiting_payment: bool | None = None
-    origin: str | None = Field(default=None, min_length=3, max_length=3)
-    destination: str | None = Field(default=None, min_length=3, max_length=3)
-    sort: OrderSort | None = None
-    limit: int | None = Field(default=None, ge=1, le=200)
-    before: str | None = None
-    after: str | None = None
-
-    def to_duffel_params(self) -> dict:
-        return self.model_dump(mode="json", exclude_none=True)
-
-
 class OrderResponse(BaseSchema):
     """Duffel envelope for a single order."""
 
     data: Order
-
-
-class ListMeta(BaseSchema):
-    limit: int | None = None
-    after: str | None = None
-    before: str | None = None
-
-
-class OrderListResponse(BaseSchema):
-    """Duffel envelope for a paginated list of orders."""
-
-    data: list[Order]
-    meta: ListMeta | None = None
 
 
 class OrderCancellationQuote(BaseSchema):

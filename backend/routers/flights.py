@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Query, Depends, Path
+from sqlmodel import Session
 
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.cache import (
@@ -7,16 +8,23 @@ from backend.external_services.cache import (
     build_seatmap_cache_key,
     redis_cache,
 )
+from backend.crud.bookings import (
+    create_booking_from_order,
+    get_booking_by_duffel_order_id,
+    get_user_bookings,
+    mark_booking_cancelled,
+)
+from backend.crud.db import get_session
+from backend.schemas.bookings import BookingListQueryParams, BookingPublic
 from backend.schemas.duffel_flights import (
     FlightSearchQueryParams,
     FlightSearchResponse,
     OfferPriceRequest,
     OfferRequestCreate,
     OfferResponse,
+    Order,
     OrderCancellationResponse,
     OrderCreate,
-    OrderListQueryParams,
-    OrderListResponse,
     OrderResponse,
     PlaceSuggestionsQuery,
     PlaceSuggestionsResponse,
@@ -25,6 +33,7 @@ from backend.schemas.duffel_flights import (
 from typing import Annotated
 from backend.utils.security import get_current_user
 from backend.models.users import UserInDB
+from backend.models.bookings import Booking
 
 router = APIRouter()
 
@@ -41,6 +50,20 @@ def _duffel_http_exception(error: DuffelAPIError) -> HTTPException:
         else status.HTTP_502_BAD_GATEWAY
     )
     return HTTPException(status_code=status_code, detail=error.errors or str(error))
+
+
+def _get_owned_booking(
+    session: Session, order_id: str, current_user: UserInDB
+) -> Booking:
+    """Look up a booking by Duffel order ID and verify it belongs to the
+    requesting user. 404s (not 403) on a mismatch, so a guessed order_id
+    can't be used to probe for its existence."""
+    booking = get_booking_by_duffel_order_id(session, order_id)
+    if booking is None or booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    return booking
 
 
 @router.post("/shopping/flight-offers", response_model=FlightSearchResponse)
@@ -125,7 +148,9 @@ async def confirm_price(request: OfferPriceRequest):
 
 @router.post("/booking/flight-orders", response_model=OrderResponse)
 async def flight_order(
-    request: OrderCreate, current_user: UserInDB = Depends(get_current_user)
+    request: OrderCreate,
+    current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     """
     Create an order (booking) from a selected, freshly priced offer.
@@ -141,11 +166,23 @@ async def flight_order(
     request_body = request.model_dump(mode="json", exclude_none=True)
     try:
         response = await duffel_flight_service.create_flight_order(request_body)
-        return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    try:
+        order = Order.model_validate(response["data"])
+        create_booking_from_order(session, current_user.id, order)
+    except Exception as e:
+        # The airline booking already succeeded at this point - a failure
+        # persisting our own record must not turn that into an error the
+        # caller could mistake for a failed/retriable booking attempt.
+        print(
+            f"Failed to persist booking for order {response.get('data', {}).get('id')}: {e}"
+        )
+
+    return response
 
 
 @router.get("/shopping/seatmaps")
@@ -196,29 +233,36 @@ async def search_places(params: Annotated[PlaceSuggestionsQuery, Query()]):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.get("/booking/flight-orders", response_model=OrderListResponse)
+@router.get("/booking/flight-orders", response_model=list[BookingPublic])
 async def list_flight_orders(
-    params: Annotated[OrderListQueryParams, Query()],
+    params: Annotated[BookingListQueryParams, Query()],
     current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     """
-    List orders, most recent first, with optional filters and cursor pagination.
+    List the current user's bookings, most recent first.
+
+    Backed by our own DB (not a live Duffel call), since Duffel's
+    /air/orders isn't scoped per end-user - it lists every order in the
+    whole Duffel account. Only bookings made through this app appear here.
     """
-    try:
-        response = await duffel_flight_service.list_flight_orders(
-            params.to_duffel_params()
-        )
-        return response
-    except DuffelAPIError as e:
-        raise _duffel_http_exception(e)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return get_user_bookings(
+        session,
+        current_user.id,
+        booking_reference=params.booking_reference,
+        origin=params.origin,
+        destination=params.destination,
+        status=params.status,
+        limit=params.limit,
+        offset=params.offset,
+    )
 
 
 @router.get("/booking/flight-orders/{order_id}", response_model=OrderResponse)
 async def flight_order_management(
     order_id: Annotated[str, Path()],
     current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     """
     Get flight order details by order ID.
@@ -226,6 +270,7 @@ async def flight_order_management(
     Also useful to fetch the order's up-to-date price before paying a held
     order, since re-fetching avoids a `price_changed` error on payment.
     """
+    _get_owned_booking(session, order_id, current_user)
     try:
         response = await duffel_flight_service.get_flight_order(order_id)
         return response
@@ -242,6 +287,7 @@ async def flight_order_management(
 async def request_order_cancellation(
     order_id: Annotated[str, Path()],
     current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     """
     Request an order cancellation quote.
@@ -254,6 +300,7 @@ async def request_order_cancellation(
     - Confirm the quote via the /confirm endpoint before it expires,
       otherwise a new quote must be requested
     """
+    _get_owned_booking(session, order_id, current_user)
     try:
         response = await duffel_flight_service.request_order_cancellation(order_id)
         return response
@@ -271,6 +318,7 @@ async def confirm_order_cancellation(
     order_id: Annotated[str, Path()],
     order_cancellation_id: Annotated[str, Path()],
     current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     """
     Confirm a previously requested order cancellation quote.
@@ -279,12 +327,15 @@ async def confirm_order_cancellation(
     form of payment. order_id is accepted for a predictable, RESTful URL,
     though Duffel only requires the cancellation ID to confirm.
     """
+    booking = _get_owned_booking(session, order_id, current_user)
     try:
         response = await duffel_flight_service.confirm_order_cancellation(
             order_cancellation_id
         )
-        return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    mark_booking_cancelled(session, booking)
+    return response
