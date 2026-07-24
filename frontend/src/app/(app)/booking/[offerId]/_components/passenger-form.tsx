@@ -1,0 +1,191 @@
+"use client";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { isValidPhoneNumber } from "react-phone-number-input";
+import { Controller, useFieldArray, useForm } from "react-hook-form";
+import * as z from "zod";
+
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { OfferPassenger } from "@/lib/api/schemas";
+import type { OrderPassenger } from "@/lib/api/types";
+
+const labelClass = "font-mono text-[10px] tracking-[0.2em] text-muted-foreground";
+
+export type PassengerDetails = Omit<OrderPassenger, "id" | "seat_designator">;
+
+const passengerSchema = z.object({
+  title: z.string().min(1, "Required"),
+  gender: z.string().min(1, "Required"),
+  given_name: z.string().min(1, "Required"),
+  family_name: z.string().min(1, "Required"),
+  born_on: z.string().min(1, "Required"),
+  email: z.email("Enter a valid email"),
+  phone_number: z.string().refine(isValidPhoneNumber, "Enter a valid phone number"),
+});
+
+const passengersFormSchema = z.object({
+  passengers: z.array(passengerSchema),
+});
+
+type PassengersFormValues = z.infer<typeof passengersFormSchema>;
+
+const EMPTY_DETAILS: PassengerDetails = {
+  title: "mr",
+  gender: "m",
+  given_name: "",
+  family_name: "",
+  born_on: "",
+  email: "",
+  phone_number: "",
+};
+
+export interface PassengerFormProps {
+  passengers: OfferPassenger[];
+  onBack: () => void;
+  onSubmit: (passengers: PassengerDetails[]) => void;
+  isSubmitting: boolean;
+  submitLabel: string;
+}
+
+export function PassengerForm({
+  passengers,
+  onBack,
+  onSubmit,
+  isSubmitting,
+  submitLabel,
+}: PassengerFormProps) {
+  const form = useForm<PassengersFormValues>({
+    resolver: zodResolver(passengersFormSchema),
+    defaultValues: { passengers: passengers.map(() => EMPTY_DETAILS) },
+  });
+  const { fields } = useFieldArray({ control: form.control, name: "passengers" });
+
+  return (
+    <form
+      onSubmit={form.handleSubmit((values) => onSubmit(values.passengers))}
+      className="space-y-6"
+    >
+      {fields.map((field, index) => {
+        const passenger = passengers[index];
+        const errors = form.formState.errors.passengers?.[index];
+
+        return (
+          <div key={field.id} className="space-y-4 rounded-xl border p-4">
+            <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
+              PASSENGER {index + 1} ·{" "}
+              {(passenger?.type ?? "adult").replace(/_/g, " ").toUpperCase()}
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Controller
+                name={`passengers.${index}.title`}
+                control={form.control}
+                render={({ field: f }) => (
+                  <Field>
+                    <FieldLabel className={labelClass}>TITLE</FieldLabel>
+                    <Select value={f.value} onValueChange={(v) => v && f.onChange(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mr">Mr</SelectItem>
+                        <SelectItem value="mrs">Mrs</SelectItem>
+                        <SelectItem value="ms">Ms</SelectItem>
+                        <SelectItem value="miss">Miss</SelectItem>
+                        <SelectItem value="dr">Dr</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
+              />
+              <Controller
+                name={`passengers.${index}.gender`}
+                control={form.control}
+                render={({ field: f }) => (
+                  <Field>
+                    <FieldLabel className={labelClass}>GENDER</FieldLabel>
+                    <Select value={f.value} onValueChange={(v) => v && f.onChange(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="m">Male</SelectItem>
+                        <SelectItem value="f">Female</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
+              />
+              <Field className="col-span-2 sm:col-span-1">
+                <FieldLabel className={labelClass}>DATE OF BIRTH</FieldLabel>
+                <Input type="date" {...form.register(`passengers.${index}.born_on`)} />
+                <FieldError errors={[errors?.born_on]} />
+              </Field>
+            </div>
+
+            <Field>
+              <FieldLabel className={labelClass}>PHONE</FieldLabel>
+              <Controller
+                name={`passengers.${index}.phone_number`}
+                control={form.control}
+                render={({ field: f }) => (
+                  <PhoneInput
+                    placeholder="Enter phone number"
+                    defaultCountry="US"
+                    value={f.value}
+                    onChange={f.onChange}
+                    onBlur={f.onBlur}
+                  />
+                )}
+              />
+              <FieldError errors={[errors?.phone_number]} />
+            </Field>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel className={labelClass}>GIVEN NAME</FieldLabel>
+                <Input {...form.register(`passengers.${index}.given_name`)} />
+                <FieldError errors={[errors?.given_name]} />
+              </Field>
+              <Field>
+                <FieldLabel className={labelClass}>FAMILY NAME</FieldLabel>
+                <Input {...form.register(`passengers.${index}.family_name`)} />
+                <FieldError errors={[errors?.family_name]} />
+              </Field>
+            </div>
+
+            <Field>
+              <FieldLabel className={labelClass}>EMAIL</FieldLabel>
+              <Input type="email" {...form.register(`passengers.${index}.email`)} />
+              <FieldError errors={[errors?.email]} />
+            </Field>
+          </div>
+        );
+      })}
+
+      <div className="flex gap-3">
+        <Button type="button" variant="outline" size="lg" onClick={onBack}>
+          Back
+        </Button>
+        <Button
+          type="submit"
+          size="lg"
+          className="flex-1 font-semibold"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Booking…" : submitLabel}
+        </Button>
+      </div>
+    </form>
+  );
+}
