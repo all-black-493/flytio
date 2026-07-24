@@ -12,6 +12,7 @@ from datetime import date, datetime
 from sqlmodel import Field, SQLModel
 
 from backend.models.bookings import BookingStatus, CabinClass, PassengerType
+from backend.schemas.common import PaginationMeta
 
 
 class FlightPublic(SQLModel):
@@ -84,3 +85,8 @@ class BookingListQueryParams(SQLModel):
     status: BookingStatus | None = None
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
+
+
+class BookingListResponse(SQLModel):
+    data: list[BookingPublic]
+    meta: PaginationMeta

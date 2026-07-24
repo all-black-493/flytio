@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from backend.models.bookings import (
     Booking,
@@ -123,17 +123,17 @@ def get_booking_by_duffel_order_id(
     ).first()
 
 
-def get_user_bookings(
-    session: Session,
+def _filtered_user_bookings_query(
     user_id: uuid.UUID,
     *,
     booking_reference: str | None = None,
     origin: str | None = None,
     destination: str | None = None,
     status: BookingStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[Booking]:
+):
+    """Shared filter-building base for get_user_bookings/count_user_bookings
+    so pagination (limit/offset/order) and counting always agree on which
+    rows match."""
     query = select(Booking).where(Booking.user_id == user_id)
     if booking_reference:
         query = query.where(Booking.booking_reference == booking_reference)
@@ -145,8 +145,51 @@ def get_user_bookings(
             query = query.where(BookingSlice.origin_iata_code == origin)
         if destination:
             query = query.where(BookingSlice.destination_iata_code == destination)
+    return query
+
+
+def get_user_bookings(
+    session: Session,
+    user_id: uuid.UUID,
+    *,
+    booking_reference: str | None = None,
+    origin: str | None = None,
+    destination: str | None = None,
+    status: BookingStatus | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[Booking]:
+    query = _filtered_user_bookings_query(
+        user_id,
+        booking_reference=booking_reference,
+        origin=origin,
+        destination=destination,
+        status=status,
+    )
     query = query.order_by(Booking.created_at.desc()).offset(offset).limit(limit)
     return list(session.exec(query).all())
+
+
+def count_user_bookings(
+    session: Session,
+    user_id: uuid.UUID,
+    *,
+    booking_reference: str | None = None,
+    origin: str | None = None,
+    destination: str | None = None,
+    status: BookingStatus | None = None,
+) -> int:
+    query = _filtered_user_bookings_query(
+        user_id,
+        booking_reference=booking_reference,
+        origin=origin,
+        destination=destination,
+        status=status,
+    )
+    # .distinct(): the origin/destination filters join BookingSlice, which
+    # would otherwise double-count a booking matching on more than one slice.
+    count_query = select(func.count()).select_from(query.distinct().subquery())
+    return session.exec(count_query).one()
 
 
 def mark_booking_cancelled(session: Session, booking: Booking) -> Booking:

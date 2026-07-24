@@ -9,13 +9,15 @@ from backend.external_services.cache import (
     redis_cache,
 )
 from backend.crud.bookings import (
+    count_user_bookings,
     create_booking_from_order,
     get_booking_by_duffel_order_id,
     get_user_bookings,
     mark_booking_cancelled,
 )
 from backend.crud.db import get_session
-from backend.schemas.bookings import BookingListQueryParams, BookingPublic
+from backend.schemas.bookings import BookingListQueryParams, BookingListResponse
+from backend.schemas.common import PaginationMeta
 from backend.schemas.duffel_flights import (
     FlightSearchAndListQueryParams,
     FlightSearchResponse,
@@ -259,7 +261,7 @@ async def search_places(params: Annotated[PlaceSuggestionsQuery, Query()]):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.get("/booking/flight-orders", response_model=list[BookingPublic])
+@router.get("/booking/flight-orders", response_model=BookingListResponse)
 async def list_flight_orders(
     params: Annotated[BookingListQueryParams, Query()],
     current_user: UserInDB = Depends(get_current_user),
@@ -272,15 +274,24 @@ async def list_flight_orders(
     /air/orders isn't scoped per end-user - it lists every order in the
     whole Duffel account. Only bookings made through this app appear here.
     """
-    return get_user_bookings(
-        session,
-        current_user.id,
+    filters = dict(
         booking_reference=params.booking_reference,
         origin=params.origin,
         destination=params.destination,
         status=params.status,
-        limit=params.limit,
-        offset=params.offset,
+    )
+    bookings = get_user_bookings(
+        session, current_user.id, limit=params.limit, offset=params.offset, **filters
+    )
+    total = count_user_bookings(session, current_user.id, **filters)
+    return BookingListResponse(
+        data=bookings,
+        meta=PaginationMeta(
+            limit=params.limit,
+            offset=params.offset,
+            total=total,
+            has_more=params.offset + params.limit < total,
+        ),
     )
 
 
