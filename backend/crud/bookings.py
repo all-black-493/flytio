@@ -15,10 +15,19 @@ from backend.schemas.duffel_flights import Order
 
 
 def create_booking_from_order(
-    session: Session, user_id: uuid.UUID, order: Order
+    session: Session,
+    user_id: uuid.UUID,
+    order: Order,
+    seat_by_passenger_id: dict[str, str] | None = None,
 ) -> Booking:
     """Persist a confirmed Duffel order as a Booking, with its slices,
-    flights (segments), and passengers, linked to the given user."""
+    flights (segments), and passengers, linked to the given user.
+
+    seat_by_passenger_id records the seat picked in our own seat-map UI
+    (keyed by the Duffel passenger ID) - it's local-only bookkeeping, not
+    a seat actually reserved with the airline via Duffel.
+    """
+    seat_by_passenger_id = seat_by_passenger_id or {}
     booking = Booking(
         user_id=user_id,
         duffel_order_id=order.id,
@@ -97,6 +106,7 @@ def create_booking_from_order(
                 email=passenger.email,
                 phone_number=passenger.phone_number,
                 infant_passenger_id=passenger.infant_passenger_id,
+                seat_designator=seat_by_passenger_id.get(passenger.id),
             )
         )
 

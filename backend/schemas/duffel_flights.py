@@ -150,6 +150,15 @@ class OrderPassenger(BaseSchema):
         default=None,
         description="For adults responsible for an infant: the infant's passenger ID",
     )
+    seat_designator: str | None = Field(
+        default=None,
+        description=(
+            "Seat picked in our own seat-map UI (e.g. '14C'), stored on our "
+            "booking record. NOT sent to Duffel - reserving the seat with "
+            "the airline requires attaching a paid seat service to the "
+            "order, which isn't wired up yet."
+        ),
+    )
 
 
 class OrderPayment(BaseSchema):

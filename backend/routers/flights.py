@@ -179,7 +179,17 @@ async def flight_order(
     - passengers must use the IDs issued by the offer request and the
       payment amount/currency must match the offer's total
     """
+    seat_by_passenger_id = {
+        p.id: p.seat_designator for p in request.passengers if p.seat_designator
+    }
+
+    # seat_designator is our own field for the local booking record only -
+    # Duffel doesn't recognize it, so it's stripped from the payload sent
+    # to them (see OrderPassenger.seat_designator's docstring).
     request_body = request.model_dump(mode="json", exclude_none=True)
+    for passenger in request_body.get("passengers", []):
+        passenger.pop("seat_designator", None)
+
     try:
         response = await duffel_flight_service.create_flight_order(request_body)
     except DuffelAPIError as e:
@@ -189,7 +199,7 @@ async def flight_order(
 
     try:
         order = Order.model_validate(response["data"])
-        create_booking_from_order(session, current_user.id, order)
+        create_booking_from_order(session, current_user.id, order, seat_by_passenger_id)
     except Exception as e:
         # The airline booking already succeeded at this point - a failure
         # persisting our own record must not turn that into an error the
