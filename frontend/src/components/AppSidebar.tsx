@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   Briefcase,
@@ -8,10 +6,11 @@ import {
   LogIn,
   PlaneTakeoff,
   Search,
+  User,
   UserPlus,
 } from "lucide-react";
 import Logo, { LogoMark } from "@/components/Logo";
-import ThemeToggle from "@/components/ThemeToggle";
+import { LogoutButton } from "@/components/auth/logout-button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -20,7 +19,6 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -30,32 +28,34 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { isAuthenticated } from "@/lib/auth/session";
 
-const GROUPS = [
-  {
-    label: "TRAVEL",
-    items: [
-      { title: "Search flights", href: "/#search", icon: Search },
-      { title: "Departures", href: "/#board", icon: PlaneTakeoff },
-    ],
-  },
-  {
-    label: "BUSINESS",
-    items: [
-      { title: "For business", href: "/#business", icon: Briefcase },
-      { title: "API access", href: "/#business", icon: Code2 },
-    ],
-  },
-  {
-    label: "ACCOUNT",
-    items: [
-      { title: "Sign in", href: "/login", icon: LogIn },
-      { title: "Create account", href: "/register", icon: UserPlus },
-    ],
-  },
+const TRAVEL_GROUP = {
+  label: "TRAVEL",
+  items: [
+    { title: "Search flights", href: "/search", icon: Search },
+    { title: "Departures", href: "/#board", icon: PlaneTakeoff },
+  ],
+};
+
+const BUSINESS_GROUP = {
+  label: "BUSINESS",
+  items: [
+    { title: "For business", href: "/#business", icon: Briefcase },
+    { title: "API access", href: "/#business", icon: Code2 },
+  ],
+};
+
+const SIGNED_OUT_ITEMS = [
+  { title: "Sign in", href: "/login", icon: LogIn },
+  { title: "Create account", href: "/register", icon: UserPlus },
 ];
 
-export default function AppSidebar() {
+const SIGNED_IN_ITEMS = [{ title: "Profile", href: "/account", icon: User }];
+
+export default async function AppSidebar() {
+  const authed = await isAuthenticated();
+
   return (
     <Sidebar variant="floating" collapsible="icon">
       <SidebarHeader>
@@ -69,7 +69,7 @@ export default function AppSidebar() {
         </Link>
       </SidebarHeader>
       <SidebarContent>
-        {GROUPS.map((group) => (
+        {[TRAVEL_GROUP, BUSINESS_GROUP].map((group) => (
           <Collapsible key={group.label} defaultOpen>
             <SidebarGroup>
               <SidebarGroupLabel
@@ -99,12 +99,41 @@ export default function AppSidebar() {
             </SidebarGroup>
           </Collapsible>
         ))}
+
+        <Collapsible defaultOpen>
+          <SidebarGroup>
+            <SidebarGroupLabel
+              render={<CollapsibleTrigger />}
+              className="w-full font-mono tracking-[0.2em] text-[10px]"
+            >
+              ACCOUNT
+              <ChevronDown className="ml-auto transition-transform in-data-panel-open:rotate-180" />
+            </SidebarGroupLabel>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {(authed ? SIGNED_IN_ITEMS : SIGNED_OUT_ITEMS).map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        render={<Link href={item.href} />}
+                        tooltip={item.title}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                  {authed && (
+                    <SidebarMenuItem>
+                      <LogoutButton />
+                    </SidebarMenuItem>
+                  )}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
       </SidebarContent>
-      <SidebarFooter>
-        <div className="group-data-[collapsible=icon]:hidden px-1 pb-1">
-          <ThemeToggle />
-        </div>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
