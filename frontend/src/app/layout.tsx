@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { League_Spartan, IBM_Plex_Mono } from "next/font/google";
-import { ThemeProvider, ThemeScript } from "@/lib/theme";
+import { Toaster } from "@/components/ui/sonner";
+import { QueryProvider } from "@/lib/query/providers";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
@@ -32,15 +33,16 @@ export default function RootLayout({
     <html
       lang="en"
       className={cn(
-        "h-full antialiased font-sans",
+        "dark h-full antialiased font-sans",
         leagueSpartan.variable,
         plexMono.variable,
       )}
-      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col font-sans">
-        <ThemeScript />
-        <ThemeProvider>{children}</ThemeProvider>
+        <QueryProvider>
+          {children}
+          <Toaster />
+        </QueryProvider>
       </body>
     </html>
   );

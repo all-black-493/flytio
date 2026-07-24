@@ -1,56 +1,37 @@
-import {
-  aircraftName,
-  carrierName,
-  formatDuration,
-  formatMoney,
-  formatTime,
-  offerTotal,
-  stopsLabel,
-  type Dictionaries,
-  type FlightOffer,
-} from "@/lib/flights";
+"use client";
 
-function OfferDetail({
-  offer,
-  dictionaries,
-}: {
-  offer: FlightOffer;
-  dictionaries: Dictionaries;
-}) {
-  const fare = offer.travelerPricings[0];
-  const firstFare = fare.fareDetailsBySegment[0];
+import { useQuery } from "@tanstack/react-query";
+
+import { Skeleton } from "@/components/ui/skeleton";
+import { departureBoardQuery } from "@/lib/api/queries";
+import { formatDuration, formatMoney, formatTime, stopsLabel } from "@/lib/api/format";
+import type { Offer } from "@/lib/api/schemas";
+
+function OfferDetail({ offer }: { offer: Offer }) {
+  const slice = offer.slices[0];
   const facts: [string, string][] = [
-    ["FARE", firstFare.brandedFare ?? fare.fareOption],
-    ["CLASS", firstFare.class],
-    ["CHECKED BAGS", String(firstFare.includedCheckedBags?.quantity ?? 0)],
-    ["SEATS LEFT", String(offer.numberOfBookableSeats)],
-    ["BASE FARE", formatMoney(offer.price.base, offer.price.currency)],
-    ["TICKET BY", offer.lastTicketingDate],
+    ["BASE FARE", offer.base_amount ? formatMoney(offer.base_amount, offer.total_currency) : "—"],
+    ["TAXES & FEES", offer.tax_amount ? formatMoney(offer.tax_amount, offer.total_currency) : "—"],
+    ["TOTAL", formatMoney(offer.total_amount, offer.total_currency)],
+    ["AIRLINE", offer.owner?.name ?? "—"],
   ];
   return (
     <div className="grid gap-6 border-t border-board-line px-4 py-5 sm:px-6 lg:grid-cols-[1.5fr_1fr]">
       <ol className="space-y-4">
-        {offer.itineraries[0].segments.map((seg) => (
+        {slice.segments.map((seg) => (
           <li key={seg.id} className="font-mono text-sm leading-relaxed">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="text-board-ink">
-                {formatTime(seg.departure.at)} {seg.departure.iataCode}
-                {seg.departure.terminal && (
-                  <span className="text-board-muted"> T{seg.departure.terminal}</span>
-                )}
+                {formatTime(seg.departing_at)} {seg.origin.iata_code}
               </span>
               <span className="text-signal">→</span>
               <span className="text-board-ink">
-                {formatTime(seg.arrival.at)} {seg.arrival.iataCode}
-                {seg.arrival.terminal && (
-                  <span className="text-board-muted"> T{seg.arrival.terminal}</span>
-                )}
+                {formatTime(seg.arriving_at)} {seg.destination.iata_code}
               </span>
             </div>
             <div className="mt-1 text-xs text-board-muted">
-              {seg.carrierCode} {seg.number} ·{" "}
-              {carrierName(seg.carrierCode, dictionaries)} ·{" "}
-              {aircraftName(seg.aircraft.code, dictionaries)} ·{" "}
+              {seg.marketing_carrier?.iata_code} {seg.marketing_carrier_flight_number} ·{" "}
+              {seg.marketing_carrier?.name} · {seg.aircraft?.name} ·{" "}
               {formatDuration(seg.duration)}
             </div>
           </li>
@@ -68,13 +49,29 @@ function OfferDetail({
   );
 }
 
-export default function DepartureBoard({
-  offers,
-  dictionaries,
-}: {
-  offers: FlightOffer[];
-  dictionaries: Dictionaries;
-}) {
+function BoardSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-board ring-1 ring-board-line">
+      <div className="space-y-3 p-6">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-10 w-full bg-board-line/40" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function DepartureBoard() {
+  const { data, isPending, isError } = useQuery(departureBoardQuery());
+
+  if (isPending) return <BoardSkeleton />;
+  // A non-critical marketing teaser shouldn't show a scary error panel —
+  // just quietly omit the section if the live search fails.
+  if (isError) return null;
+
+  const offers = data.groups.map((group) => group.primary);
+  if (offers.length === 0) return null;
+
   return (
     <div className="overflow-hidden rounded-2xl bg-board ring-1 ring-board-line shadow-[0_16px_50px_rgba(4,10,20,0.35)]">
       {/* board masthead */}
@@ -83,7 +80,7 @@ export default function DepartureBoard({
           DEPARTURES — OSL → JFK
         </h2>
         <p className="font-mono text-[10px] tracking-[0.2em] text-board-muted">
-          FRI 14 AUG · LIVE FARES VIA AMADEUS
+          LIVE FARES VIA DUFFEL
         </p>
       </div>
       {/* column headers (md+) */}
@@ -98,12 +95,11 @@ export default function DepartureBoard({
         <span />
       </div>
       <ul>
-        {offers.map((offer, i) => {
-          const itinerary = offer.itineraries[0];
-          const first = itinerary.segments[0];
-          const last = itinerary.segments[itinerary.segments.length - 1];
-          const cabin = offer.travelerPricings[0].fareDetailsBySegment[0].cabin;
-          const fareLabel = formatMoney(offerTotal(offer), offer.price.currency);
+        {offers.slice(0, 5).map((offer, i) => {
+          const slice = offer.slices[0];
+          const first = slice.segments[0];
+          const last = slice.segments[slice.segments.length - 1];
+          const fareLabel = formatMoney(offer.total_amount, offer.total_currency);
           return (
             <li
               key={offer.id}
@@ -114,23 +110,18 @@ export default function DepartureBoard({
                 <summary className="px-4 py-4 sm:px-6 hover:bg-white/3 transition-colors">
                   {/* md+: board columns */}
                   <div className="hidden md:grid grid-cols-[70px_110px_100px_1fr_90px_110px_100px_28px] gap-3 items-baseline font-mono text-sm">
-                    <span className="text-signal">{formatTime(first.departure.at)}</span>
+                    <span className="text-signal">{formatTime(first.departing_at)}</span>
                     <span className="text-board-ink">
-                      {first.departure.iataCode}–{last.arrival.iataCode}
+                      {first.origin.iata_code}–{last.destination.iata_code}
                     </span>
                     <span className="text-board-ink">
-                      {first.carrierCode} {first.number}
+                      {first.marketing_carrier?.iata_code} {first.marketing_carrier_flight_number}
                     </span>
                     <span className="truncate text-board-muted">
-                      {carrierName(first.carrierCode, dictionaries)}
-                      {cabin !== "ECONOMY" && (
-                        <span className="text-signal"> · {cabin}</span>
-                      )}
+                      {first.marketing_carrier?.name}
                     </span>
-                    <span className="text-board-muted">
-                      {formatDuration(itinerary.duration)}
-                    </span>
-                    <span className="text-board-muted">{stopsLabel(itinerary)}</span>
+                    <span className="text-board-muted">{formatDuration(slice.duration)}</span>
+                    <span className="text-board-muted">{stopsLabel(slice)}</span>
                     <span className="text-right text-lg font-medium text-board-ink">
                       {fareLabel}
                     </span>
@@ -142,26 +133,21 @@ export default function DepartureBoard({
                   <div className="md:hidden font-mono text-sm">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-board-ink">
-                        <span className="text-signal">{formatTime(first.departure.at)}</span>{" "}
-                        {first.departure.iataCode}–{last.arrival.iataCode}
+                        <span className="text-signal">{formatTime(first.departing_at)}</span>{" "}
+                        {first.origin.iata_code}–{last.destination.iata_code}
                       </span>
-                      <span className="text-lg font-medium text-board-ink">
-                        {fareLabel}
-                      </span>
+                      <span className="text-lg font-medium text-board-ink">{fareLabel}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-board-muted">
                       <span>
-                        {first.carrierCode} {first.number} ·{" "}
-                        {formatDuration(itinerary.duration)} · {stopsLabel(itinerary)}
-                        {cabin !== "ECONOMY" && (
-                          <span className="text-signal"> · {cabin}</span>
-                        )}
+                        {first.marketing_carrier?.iata_code} {first.marketing_carrier_flight_number} ·{" "}
+                        {formatDuration(slice.duration)} · {stopsLabel(slice)}
                       </span>
                       <span className="flip-caret">▾</span>
                     </div>
                   </div>
                 </summary>
-                <OfferDetail offer={offer} dictionaries={dictionaries} />
+                <OfferDetail offer={offer} />
               </details>
             </li>
           );
