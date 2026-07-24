@@ -17,8 +17,9 @@ from backend.crud.bookings import (
 from backend.crud.db import get_session
 from backend.schemas.bookings import BookingListQueryParams, BookingPublic
 from backend.schemas.duffel_flights import (
-    FlightSearchQueryParams,
+    FlightSearchAndListQueryParams,
     FlightSearchResponse,
+    OfferListQueryParams,
     OfferPriceRequest,
     OfferRequestCreate,
     OfferResponse,
@@ -29,6 +30,7 @@ from backend.schemas.duffel_flights import (
     PlaceSuggestionsQuery,
     PlaceSuggestionsResponse,
 )
+from backend.utils.offer_filtering import build_flight_search_response
 
 from typing import Annotated
 from backend.utils.security import get_current_user
@@ -66,25 +68,41 @@ def _get_owned_booking(
     return booking
 
 
+async def _search_flights_cached(request: OfferRequestCreate) -> dict:
+    """Fetch (or read from cache) the full, unfiltered Duffel offer list for
+    a search. Filtering/sorting/pagination are deliberately NOT part of the
+    cache key - they're applied afterwards in build_flight_search_response,
+    so every filter/sort/page combination of the same search reuses this
+    one cached response instead of hitting Duffel again."""
+    cache_key = build_search_cache_key(request)
+    cached_response = redis_cache.get(cache_key)
+    if cached_response is not None:
+        return cached_response
+
+    request_body = request.model_dump(mode="json", exclude_none=True)
+    response = await duffel_flight_service.search_flights(request_body)
+    redis_cache.set(cache_key, response, CACHE_TTL_SECONDS)
+    return response
+
+
 @router.post("/shopping/flight-offers", response_model=FlightSearchResponse)
-async def search_flights(request: OfferRequestCreate):
+async def search_flights(
+    request: OfferRequestCreate,
+    params: Annotated[OfferListQueryParams, Query()],
+):
     """
     Search for flights by creating a Duffel offer request.
 
     Accepts slices (origin/destination/departure date), passengers and an
-    optional cabin class, and returns the offer request with its offers.
-    Responses are cached in Redis for one minute per unique search request.
+    optional cabin class, and returns one page of matching offers (grouped
+    by route) plus facets and pagination info. The full result is cached in
+    Redis for one minute per unique search request; `params` (sort,
+    airlines, max_stops, price_max, limit, offset) slice/filter that cached
+    result and don't affect the cache key.
     """
     try:
-        cache_key = build_search_cache_key(request)
-        cached_response = redis_cache.get(cache_key)
-        if cached_response is not None:
-            return cached_response
-
-        request_body = request.model_dump(mode="json", exclude_none=True)
-        response = await duffel_flight_service.search_flights(request_body)
-        redis_cache.set(cache_key, response, CACHE_TTL_SECONDS)
-        return response
+        response = await _search_flights_cached(request)
+        return build_flight_search_response(response, params)
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
     except ValueError as e:
@@ -98,26 +116,24 @@ async def search_flights(request: OfferRequestCreate):
 
 
 @router.get("/shopping/flight-offers", response_model=FlightSearchResponse)
-async def search_flights_2(params: Annotated[FlightSearchQueryParams, Query()]):
+async def search_flights_2(params: Annotated[FlightSearchAndListQueryParams, Query()]):
     """
     Simple flight search via query parameters.
 
     Duffel has no GET search endpoint, so the parameters are translated into
     an offer request (slices + passengers) and posted to Duffel. Shares its
     cache namespace with the POST endpoint, since an equivalent request via
-    either path resolves to the same offer request body.
+    either path resolves to the same offer request body. `params` combines
+    both the shopping fields (origin/destination/...) and the sort/filter/
+    pagination fields (FastAPI only flattens one Query() model per route -
+    see FlightSearchAndListQueryParams's docstring) - only the former go
+    into the offer request itself, the latter are applied afterwards, same
+    as search_flights.
     """
     offer_request = params.to_offer_request()
     try:
-        cache_key = build_search_cache_key(offer_request)
-        cached_response = redis_cache.get(cache_key)
-        if cached_response is not None:
-            return cached_response
-
-        request_body = offer_request.model_dump(mode="json", exclude_none=True)
-        response = await duffel_flight_service.search_flights(request_body)
-        redis_cache.set(cache_key, response, CACHE_TTL_SECONDS)
-        return response
+        response = await _search_flights_cached(offer_request)
+        return build_flight_search_response(response, params)
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
     except ValueError as e:

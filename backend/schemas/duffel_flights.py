@@ -9,6 +9,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from backend.schemas.common import PaginationMeta
+
 
 class BaseSchema(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -97,6 +99,36 @@ class FlightSearchQueryParams(BaseSchema):
             cabin_class=self.cabin_class,
             max_connections=self.max_connections,
         )
+
+
+class OfferSortKey(str, enum.Enum):
+    PRICE = "price"
+    DURATION = "duration"
+    DEPARTURE = "departure"
+    ARRIVAL = "arrival"
+
+
+class OfferListQueryParams(BaseSchema):
+    """Filter/sort/pagination params applied to an already-fetched (and
+    Redis-cached) offer list - a view-layer concern, separate from the
+    shopping request itself, so these don't affect the search cache key."""
+
+    sort: OfferSortKey = OfferSortKey.PRICE
+    airlines: list[str] = Field(
+        default_factory=list, description="Owner IATA codes to keep"
+    )
+    max_stops: int | None = Field(default=None, ge=0)
+    price_max: float | None = Field(default=None, ge=0)
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class FlightSearchAndListQueryParams(FlightSearchQueryParams, OfferListQueryParams):
+    """FastAPI only flattens one Query()-annotated Pydantic model's fields
+    per path operation - two sibling Query() models on the same route don't
+    both get flattened. search_flights_2 (GET) needs both sets of fields at
+    once, so they're combined here via plain multiple inheritance (no
+    overlapping field names between the two parents)."""
 
 
 class OfferPriceRequest(BaseSchema):
@@ -196,17 +228,52 @@ class Offer(BaseSchema):
 
 
 class OfferRequest(BaseSchema):
+    """Offer-request metadata only - the offers themselves are paginated
+    separately, under `groups` on FlightSearchResponse."""
+
     id: str
     live_mode: bool | None = None
     created_at: datetime | None = None
     passengers: list[OfferPassenger] = []
-    offers: list[Offer] = []
+
+
+class OfferGroup(BaseSchema):
+    """Offers that share an itinerary (same origin/destination per slice)
+    collapsed into one card: the cheapest as `primary`, the rest browsable
+    as `alternates` (see backend/utils/offer_filtering.py:group_by_route)."""
+
+    primary: Offer
+    alternates: list[Offer] = []
+
+
+class AirlineFacet(BaseSchema):
+    code: str
+    name: str
+    count: int
+
+
+class OfferFacets(BaseSchema):
+    """Always computed from the full, unfiltered offer list for this
+    search, regardless of which filters/page were requested - so facet
+    counts stay stable as the user pages through or narrows results."""
+
+    airlines: list[AirlineFacet]
+    price_min: float
+    price_max: float
+    has_direct: bool
+    has_one_stop: bool
+    has_multi_stop: bool
 
 
 class FlightSearchResponse(BaseSchema):
-    """Duffel envelope: the offer request (with its offers) under `data`."""
+    """The offer request (metadata only) under `data`, the current page of
+    grouped offers under `groups`, pagination info under `meta`, and
+    facets (computed pre-filter, pre-pagination) under `facets`."""
 
     data: OfferRequest
+    groups: list[OfferGroup]
+    meta: PaginationMeta
+    facets: OfferFacets
 
 
 class OfferResponse(BaseSchema):
