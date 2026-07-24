@@ -4,6 +4,8 @@ const SIZES = {
   lg: { tile: 44, text: "text-3xl" },
 } as const;
 
+/** Shape data kept in sync by hand with app/icon.svg (a static favicon file
+ * that can't import this component) — edit both together. */
 export function LogoMark({ size = 36 }: { size?: number }) {
   return (
     <svg
@@ -14,30 +16,19 @@ export function LogoMark({ size = 36 }: { size?: number }) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      {/* the tile stays polar navy in both themes, like a physical board;
-          the faint ring keeps it legible on dark backgrounds */}
       <rect width="48" height="48" rx="11" fill="#0B1526" />
-      <rect
-        x="0.5"
-        y="0.5"
-        width="47"
-        height="47"
-        rx="10.5"
-        stroke="#3D5270"
-        strokeOpacity="0.55"
-      />
-      {/* origin dot */}
-      <circle cx="12" cy="35" r="2.5" fill="#C9D4DF" />
-      {/* climb-out route */}
-      <path
-        d="M12 35 C 21 35.5, 27.5 29, 33 15.5"
+      {/* ascent — solid and straight so it stays legible at favicon size */}
+      <line
+        x1="13"
+        y1="35"
+        x2="32"
+        y2="15"
         stroke="#F6F8FA"
-        strokeWidth="2.2"
+        strokeWidth="7"
         strokeLinecap="round"
-        strokeDasharray="4 4"
       />
       {/* destination dot — the "." in flyt.io */}
-      <circle cx="34.8" cy="11.6" r="3.4" fill="#FF4F00" />
+      <circle cx="34" cy="13.5" r="5.5" fill="#FF4F00" />
     </svg>
   );
 }
