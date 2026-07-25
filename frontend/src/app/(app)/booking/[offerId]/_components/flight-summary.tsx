@@ -1,13 +1,22 @@
 import { PlaneTakeoff } from "lucide-react";
 
+import { AirlineLogo } from "@/components/AirlineLogo";
 import { formatDuration, formatMoney, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
 import type { Offer } from "@/lib/api/schemas";
 
 export function FlightSummary({ offer }: { offer: Offer }) {
+  const firstSegmentCarrier = offer.slices[0]?.segments[0]?.marketing_carrier;
   return (
     <div className="overflow-hidden rounded-xl border">
-      <div className="flex items-center justify-between bg-board px-4 py-2.5 text-board-ink">
-        <span className="font-mono text-[11px] tracking-[0.2em] text-board-muted">
+      <div className="flex items-center gap-2 justify-between bg-board px-4 py-2.5 text-board-ink">
+        <span className="flex items-center gap-2 font-mono text-[11px] tracking-[0.2em] text-board-muted">
+          <AirlineLogo
+            logoUrl={offer.owner?.logo_symbol_url ?? firstSegmentCarrier?.logo_symbol_url}
+            iataCode={offer.owner?.iata_code ?? firstSegmentCarrier?.iata_code}
+            name={offer.owner?.name ?? firstSegmentCarrier?.name}
+            className="size-5"
+            fallbackClassName="bg-board-ink/10 text-[9px] text-board-ink"
+          />
           {offer.owner?.name ?? "Airline"}
         </span>
         <span className="text-lg font-bold tabular-nums">

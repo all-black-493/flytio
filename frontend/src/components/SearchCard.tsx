@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowUpDown, MapPin, PlaneTakeoff } from "lucide-react";
 
+import { PlaceAutocomplete } from "@/components/PlaceAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,14 +48,14 @@ export default function SearchCard() {
   }
 
   return (
-    <Card id="search" className="overflow-hidden py-0 gap-0 shadow-xl">
+    <Card id="search" className="overflow-hidden py-0 gap-0">
       <div className="flex items-center justify-between bg-board px-5 py-3 sm:px-6">
         <span className="font-mono text-[11px] tracking-[0.25em] text-board-muted">
           FLIGHT SEARCH
         </span>
-        <span className="font-mono text-[11px] tracking-[0.25em] text-signal">
+        {/* <span className="font-mono text-[11px] tracking-[0.25em] text-signal">
           COUNTER 01
-        </span>
+        </span> */}
       </div>
 
       <form onSubmit={onSubmit} className="grid grid-cols-2 gap-4 p-5 sm:p-6">
@@ -65,35 +66,31 @@ export default function SearchCard() {
               <Label htmlFor="home-origin" className={labelClass}>
                 FROM
               </Label>
-              <div className="relative">
-                <PlaneTakeoff className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-signal" />
-                <Input
-                  id="home-origin"
-                  value={origin}
-                  onChange={(e) => setOrigin(e.target.value)}
-                  placeholder="OSL — Oslo"
-                  autoComplete="off"
-                  required
-                  className="h-10 pl-8 font-mono uppercase"
-                />
-              </div>
+              <PlaceAutocomplete
+                id="home-origin"
+                value={origin}
+                onValueChange={setOrigin}
+                placeholder="OSL — Oslo"
+                icon={
+                  <PlaneTakeoff className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-signal" />
+                }
+                className="h-10 pl-8 font-mono uppercase"
+              />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="home-destination" className={labelClass}>
                 TO
               </Label>
-              <div className="relative">
-                <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-signal" />
-                <Input
-                  id="home-destination"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  placeholder="JFK — New York"
-                  autoComplete="off"
-                  required
-                  className="h-10 pl-8 font-mono uppercase"
-                />
-              </div>
+              <PlaceAutocomplete
+                id="home-destination"
+                value={destination}
+                onValueChange={setDestination}
+                placeholder="JFK — New York"
+                icon={
+                  <MapPin className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-signal" />
+                }
+                className="h-10 pl-8 font-mono uppercase"
+              />
             </div>
             <Button
               type="button"
@@ -101,7 +98,7 @@ export default function SearchCard() {
               size="icon"
               aria-label="Swap origin and destination"
               onClick={swap}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-card shadow-sm"
+              className="absolute right-3 top-1/2 -translate-y-1/2 bg-card"
             >
               <ArrowUpDown className="size-4" />
             </Button>
@@ -121,7 +118,7 @@ export default function SearchCard() {
               role="radio"
               aria-checked={tripType === option.value}
               onClick={() => setTripType(option.value)}
-              className={`rounded-full border px-3 py-1.5 font-mono text-[10px] tracking-widest transition-colors ${
+              className={`border px-3 py-1.5 font-mono text-[10px] tracking-widest transition-colors ${
                 tripType === option.value
                   ? "border-signal bg-signal text-white"
                   : "border-input text-muted-foreground hover:text-foreground"

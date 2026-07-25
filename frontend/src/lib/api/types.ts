@@ -98,6 +98,15 @@ export interface OrderCreate {
   payments: OrderPayment[];
 }
 
+/* ---------- payment: POST /payments/checkout ---------- */
+
+/** Same passengers/offer as OrderCreate, deliberately no `payments` field -
+ * the customer pays via Pesapal, not a client-supplied balance charge. */
+export interface CheckoutRequest {
+  selected_offers: [string];
+  passengers: OrderPassenger[];
+}
+
 export interface BookingListQueryParams {
   booking_reference?: string;
   origin?: string;

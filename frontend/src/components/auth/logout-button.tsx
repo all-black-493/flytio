@@ -1,21 +1,22 @@
 "use client";
 
-import { LogOut } from "lucide-react";
-
-import { SidebarMenuButton } from "@/components/ui/sidebar";
 import { useLogout } from "@/lib/auth/use-logout";
+import { cn } from "@/lib/utils";
 
-export function LogoutButton() {
+export function LogoutButton({ className }: { className?: string }) {
   const logout = useLogout();
 
   return (
-    <SidebarMenuButton
+    <button
+      type="button"
       onClick={() => logout.mutate()}
       disabled={logout.isPending}
-      tooltip="Log out"
+      className={cn(
+        "font-mono text-[11px] tracking-[0.15em] text-board-muted hover:text-board-ink disabled:opacity-50",
+        className,
+      )}
     >
-      <LogOut />
-      <span>{logout.isPending ? "Logging out…" : "Log out"}</span>
-    </SidebarMenuButton>
+      {logout.isPending ? "logging out…" : "log out"}
+    </button>
   );
 }

@@ -39,6 +39,14 @@ export const tokenSchema = z.object({
 });
 export type Token = z.infer<typeof tokenSchema>;
 
+/** Generic ack shape shared by /api/forgot-password and /api/reset-password. */
+export const messageResponseSchema = z.object({ message: z.string() });
+export type MessageResponse = z.infer<typeof messageResponseSchema>;
+
+/** GET /health — backed by a real DB round trip, see backend/main.py. */
+export const healthResponseSchema = z.object({ status: z.string() });
+export type HealthResponse = z.infer<typeof healthResponseSchema>;
+
 /* ---------- shared offer/order building blocks ---------- */
 
 export const airportSchema = z.object({
@@ -51,6 +59,7 @@ export type Airport = z.infer<typeof airportSchema>;
 export const carrierSchema = z.object({
   iata_code: z.string().nullable(),
   name: z.string().nullable(),
+  logo_symbol_url: z.string().nullable(),
 });
 export type Carrier = z.infer<typeof carrierSchema>;
 
@@ -327,6 +336,7 @@ export const flightPublicSchema = z.object({
   duration: z.string().nullable(),
   marketing_carrier_iata_code: z.string().nullable(),
   marketing_carrier_name: z.string().nullable(),
+  marketing_carrier_logo_url: z.string().nullable(),
   marketing_carrier_flight_number: z.string().nullable(),
   operating_carrier_iata_code: z.string().nullable(),
   operating_carrier_name: z.string().nullable(),
@@ -348,6 +358,14 @@ export const bookingSlicePublicSchema = z.object({
 });
 export type BookingSlicePublic = z.infer<typeof bookingSlicePublicSchema>;
 
+export const ticketPublicSchema = z.object({
+  id: z.string(),
+  document_type: z.string(),
+  ticket_number: z.string(),
+  issued_at: z.string(),
+});
+export type TicketPublic = z.infer<typeof ticketPublicSchema>;
+
 export const bookingPassengerPublicSchema = z.object({
   id: z.string(),
   duffel_passenger_id: z.string(),
@@ -359,6 +377,7 @@ export const bookingPassengerPublicSchema = z.object({
   phone_number: z.string().nullable(),
   seat_designator: z.string().nullable(),
   cabin_class: cabinClassSchema.nullable(),
+  tickets: z.array(ticketPublicSchema),
 });
 export type BookingPassengerPublic = z.infer<typeof bookingPassengerPublicSchema>;
 
@@ -383,3 +402,35 @@ export const bookingListResponseSchema = z.object({
   meta: paginationMetaSchema,
 });
 export type BookingListResponse = z.infer<typeof bookingListResponseSchema>;
+
+/* ---------- payment: POST /payments/checkout, GET /payments/{id}/status ---------- */
+
+export const paymentStatusEnumSchema = z.enum([
+  "pending",
+  "completed",
+  "failed",
+  "booking_failed",
+]);
+export type PaymentStatusEnum = z.infer<typeof paymentStatusEnumSchema>;
+
+export const checkoutResponseSchema = z.object({
+  payment_id: z.string(),
+  redirect_url: z.string(),
+});
+export type CheckoutResponse = z.infer<typeof checkoutResponseSchema>;
+
+/** POST /payments/checkout/card — Duffel Payments alternative to Pesapal. */
+export const cardCheckoutResponseSchema = z.object({
+  payment_id: z.string(),
+  client_token: z.string(),
+});
+export type CardCheckoutResponse = z.infer<typeof cardCheckoutResponseSchema>;
+
+export const paymentStatusResponseSchema = z.object({
+  id: z.string(),
+  status: paymentStatusEnumSchema,
+  booking_id: z.string().nullable(),
+  failure_reason: z.string().nullable(),
+  booking: bookingPublicSchema.nullable(),
+});
+export type PaymentStatusResponse = z.infer<typeof paymentStatusResponseSchema>;

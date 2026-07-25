@@ -18,19 +18,31 @@
 
 import {
   bookingListResponseSchema,
+  bookingPublicSchema,
+  cardCheckoutResponseSchema,
+  checkoutResponseSchema,
   flightSearchResponseSchema,
+  healthResponseSchema,
+  messageResponseSchema,
   offerResponseSchema,
   orderCancellationResponseSchema,
   orderResponseSchema,
+  paymentStatusResponseSchema,
   placeSuggestionsResponseSchema,
   seatMapResponseSchema,
   tokenSchema,
   userReadSchema,
   type BookingListResponse,
+  type BookingPublic,
+  type CardCheckoutResponse,
+  type CheckoutResponse,
   type FlightSearchResponse,
+  type HealthResponse,
+  type MessageResponse,
   type OfferResponse,
   type OrderCancellationResponse,
   type OrderResponse,
+  type PaymentStatusResponse,
   type PlaceSuggestionsResponse,
   type SeatMapResponse,
   type Token,
@@ -38,6 +50,7 @@ import {
 } from "./schemas";
 import type {
   BookingListQueryParams,
+  CheckoutRequest,
   OfferListQueryParams,
   OfferPriceRequest,
   OfferRequestCreate,
@@ -45,7 +58,7 @@ import type {
   PlaceSuggestionsQuery,
 } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 /** Must match backend/utils/security.py's COOKIE_NAME. */
 const AUTH_COOKIE_NAME = "flyt_token";
@@ -111,6 +124,32 @@ export async function getCurrentUser(): Promise<UserRead> {
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return userReadSchema.parse(await res.json());
+}
+
+/** POST /api/forgot-password — always resolves the same way whether or
+ * not the email is registered (the backend doesn't reveal which). */
+export async function forgotPassword(email: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** POST /api/reset-password — token comes from the emailed reset link. */
+export async function resetPassword(
+  token: string,
+  newPassword: string,
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
 }
 
 /* ---------- shopping: mirrors backend/routers/flights.py ---------- */
@@ -195,6 +234,60 @@ export async function createOrder(request: OrderCreate): Promise<OrderResponse> 
   return orderResponseSchema.parse(await res.json());
 }
 
+/* ---------- payment: mirrors backend/routers/payments.py (auth required) ---------- */
+
+/** POST /payments/checkout — starts a purchase and returns a Pesapal
+ * redirect URL. No payment info in the request; Pesapal collects that. */
+export async function checkout(request: CheckoutRequest): Promise<CheckoutResponse> {
+  const res = await fetch(`${API_URL}/payments/checkout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return checkoutResponseSchema.parse(await res.json());
+}
+
+/** GET /payments/{paymentId}/status — polled after the Pesapal redirect. */
+export async function getPaymentStatus(paymentId: string): Promise<PaymentStatusResponse> {
+  const res = await fetch(`${API_URL}/payments/${paymentId}/status`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return paymentStatusResponseSchema.parse(await res.json());
+}
+
+/** POST /payments/checkout/card — Duffel Payments alternative to
+ * checkout() above: returns a client_token for <DuffelPayments />
+ * instead of a Pesapal redirect_url. */
+export async function checkoutWithCard(
+  request: CheckoutRequest,
+): Promise<CardCheckoutResponse> {
+  const res = await fetch(`${API_URL}/payments/checkout/card`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return cardCheckoutResponseSchema.parse(await res.json());
+}
+
+/** POST /payments/{paymentId}/confirm-card — called once <DuffelPayments />
+ * reports a successful card collection. Same response shape as
+ * getPaymentStatus, so callers can reuse the same result UI. */
+export async function confirmCardPayment(paymentId: string): Promise<PaymentStatusResponse> {
+  const res = await fetch(`${API_URL}/payments/${paymentId}/confirm-card`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return paymentStatusResponseSchema.parse(await res.json());
+}
+
 /** GET /booking/flight-orders — the current user's own bookings, one page. */
 export async function listBookings(
   params: BookingListQueryParams = {},
@@ -210,6 +303,17 @@ export async function listBookings(
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return bookingListResponseSchema.parse(await res.json());
+}
+
+/** GET /booking/flight-orders/by-id/{bookingId} — our own booking record
+ * (not Duffel's order_id, see getOrder below) — includes ticket numbers. */
+export async function getBookingById(bookingId: string): Promise<BookingPublic> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/by-id/${bookingId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return bookingPublicSchema.parse(await res.json());
 }
 
 /** GET /booking/flight-orders/{orderId} — live order detail. */
@@ -244,4 +348,12 @@ export async function confirmCancellation(
   );
   if (!res.ok) throw new Error(await errorDetail(res));
   return orderCancellationResponseSchema.parse(await res.json());
+}
+
+/** GET /health — used by the navbar's status ticker. No credentials/auth
+ * needed; a real DB round trip on the backend (see backend/main.py). */
+export async function checkHealth(): Promise<HealthResponse> {
+  const res = await fetch(`${API_URL}/health`);
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return healthResponseSchema.parse(await res.json());
 }

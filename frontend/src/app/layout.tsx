@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
-import { League_Spartan, IBM_Plex_Mono } from "next/font/google";
+import { Chakra_Petch, IBM_Plex_Mono } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/lib/query/providers";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
-const leagueSpartan = League_Spartan({
-  variable: "--font-league-spartan",
+// Control Tower: Chakra Petch is the squared HUD display face; IBM Plex Mono
+// carries all body/data text (the terminal voice).
+const chakraPetch = Chakra_Petch({
+  variable: "--font-chakra-petch",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
 const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
   subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
@@ -32,17 +36,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn(
-        "dark h-full antialiased font-sans",
-        leagueSpartan.variable,
-        plexMono.variable,
-      )}
+      suppressHydrationWarning
+      className={cn("h-full antialiased font-sans", chakraPetch.variable, plexMono.variable) }
     >
       <body className="min-h-full flex flex-col font-sans">
-        <QueryProvider>
-          {children}
-          <Toaster />
-        </QueryProvider>
+        <ThemeProvider attribute="class" defaultTheme="light">
+          <QueryProvider>
+            {children}
+            <Toaster />
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

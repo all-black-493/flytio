@@ -76,9 +76,14 @@ export function LoginForm({ next }: { next?: string }) {
           <FieldError errors={[form.formState.errors.email]} />
         </Field>
         <Field>
-          <FieldLabel htmlFor="password" className={labelClass}>
-            PASSWORD
-          </FieldLabel>
+          <div className="flex items-center justify-between">
+            <FieldLabel htmlFor="password" className={labelClass}>
+              PASSWORD
+            </FieldLabel>
+            <Link href="/forgot-password" className="text-xs font-medium text-signal">
+              Forgot password?
+            </Link>
+          </div>
           <Input
             id="password"
             type="password"

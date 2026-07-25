@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 
+import { AirlineLogo } from "@/components/AirlineLogo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Order } from "@/lib/api/schemas";
+import type { BookingPublic } from "@/lib/api/schemas";
 
-export function BookingConfirmation({ order }: { order: Order }) {
+export function BookingConfirmation({ booking }: { booking: BookingPublic }) {
   return (
     <Card className="w-full max-w-md gap-0 overflow-hidden py-0 shadow-xl">
       <div className="flex items-center justify-between bg-board px-6 py-3">
@@ -26,11 +27,19 @@ export function BookingConfirmation({ order }: { order: Order }) {
             <p className="font-mono text-[11px] tracking-widest text-muted-foreground">
               BOOKING REFERENCE
             </p>
-            <p className="text-lg font-bold tabular-nums">{order.booking_reference}</p>
+            <p className="text-lg font-bold tabular-nums">{booking.booking_reference}</p>
           </div>
           <div>
             <p className="font-mono text-[11px] tracking-widest text-muted-foreground">AIRLINE</p>
-            <p>{order.owner?.name ?? "—"}</p>
+            <p className="flex items-center gap-1.5">
+              <AirlineLogo
+                logoUrl={booking.slices[0]?.flights[0]?.marketing_carrier_logo_url}
+                iataCode={booking.owner_iata_code}
+                name={booking.owner_name}
+                className="size-5 text-[9px]"
+              />
+              {booking.owner_name ?? "—"}
+            </p>
           </div>
         </div>
 

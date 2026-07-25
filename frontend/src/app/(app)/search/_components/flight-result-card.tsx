@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, PlaneTakeoff } from "lucide-react";
 
+import { AirlineLogo } from "@/components/AirlineLogo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatDuration, formatMoney, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
@@ -64,7 +65,10 @@ export interface FlightResultCardProps {
 export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect }: FlightResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const airline = offer.owner?.name ?? offer.slices[0]?.segments[0]?.marketing_carrier?.name ?? "Airline";
+  const firstSegmentCarrier = offer.slices[0]?.segments[0]?.marketing_carrier;
+  const airline = offer.owner?.name ?? firstSegmentCarrier?.name ?? "Airline";
+  const airlineIataCode = offer.owner?.iata_code ?? firstSegmentCarrier?.iata_code;
+  const airlineLogoUrl = offer.owner?.logo_symbol_url ?? firstSegmentCarrier?.logo_symbol_url;
 
   return (
     <Card className="overflow-hidden p-0">
@@ -80,11 +84,15 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
             search card and auth card, so a result reads as "your ticket"
             rather than a generic list row */}
         <div className="flex shrink-0 flex-col gap-3 bg-board p-4 text-board-ink sm:w-48 sm:p-5">
-          <div className="flex items-center gap-2">
-            <span className="flex size-6 shrink-0 items-center justify-center rounded bg-white/10 font-mono text-[10px] font-bold text-board-ink">
-              {offer.owner?.iata_code ?? "—"}
-            </span>
-            <span className="truncate text-sm font-medium text-board-ink">{airline}</span>
+          <div className="flex flex-col items-center gap-1.5 text-center">
+            <AirlineLogo
+              logoUrl={airlineLogoUrl}
+              iataCode={airlineIataCode}
+              name={airline}
+              className="size-12"
+              fallbackClassName="bg-board-ink/10 text-sm text-board-ink"
+            />
+            <span className="line-clamp-2 text-sm font-medium text-board-ink">{airline}</span>
           </div>
 
           <p className="text-2xl font-bold tabular-nums text-board-ink">
@@ -104,7 +112,7 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
             <Button
               variant="outline"
               size="sm"
-              className="border-board-line bg-transparent text-board-ink hover:bg-white/10 hover:text-board-ink"
+              className="border-board-line bg-transparent text-board-ink hover:bg-board-ink/10 hover:text-board-ink"
               onClick={() => onViewFares?.(offer)}
             >
               Compare fares

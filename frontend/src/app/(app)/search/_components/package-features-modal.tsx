@@ -1,5 +1,6 @@
 "use client";
 
+import { AirlineLogo } from "@/components/AirlineLogo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,7 +50,18 @@ export function PackageFeaturesModal({
                 }`}
               >
                 <div>
-                  <p className="text-sm font-medium">{offer.owner?.name ?? "Airline"}</p>
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <AirlineLogo
+                      logoUrl={
+                        offer.owner?.logo_symbol_url ??
+                        offer.slices[0]?.segments[0]?.marketing_carrier?.logo_symbol_url
+                      }
+                      iataCode={offer.owner?.iata_code}
+                      name={offer.owner?.name}
+                      className="size-5 text-[9px]"
+                    />
+                    {offer.owner?.name ?? "Airline"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {stops === 0 ? "Direct" : `${stops} stop${stops > 1 ? "s" : ""}`} ·{" "}
                     {formatDuration(offer.slices[0].duration)}

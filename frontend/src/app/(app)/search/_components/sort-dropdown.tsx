@@ -40,7 +40,7 @@ export function SortDropdown() {
     <Select value={sort} onValueChange={(v) => handleChange(v as OfferSortKey)}>
       <SelectTrigger
         aria-label="Sort results"
-        className="w-full border-transparent bg-white/10 text-board-ink hover:bg-white/15 sm:w-56 [&_svg]:text-board-muted"
+        className="w-full border-transparent bg-board-ink/10 text-board-ink hover:bg-board-ink/15 sm:w-56 [&_svg]:text-board-muted"
       >
         <span className="font-mono text-[10px] tracking-widest text-board-muted">SORT</span>
         <SelectValue />

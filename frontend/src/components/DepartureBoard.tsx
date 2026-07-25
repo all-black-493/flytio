@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { AirlineLogo } from "@/components/AirlineLogo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { departureBoardQuery } from "@/lib/api/queries";
 import { formatDuration, formatMoney, formatTime, stopsLabel } from "@/lib/api/format";
@@ -29,7 +30,14 @@ function OfferDetail({ offer }: { offer: Offer }) {
                 {formatTime(seg.arriving_at)} {seg.destination.iata_code}
               </span>
             </div>
-            <div className="mt-1 text-xs text-board-muted">
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-board-muted">
+              <AirlineLogo
+                logoUrl={seg.marketing_carrier?.logo_symbol_url}
+                iataCode={seg.marketing_carrier?.iata_code}
+                name={seg.marketing_carrier?.name}
+                className="size-4"
+                fallbackClassName="bg-board-ink/10 text-[8px] text-board-ink"
+              />
               {seg.marketing_carrier?.iata_code} {seg.marketing_carrier_flight_number} ·{" "}
               {seg.marketing_carrier?.name} · {seg.aircraft?.name} ·{" "}
               {formatDuration(seg.duration)}
@@ -80,7 +88,7 @@ export default function DepartureBoard() {
           DEPARTURES — OSL → JFK
         </h2>
         <p className="font-mono text-[10px] tracking-[0.2em] text-board-muted">
-          LIVE FARES VIA DUFFEL
+          LIVE FARES
         </p>
       </div>
       {/* column headers (md+) */}
@@ -107,7 +115,7 @@ export default function DepartureBoard() {
               style={{ "--row": i } as React.CSSProperties}
             >
               <details className="board-details group">
-                <summary className="px-4 py-4 sm:px-6 hover:bg-white/3 transition-colors">
+                <summary className="px-4 py-4 sm:px-6 hover:bg-board-ink/3 transition-colors">
                   {/* md+: board columns */}
                   <div className="hidden md:grid grid-cols-[70px_110px_100px_1fr_90px_110px_100px_28px] gap-3 items-baseline font-mono text-sm">
                     <span className="text-signal">{formatTime(first.departing_at)}</span>
@@ -117,8 +125,15 @@ export default function DepartureBoard() {
                     <span className="text-board-ink">
                       {first.marketing_carrier?.iata_code} {first.marketing_carrier_flight_number}
                     </span>
-                    <span className="truncate text-board-muted">
-                      {first.marketing_carrier?.name}
+                    <span className="flex items-center gap-1.5 truncate text-board-muted">
+                      <AirlineLogo
+                        logoUrl={first.marketing_carrier?.logo_symbol_url}
+                        iataCode={first.marketing_carrier?.iata_code}
+                        name={first.marketing_carrier?.name}
+                        className="size-4"
+                        fallbackClassName="bg-board-ink/10 text-[8px] text-board-ink"
+                      />
+                      <span className="truncate">{first.marketing_carrier?.name}</span>
                     </span>
                     <span className="text-board-muted">{formatDuration(slice.duration)}</span>
                     <span className="text-board-muted">{stopsLabel(slice)}</span>
@@ -153,11 +168,11 @@ export default function DepartureBoard() {
           );
         })}
       </ul>
-      <div className="border-t border-board-line px-4 py-3 sm:px-6">
+      {/* <div className="border-t border-board-line px-4 py-3 sm:px-6">
         <p className="font-mono text-[10px] tracking-[0.2em] text-board-muted">
           FARES REFRESH EVERY 60 SECONDS · PRICES CONFIRMED BEFORE PAYMENT
         </p>
-      </div>
+      </div> */}
     </div>
   );
 }

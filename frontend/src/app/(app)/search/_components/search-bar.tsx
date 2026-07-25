@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeftRight, MapPin, PlaneTakeoff } from "lucide-react";
 
+import { PlaceAutocomplete } from "@/components/PlaceAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -99,32 +100,32 @@ export function SearchBar({
             <Label htmlFor="origin" className={labelClass}>
               FROM
             </Label>
-            <div className="relative">
-              <PlaneTakeoff className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-signal" />
-              <Input
-                id="origin"
-                value={origin}
-                onChange={(e) => setOrigin(e.target.value)}
-                placeholder="OSL — Oslo"
-                required
-                className="pl-8 font-mono uppercase"
-              />
-            </div>
+            <PlaceAutocomplete
+              id="origin"
+              value={origin}
+              onValueChange={setOrigin}
+              placeholder="OSL — Oslo"
+              icon={
+                <PlaneTakeoff className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-signal" />
+              }
+              className="pl-8 font-mono uppercase"
+            />
           </div>
 
-          <div className="relative grid gap-1.5">
+          <div className="grid gap-1.5">
             <Label htmlFor="destination" className={labelClass}>
               TO
             </Label>
             <div className="flex gap-2">
-              <div className="relative flex-1">
-                <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-signal" />
-                <Input
+              <div className="flex-1">
+                <PlaceAutocomplete
                   id="destination"
                   value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
+                  onValueChange={setDestination}
                   placeholder="JFK — New York"
-                  required
+                  icon={
+                    <MapPin className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-signal" />
+                  }
                   className="pl-8 font-mono uppercase"
                 />
               </div>

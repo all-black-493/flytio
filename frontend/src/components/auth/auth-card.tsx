@@ -15,7 +15,7 @@ export interface AuthCardProps {
  * form in the body, dashed "perforation" above the footer link. */
 export function AuthCard({ strip, gate, title, subtitle, children, footer }: AuthCardProps) {
   return (
-    <Card className="w-full max-w-sm gap-0 overflow-hidden py-0 shadow-xl">
+    <Card className="w-full max-w-sm gap-0 overflow-hidden py-0 shadow-none">
       <div className="flex items-center justify-between bg-board px-6 py-3">
         <span className="font-mono text-[11px] tracking-[0.25em] text-board-muted">{strip}</span>
         <span className="font-mono text-[11px] tracking-[0.25em] text-signal">{gate}</span>

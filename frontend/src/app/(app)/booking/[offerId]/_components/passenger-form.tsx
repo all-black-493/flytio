@@ -140,8 +140,13 @@ export function PassengerForm({
                 control={form.control}
                 render={({ field: f }) => (
                   <PhoneInput
-                    placeholder="Enter phone number"
-                    defaultCountry="US"
+                    // National format includes the leading trunk 0 (e.g.
+                    // Kenya: 0757 573984) - it's stripped automatically
+                    // when converted to E.164 (+254757573984), the format
+                    // Duffel actually requires. Defaults to Kenya, this
+                    // product's primary market.
+                    placeholder="0757 573984"
+                    defaultCountry="KE"
                     value={f.value}
                     onChange={f.onChange}
                     onBlur={f.onBlur}
@@ -183,7 +188,7 @@ export function PassengerForm({
           className="flex-1 font-semibold"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Booking…" : submitLabel}
+          {isSubmitting ? "Redirecting to payment…" : submitLabel}
         </Button>
       </div>
     </form>

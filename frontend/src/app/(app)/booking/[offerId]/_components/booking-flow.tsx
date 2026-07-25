@@ -1,27 +1,36 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { BookingConfirmation } from "@/app/(app)/booking/[offerId]/_components/booking-confirmation";
 import { FlightSummary } from "@/app/(app)/booking/[offerId]/_components/flight-summary";
 import { PassengerForm, type PassengerDetails } from "@/app/(app)/booking/[offerId]/_components/passenger-form";
 import { SeatPicker } from "@/app/(app)/booking/[offerId]/_components/seat-picker";
 import { offerPriceQuery, seatMapQuery } from "@/app/(app)/booking/[offerId]/_lib/queries";
+import { DuffelCardPayment } from "@/components/DuffelCardPayment";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { createOrder } from "@/lib/api/client";
+import { checkout, checkoutWithCard, confirmCardPayment } from "@/lib/api/client";
+import type { OrderPassenger } from "@/lib/api/types";
 
-type Step = "seats" | "passengers";
+type Step = "seats" | "passengers" | "payment";
+type PaymentMethod = "pesapal" | "card";
 
 export function BookingFlow({ offerId }: { offerId: string }) {
+  const router = useRouter();
   const priceQuery = useQuery(offerPriceQuery(offerId));
   const seatQuery = useQuery(seatMapQuery(offerId));
 
   const [step, setStep] = useState<Step>("seats");
   const [selectedSeats, setSelectedSeats] = useState<Record<string, string>>({});
   const [activePassengerId, setActivePassengerId] = useState<string | null>(null);
+  const [passengers, setPassengers] = useState<OrderPassenger[] | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [cardClientToken, setCardClientToken] = useState<string | null>(null);
+  const [cardPaymentId, setCardPaymentId] = useState<string | null>(null);
 
   const offer = priceQuery.data?.data;
   const seatMap = seatQuery.data?.data[0];
@@ -42,10 +51,42 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   );
   const effectiveActivePassengerId = activePassengerId ?? seatEligiblePassengers[0]?.id ?? "";
 
-  const orderMutation = useMutation({
-    mutationFn: createOrder,
+  const checkoutMutation = useMutation({
+    mutationFn: checkout,
+    onSuccess: (data) => {
+      // A real cross-origin navigation to Pesapal's hosted checkout, not a
+      // Next.js client-side route.
+      window.location.href = data.redirect_url;
+    },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Booking failed. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Checkout failed. Please try again.");
+    },
+  });
+
+  const checkoutCardMutation = useMutation({
+    mutationFn: checkoutWithCard,
+    onSuccess: (data) => {
+      setCardPaymentId(data.payment_id);
+      setCardClientToken(data.client_token);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Checkout failed. Please try again.");
+    },
+  });
+
+  const confirmCardMutation = useMutation({
+    mutationFn: confirmCardPayment,
+    onSuccess: () => {
+      // confirm-card already ran the booking-completion step synchronously
+      // (no webhook/poll needed, unlike Pesapal) - the callback page's own
+      // status query will see "completed" on its very first request and
+      // render the same BookingConfirmation Pesapal's flow lands on.
+      router.push(`/booking/payment-callback?payment_id=${cardPaymentId}`);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't confirm your payment. Please try again.",
+      );
     },
   });
 
@@ -69,30 +110,35 @@ export function BookingFlow({ offerId }: { offerId: string }) {
     );
   }
 
-  if (orderMutation.isSuccess) {
-    return <BookingConfirmation order={orderMutation.data.data} />;
-  }
-
-  function handleSubmit(passengers: PassengerDetails[]) {
+  function handlePassengerSubmit(passengerDetails: PassengerDetails[]) {
     if (!offer) return;
-    orderMutation.mutate({
-      selected_offers: [offer.id],
-      passengers: offer.passengers.map((p, index) => ({
+    setPassengers(
+      offer.passengers.map((p, index) => ({
         id: p.id,
-        ...passengers[index],
+        ...passengerDetails[index],
         seat_designator: selectedSeats[p.id],
       })),
-      payments: [
-        { type: "balance", currency: offer.total_currency, amount: offer.total_amount },
-      ],
-    });
+    );
+    setStep("payment");
+  }
+
+  function payWithPesapal() {
+    if (!offer || !passengers) return;
+    setPaymentMethod("pesapal");
+    checkoutMutation.mutate({ selected_offers: [offer.id], passengers });
+  }
+
+  function payWithCard() {
+    if (!offer || !passengers) return;
+    setPaymentMethod("card");
+    checkoutCardMutation.mutate({ selected_offers: [offer.id], passengers });
   }
 
   return (
     <div className="space-y-6">
       <FlightSummary offer={offer} />
 
-      {step === "seats" ? (
+      {step === "seats" && (
         <div className="space-y-4">
           {seatQuery.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
           {!seatQuery.isPending && !hasSelectableSeats && (
@@ -123,14 +169,82 @@ export function BookingFlow({ offerId }: { offerId: string }) {
               : "Continue"}
           </Button>
         </div>
-      ) : (
+      )}
+
+      {step === "passengers" && (
         <PassengerForm
           passengers={offer.passengers}
           onBack={() => setStep("seats")}
-          onSubmit={handleSubmit}
-          isSubmitting={orderMutation.isPending}
-          submitLabel={`Confirm booking · ${offer.total_currency} ${offer.total_amount}`}
+          onSubmit={handlePassengerSubmit}
+          isSubmitting={false}
+          submitLabel={`Continue to payment · ${offer.total_currency} ${offer.total_amount}`}
         />
+      )}
+
+      {step === "payment" && (
+        <div className="space-y-4">
+          {!paymentMethod && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Card
+                className="cursor-pointer gap-2 p-5 hover:border-signal"
+                onClick={payWithPesapal}
+              >
+                <p className="font-semibold">M-Pesa / mobile money / card</p>
+                <p className="text-sm text-muted-foreground">
+                  Pay via Pesapal — redirects to a secure payment page.
+                </p>
+              </Card>
+              <Card className="cursor-pointer gap-2 p-5 hover:border-signal" onClick={payWithCard}>
+                <p className="font-semibold">Pay by card</p>
+                <p className="text-sm text-muted-foreground">
+                  Enter your card details directly here, no redirect.
+                </p>
+              </Card>
+            </div>
+          )}
+
+          {paymentMethod === "pesapal" && checkoutMutation.isPending && (
+            <p className="text-center text-sm text-muted-foreground">Redirecting to payment…</p>
+          )}
+
+          {paymentMethod === "card" && (
+            <div className="space-y-4">
+              {checkoutCardMutation.isPending && (
+                <Skeleton className="h-48 w-full rounded-xl" />
+              )}
+              {cardClientToken && cardPaymentId && (
+                <DuffelCardPayment
+                  clientToken={cardClientToken}
+                  onSuccessfulPayment={() => confirmCardMutation.mutate(cardPaymentId)}
+                  onFailedPayment={(error) =>
+                    toast.error(error.message ?? "Card payment failed. Please try again.")
+                  }
+                />
+              )}
+              {confirmCardMutation.isPending && (
+                <p className="text-center text-sm text-muted-foreground">
+                  Confirming your payment…
+                </p>
+              )}
+            </div>
+          )}
+
+          {paymentMethod && (
+            <Button
+              variant="outline"
+              size="lg"
+              className="w-full"
+              disabled={checkoutMutation.isPending || checkoutCardMutation.isPending || confirmCardMutation.isPending}
+              onClick={() => {
+                setPaymentMethod(null);
+                setCardClientToken(null);
+                setCardPaymentId(null);
+              }}
+            >
+              Choose a different payment method
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
