@@ -1,6 +1,7 @@
+<!-- Kept in sync by hand with LogoMark in src/components/Logo.tsx (a static
+     favicon file can't import a React component) — edit both together. -->
 <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="48" height="48" rx="11" fill="#0B1526"/>
-  <circle cx="12" cy="35" r="2.5" fill="#C9D4DF"/>
-  <path d="M12 35 C 21 35.5, 27.5 29, 33 15.5" stroke="#F6F8FA" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="4 4"/>
-  <circle cx="34.8" cy="11.6" r="3.4" fill="#FF4F00"/>
+  <line x1="13" y1="35" x2="32" y2="15" stroke="#F6F8FA" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="34" cy="13.5" r="5.5" fill="#FF4F00"/>
 </svg>

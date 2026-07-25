@@ -1,13 +1,10 @@
 import hashlib
 import json
-import os
 
 import redis
-from dotenv import load_dotenv
 
+from backend.config import settings
 from backend.schemas.duffel_flights import OfferRequestCreate, PlaceSuggestionsQuery
-
-load_dotenv()
 
 
 class RedisCache:
@@ -62,7 +59,4 @@ def build_places_cache_key(query: PlaceSuggestionsQuery) -> str:
     return f"places:suggestions:{_hash_payload(payload)}"
 
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-
-redis_cache = RedisCache(REDIS_HOST, REDIS_PORT)
+redis_cache = RedisCache(settings.REDIS_HOST, settings.REDIS_PORT)

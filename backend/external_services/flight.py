@@ -1,9 +1,6 @@
-import os
-
 import httpx
-from dotenv import load_dotenv
 
-load_dotenv()
+from backend.config import settings
 
 DUFFEL_BASE_URL = "https://api.duffel.com"
 DUFFEL_API_VERSION = "v2"
@@ -35,7 +32,7 @@ class DuffelFlightService:
     """
 
     def __init__(self):
-        self.api_token = os.getenv("DUFFEL_API_TOKEN")
+        self.api_token = settings.DUFFEL_API_TOKEN
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -160,6 +157,25 @@ class DuffelFlightService:
         """Search airports and cities via Duffel's places suggestions
         endpoint, in either text-query or lat/lng/rad mode."""
         return await self._request("GET", "/places/suggestions", params=params)
+
+    async def create_payment_intent(self, amount: str, currency: str) -> dict:
+        """Starts a Duffel Payments card collection: returns a client_token
+        the frontend uses with the DuffelPayments React component to
+        collect card details directly with Duffel (card data never
+        reaches our backend). Confirming it (below) tops up our Duffel
+        Balance by this amount, minus Duffel's processing fee."""
+        return await self._request(
+            "POST",
+            "/payments/payment_intents",
+            json_body={"data": {"amount": amount, "currency": currency}},
+        )
+
+    async def confirm_payment_intent(self, payment_intent_id: str) -> dict:
+        """Confirms a PaymentIntent once the frontend reports a successful
+        card collection, finalizing the Balance top-up."""
+        return await self._request(
+            "POST", f"/payments/payment_intents/{payment_intent_id}/actions/confirm"
+        )
 
 
 duffel_flight_service = DuffelFlightService()

@@ -1,0 +1,253 @@
+import uuid
+from datetime import datetime
+
+from sqlmodel import Session, select
+
+from backend.crud.bookings import create_booking_from_order
+from backend.crud.tickets import create_tickets_from_order
+from backend.external_services.flight import DuffelAPIError, duffel_flight_service
+from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
+from backend.models.payments import Payment, PaymentProvider, PaymentStatus
+from backend.models.users import UserInDB
+from backend.schemas.duffel_flights import Order, OrderCreate, OrderPayment
+from backend.schemas.payments import CheckoutRequest
+from backend.utils.email import send_html_email_async
+from backend.utils.email_templates import booking_confirmation_email_html
+
+# Pesapal's status_code: 0 INVALID, 1 COMPLETED, 2 FAILED, 3 REVERSED.
+_PESAPAL_COMPLETED = 1
+# 0 (INVALID) is deliberately NOT treated as terminal: a real sandbox check
+# mid-payment returned status_code=0 with error.code "payment_details_not_found"
+# and message "Pending Payment" - i.e. INVALID can mean "not resolved yet",
+# not just "malformed/dead". Only 2/3 are genuinely final.
+_PESAPAL_TERMINAL_FAILURE_CODES = {2, 3}
+
+
+def create_payment(
+    session: Session,
+    user_id: uuid.UUID,
+    checkout: CheckoutRequest,
+    amount: str,
+    duffel_amount: str,
+    currency: str,
+    provider: PaymentProvider = PaymentProvider.PESAPAL,
+) -> Payment:
+    """Persist a checkout attempt before Duffel is ever contacted - see
+    finalize_payment()/confirm_card_payment() for what happens once
+    payment is confirmed via Pesapal or Duffel Payments respectively.
+
+    `amount` (marked-up, charged to the customer) and `duffel_amount` (raw,
+    what Duffel is actually paid) are deliberately separate - see the
+    Payment model's docstrings on each field."""
+    payment = Payment(
+        user_id=user_id,
+        order_request_snapshot=checkout.model_dump_json(),
+        amount=amount,
+        duffel_amount=duffel_amount,
+        currency=currency,
+        provider=provider,
+        merchant_reference=str(uuid.uuid4()),
+    )
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    return payment
+
+
+def get_payment(session: Session, payment_id: uuid.UUID) -> Payment | None:
+    return session.exec(select(Payment).where(Payment.id == payment_id)).first()
+
+
+async def _complete_booking(session: Session, payment: Payment) -> None:
+    """Replays the snapshotted checkout to Duffel (paid from flyt's own
+    balance) to actually create the booking, ticket records, and send the
+    confirmation email. Shared by both payment providers - Pesapal
+    (finalize_payment, below) and Duffel Payments (confirm_card_payment) -
+    once each has independently confirmed the customer's money actually
+    landed. Mutates `payment` in place; the caller commits.
+    """
+    try:
+        checkout = CheckoutRequest.model_validate_json(payment.order_request_snapshot)
+        seat_by_passenger_id = {
+            p.id: p.seat_designator for p in checkout.passengers if p.seat_designator
+        }
+        order_request = OrderCreate(
+            selected_offers=checkout.selected_offers,
+            passengers=checkout.passengers,
+            payments=[
+                # Duffel must be paid the raw fare, never the marked-up
+                # `payment.amount` the customer was actually charged - it
+                # rejects a payment that doesn't exactly match the order's
+                # real total.
+                OrderPayment(
+                    type="balance",
+                    amount=payment.duffel_amount,
+                    currency=payment.currency,
+                )
+            ],
+        )
+        request_body = order_request.model_dump(mode="json", exclude_none=True)
+        for passenger in request_body.get("passengers", []):
+            passenger.pop("seat_designator", None)
+
+        duffel_response = await duffel_flight_service.create_flight_order(request_body)
+        order = Order.model_validate(duffel_response["data"])
+        booking = create_booking_from_order(
+            session,
+            payment.user_id,
+            order,
+            seat_by_passenger_id,
+            charged_amount=payment.amount,
+            charged_currency=payment.currency,
+        )
+        create_tickets_from_order(session, booking, order)
+
+        payment.booking_id = booking.id
+        payment.status = PaymentStatus.COMPLETED
+
+        try:
+            user = session.get(UserInDB, payment.user_id)
+            if user:
+                await send_html_email_async(
+                    f"You're booked! Reference {booking.booking_reference}",
+                    [user.email],
+                    booking_confirmation_email_html(booking),
+                )
+        except Exception as e:
+            # The booking itself already succeeded - a failed
+            # notification email must not undo that or be mistaken for a
+            # booking failure.
+            print(f"Failed to send confirmation email for booking {booking.id}: {e}")
+    except DuffelAPIError as e:
+        # The customer's money already landed with us at this point -
+        # this is the "flag for manual refund" case, not an error to
+        # silently swallow.
+        payment.status = PaymentStatus.BOOKING_FAILED
+        payment.failure_reason = str(e)
+
+
+async def finalize_payment(session: Session, payment: Payment) -> Payment:
+    """Checks Pesapal's authoritative transaction status and, on success,
+    completes the booking (see _complete_booking).
+
+    Idempotent: called from both the frontend's status-poll endpoint and
+    Pesapal's IPN webhook, which may race each other. Once a payment has
+    left `pending`, this is a no-op.
+    """
+    # Re-fetch with a row lock (a real `FOR UPDATE` on Postgres; a no-op on
+    # the SQLite engine the unit tests use) so the poll endpoint and the IPN
+    # webhook - which legitimately race - serialize on this row instead of
+    # both reading `pending` and both replaying the order to Duffel.
+    locked_payment = session.exec(
+        select(Payment).where(Payment.id == payment.id).with_for_update()
+    ).first()
+    if locked_payment is None:
+        return payment
+    payment = locked_payment
+
+    if payment.status != PaymentStatus.PENDING:
+        return payment
+    if not payment.pesapal_order_tracking_id:
+        return payment
+
+    try:
+        status = await pesapal_payment_service.get_transaction_status(
+            payment.pesapal_order_tracking_id
+        )
+    except PesapalAPIError as e:
+        # Confirmed against a real sandbox transaction: GetTransactionStatus
+        # can return an HTTP-level error (with error.code
+        # "payment_details_not_found" / message "Pending Payment") for a
+        # transaction that's still genuinely in progress, not just for
+        # actual failures. Treating every such error as terminal would let
+        # a transient/still-processing response tell a customer their
+        # payment failed when it might still succeed - so this leaves the
+        # payment `pending` for the next poll/IPN, same as an ambiguous
+        # status_code below, rather than raising into the router's 502
+        # (which would also stop the frontend's poll loop, since a fetch
+        # error means query.state.data never gets a status to key off).
+        print(
+            f"Pesapal status check failed for payment {payment.id}, still pending: {e}"
+        )
+        return payment
+
+    payment.pesapal_status_code = status.status_code
+    payment.pesapal_confirmation_code = status.confirmation_code
+    payment.payment_method = status.payment_method
+    payment.payment_account = status.payment_account
+    payment.payment_status_code = status.payment_status_code
+
+    if status.status_code == _PESAPAL_COMPLETED:
+        await _complete_booking(session, payment)
+    elif status.status_code in _PESAPAL_TERMINAL_FAILURE_CODES:
+        payment.status = PaymentStatus.FAILED
+        reason = status.payment_status_description or status.description or "Failed"
+        if status.payment_status_code:
+            reason = f"{reason}: {status.payment_status_code}"
+        payment.failure_reason = reason
+    # else: still pending on Pesapal's side - leave as `pending` for the
+    # next poll/IPN to retry.
+
+    payment.updated_at = datetime.utcnow()
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    return payment
+
+
+async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
+    """Confirms a Duffel Payments PaymentIntent and, on success, completes
+    the booking exactly like finalize_payment does for Pesapal (see
+    _complete_booking) - the two providers converge immediately after
+    their own payment-confirmation step.
+
+    Not polled/webhook-driven like Pesapal - the frontend calls this once,
+    right after the DuffelPayments component reports a successful card
+    collection - but still row-locked and guarded by the same `pending`
+    check, in case of an accidental double-submit.
+    """
+    locked_payment = session.exec(
+        select(Payment).where(Payment.id == payment.id).with_for_update()
+    ).first()
+    if locked_payment is None:
+        return payment
+    payment = locked_payment
+
+    if payment.status != PaymentStatus.PENDING:
+        return payment
+    if not payment.duffel_payment_intent_id:
+        return payment
+
+    try:
+        intent = await duffel_flight_service.confirm_payment_intent(
+            payment.duffel_payment_intent_id
+        )
+    except DuffelAPIError as e:
+        payment.status = PaymentStatus.FAILED
+        payment.failure_reason = str(e)
+        payment.updated_at = datetime.utcnow()
+        session.add(payment)
+        session.commit()
+        session.refresh(payment)
+        return payment
+
+    intent_data = intent["data"]
+    payment.payment_method = intent_data.get("card_network")
+    payment.payment_account = intent_data.get("card_last_four_digits")
+
+    # Confirming can 200 with a non-"succeeded" status (same lesson as
+    # Pesapal's status_code - never assume a 2xx response means the money
+    # actually moved).
+    if intent_data.get("status") == "succeeded":
+        await _complete_booking(session, payment)
+    else:
+        payment.status = PaymentStatus.FAILED
+        payment.failure_reason = (
+            f"Card payment not completed (status: {intent_data.get('status')})"
+        )
+
+    payment.updated_at = datetime.utcnow()
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    return payment

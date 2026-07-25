@@ -1,52 +1,30 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { useTheme, type ThemeMode } from "@/lib/theme";
+import { Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
 
-/** Cockpit-dimmer vernacular: DAY / NIGHT / AUTO = light / dark / system. */
-const MODES: { value: ThemeMode; label: string }[] = [
-  { value: "light", label: "DAY" },
-  { value: "dark", label: "NIGHT" },
-  { value: "system", label: "AUTO" },
-];
+import { Button } from "@/components/ui/button";
+import { useMounted } from "@/hooks/use-mounted";
 
-const emptySubscribe = () => () => {};
-
-export default function ThemeToggle() {
-  const { mode, setMode } = useTheme();
-  /* false on the server and during hydration, true right after — so the
-     active pill only renders client-side and never mismatches the SSR HTML */
-  const mounted = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false,
-  );
+export function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  // next-themes resolves the theme synchronously on the client (via its
+  // anti-flash script) before hydration finishes, so resolvedTheme is
+  // already defined by the time React hydrates - reading it directly
+  // still mismatches the server's render, which never knows the stored
+  // preference. useMounted() is the hydration-safe "has the client render
+  // actually settled" flag.
+  const mounted = useMounted();
 
   return (
-    <div
-      role="radiogroup"
-      aria-label="Display mode"
-      className="inline-flex rounded-full border bg-card p-0.5 font-mono text-[10px] tracking-widest"
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label="Toggle theme"
+      disabled={!mounted}
+      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
     >
-      {MODES.map(({ value, label }) => {
-        const active = mounted && mode === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => setMode(value)}
-            className={`rounded-full px-2.5 py-1.5 transition-colors ${
-              active
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-signal"
-            }`}
-          >
-            {label}
-          </button>
-        );
-      })}
-    </div>
+      {mounted && resolvedTheme === "dark" ? <Sun /> : <Moon />}
+    </Button>
   );
 }

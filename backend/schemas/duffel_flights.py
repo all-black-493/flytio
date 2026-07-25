@@ -9,6 +9,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from backend.schemas.common import PaginationMeta
+
 
 class BaseSchema(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -25,13 +27,6 @@ class PassengerType(str, enum.Enum):
     ADULT = "adult"
     CHILD = "child"
     INFANT_WITHOUT_SEAT = "infant_without_seat"
-
-
-class OrderSort(str, enum.Enum):
-    CREATED_AT = "created_at"
-    CREATED_AT_DESC = "-created_at"
-    PAYMENT_REQUIRED_BY = "payment_required_by"
-    PAYMENT_REQUIRED_BY_DESC = "-payment_required_by"
 
 
 # Request models
@@ -106,6 +101,36 @@ class FlightSearchQueryParams(BaseSchema):
         )
 
 
+class OfferSortKey(str, enum.Enum):
+    PRICE = "price"
+    DURATION = "duration"
+    DEPARTURE = "departure"
+    ARRIVAL = "arrival"
+
+
+class OfferListQueryParams(BaseSchema):
+    """Filter/sort/pagination params applied to an already-fetched (and
+    Redis-cached) offer list - a view-layer concern, separate from the
+    shopping request itself, so these don't affect the search cache key."""
+
+    sort: OfferSortKey = OfferSortKey.PRICE
+    airlines: list[str] = Field(
+        default_factory=list, description="Owner IATA codes to keep"
+    )
+    max_stops: int | None = Field(default=None, ge=0)
+    price_max: float | None = Field(default=None, ge=0)
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class FlightSearchAndListQueryParams(FlightSearchQueryParams, OfferListQueryParams):
+    """FastAPI only flattens one Query()-annotated Pydantic model's fields
+    per path operation - two sibling Query() models on the same route don't
+    both get flattened. search_flights_2 (GET) needs both sets of fields at
+    once, so they're combined here via plain multiple inheritance (no
+    overlapping field names between the two parents)."""
+
+
 class OfferPriceRequest(BaseSchema):
     """Identifies the offer whose live price should be confirmed."""
 
@@ -124,6 +149,15 @@ class OrderPassenger(BaseSchema):
     infant_passenger_id: str | None = Field(
         default=None,
         description="For adults responsible for an infant: the infant's passenger ID",
+    )
+    seat_designator: str | None = Field(
+        default=None,
+        description=(
+            "Seat picked in our own seat-map UI (e.g. '14C'), stored on our "
+            "booking record. NOT sent to Duffel - reserving the seat with "
+            "the airline requires attaching a paid seat service to the "
+            "order, which isn't wired up yet."
+        ),
     )
 
 
@@ -153,6 +187,7 @@ class Airport(BaseSchema):
 class Carrier(BaseSchema):
     iata_code: str | None = None
     name: str | None = None
+    logo_symbol_url: str | None = None
 
 
 class Aircraft(BaseSchema):
@@ -203,17 +238,52 @@ class Offer(BaseSchema):
 
 
 class OfferRequest(BaseSchema):
+    """Offer-request metadata only - the offers themselves are paginated
+    separately, under `groups` on FlightSearchResponse."""
+
     id: str
     live_mode: bool | None = None
     created_at: datetime | None = None
     passengers: list[OfferPassenger] = []
-    offers: list[Offer] = []
+
+
+class OfferGroup(BaseSchema):
+    """Offers that share an itinerary (same origin/destination per slice)
+    collapsed into one card: the cheapest as `primary`, the rest browsable
+    as `alternates` (see backend/utils/offer_filtering.py:group_by_route)."""
+
+    primary: Offer
+    alternates: list[Offer] = []
+
+
+class AirlineFacet(BaseSchema):
+    code: str
+    name: str
+    count: int
+
+
+class OfferFacets(BaseSchema):
+    """Always computed from the full, unfiltered offer list for this
+    search, regardless of which filters/page were requested - so facet
+    counts stay stable as the user pages through or narrows results."""
+
+    airlines: list[AirlineFacet]
+    price_min: float
+    price_max: float
+    has_direct: bool
+    has_one_stop: bool
+    has_multi_stop: bool
 
 
 class FlightSearchResponse(BaseSchema):
-    """Duffel envelope: the offer request (with its offers) under `data`."""
+    """The offer request (metadata only) under `data`, the current page of
+    grouped offers under `groups`, pagination info under `meta`, and
+    facets (computed pre-filter, pre-pagination) under `facets`."""
 
     data: OfferRequest
+    groups: list[OfferGroup]
+    meta: PaginationMeta
+    facets: OfferFacets
 
 
 class OfferResponse(BaseSchema):
@@ -276,6 +346,15 @@ class OrderConditions(BaseSchema):
     change_before_departure: OrderConditionDetail | None = None
 
 
+class OrderDocument(BaseSchema):
+    """An issued travel document (e-ticket, or an EMD for a service), only
+    present once an order has actually been paid for."""
+
+    unique_identifier: str
+    type: str = Field(description="e.g. electronic_ticket")
+    passenger_ids: list[str] = []
+
+
 class Order(BaseSchema):
     id: str
     booking_reference: str | None = None
@@ -293,43 +372,14 @@ class Order(BaseSchema):
     passengers: list[OrderPassengerDetail] = []
     payment_status: PaymentStatus | None = None
     conditions: OrderConditions | None = None
+    documents: list[OrderDocument] = []
     available_actions: list[str] = []
-
-
-class OrderListQueryParams(BaseSchema):
-    """Query params for listing orders; translated into Duffel's flat
-    query-string filters before calling the API."""
-
-    booking_reference: str | None = None
-    awaiting_payment: bool | None = None
-    origin: str | None = Field(default=None, min_length=3, max_length=3)
-    destination: str | None = Field(default=None, min_length=3, max_length=3)
-    sort: OrderSort | None = None
-    limit: int | None = Field(default=None, ge=1, le=200)
-    before: str | None = None
-    after: str | None = None
-
-    def to_duffel_params(self) -> dict:
-        return self.model_dump(mode="json", exclude_none=True)
 
 
 class OrderResponse(BaseSchema):
     """Duffel envelope for a single order."""
 
     data: Order
-
-
-class ListMeta(BaseSchema):
-    limit: int | None = None
-    after: str | None = None
-    before: str | None = None
-
-
-class OrderListResponse(BaseSchema):
-    """Duffel envelope for a paginated list of orders."""
-
-    data: list[Order]
-    meta: ListMeta | None = None
 
 
 class OrderCancellationQuote(BaseSchema):

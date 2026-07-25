@@ -11,11 +11,13 @@
  */
 :root {
   --signal: #ff4f00;
-  /* the departures board stays dark polar navy in both themes */
-  --board: #0b1526;
-  --board-ink: #edf2f7;
-  --board-muted: #7e93aa;
-  --board-line: #22334a;
+  /* "boarding pass stub" accent block (departures board, flight-summary/
+     confirmation headers) - a light terminal surface here, inverts to a
+     dark polar-navy panel in .dark below. */
+  --board: #eef2f6;
+  --board-ink: #0b1526;
+  --board-muted: #55677c;
+  --board-line: #d8e0e8;
 
   --background: #f4f6f8;
   --foreground: #0b1526;
@@ -40,7 +42,8 @@
   --chart-3: #55677c;
   --chart-4: #7e93aa;
   --chart-5: #c9d4df;
-  --radius: 0.75rem;
+  /* Control Tower — brutalist wireframe: zero radius everywhere */
+  --radius: 0rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #0b1526;
   --sidebar-primary: #ff4f00;
@@ -54,11 +57,14 @@
 .dark {
   --signal: #ff5a14;
   --board: #060d18;
+  --board-ink: #edf2f7;
+  --board-muted: #7e93aa;
   --board-line: #1d2d43;
 
   --background: #0a121f;
   --foreground: #edf2f7;
-  --card: #14202f;
+  /* wireframe surfaces: cards read as bordered boxes on the void, not raised panels */
+  --card: #0a121f;
   --card-foreground: #edf2f7;
   --popover: #14202f;
   --popover-foreground: #edf2f7;
@@ -90,9 +96,11 @@
   --color-board-ink: var(--board-ink);
   --color-board-muted: var(--board-muted);
   --color-board-line: var(--board-line);
-  --font-sans: var(--font-league-spartan);
+  /* Control Tower: monospace is the ambient/body voice, Chakra Petch is the
+     squared HUD display face for headings. */
+  --font-sans: var(--font-plex-mono);
   --font-mono: var(--font-plex-mono);
-  --font-heading: var(--font-league-spartan);
+  --font-heading: var(--font-chakra-petch);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -171,15 +179,6 @@ details.board-details[open] .flip-caret {
   transition: transform 0.2s ease;
 }
 
-/* Mapbox canvas fills its section as an ambient background */
-.flight-map .mapboxgl-canvas {
-  outline: none;
-}
-.flight-map .mapboxgl-ctrl-logo,
-.flight-map .mapboxgl-ctrl-attrib {
-  opacity: 0.35;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .board-row {
     animation: none;
@@ -195,8 +194,74 @@ details.board-details[open] .flip-caret {
   }
   body {
     @apply bg-background text-foreground;
+    /* faint control-tower grid texture behind everything */
+    background-image:
+      linear-gradient(to right, rgba(38, 58, 82, 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(38, 58, 82, 0.1) 1px, transparent 1px);
+    background-size: 64px 64px;
   }
   html {
     @apply font-sans;
+  }
+  /* squared HUD display face for every heading, app-wide */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+  }
+  /* Control Tower: every text field carries a terminal-style caret — a
+     signal-orange block that blinks under OS control (so it honours reduced
+     motion for free). `caret-shape: block` degrades to the orange I-beam on
+     engines that don't support it yet. */
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--signal);
+    caret-shape: block;
+  }
+}
+
+/* ambient world-map silhouette used behind the hero + auth screens.
+ * masks the static /world-map.svg so we can tint + fade it with tokens,
+ * keeping the asset transparent and out of the JS bundle. */
+@layer components {
+  .world-map-mask {
+    -webkit-mask-image: url("/world-map.svg");
+    mask-image: url("/world-map.svg");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+  }
+
+  /* @duffel/components' DuffelPayments (components/DuffelCardPayment.tsx)
+   * ships only bare BEM class hooks for its "Pay" button, no CSS at all -
+   * styled directly here rather than via Tailwind's arbitrary-selector
+   * syntax ([&_.card-payment__pay-button]:...), which silently mangles
+   * this class name: Tailwind treats underscores in bracketed selectors
+   * as spaces, so the literal "__" in "card-payment__pay-button" was
+   * compiling to ".card-payment pay-button" (two classes/elements, space-
+   * separated) instead of the one intended class - confirmed by reading
+   * the actual compiled CSS output. Plain CSS has no such gotcha. */
+  .card-payment__pay-button {
+    margin-top: 0.75rem;
+    width: 100%;
+    border: none;
+    background-color: var(--signal);
+    padding: 0.625rem 1rem;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+  }
+  .card-payment__pay-button:hover {
+    background-color: color-mix(in oklab, var(--signal) 90%, transparent);
+  }
+  .card-payment__pay-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 }

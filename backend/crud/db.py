@@ -1,12 +1,8 @@
 from sqlmodel import Session, create_engine, SQLModel
-from dotenv import load_dotenv
-import os
 
-load_dotenv()
+from backend.config import settings
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(settings.DATABASE_URL, echo=True)
 
 
 def get_session():
@@ -15,4 +11,6 @@ def get_session():
 
 
 def init_db():
+    import backend.models  # noqa: F401  (registers all tables on SQLModel.metadata)
+
     SQLModel.metadata.create_all(engine)
