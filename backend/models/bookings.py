@@ -7,6 +7,7 @@ from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from backend.models.flights import Flight
+    from backend.models.tickets import Ticket
     from backend.models.users import UserInDB
 
 
@@ -116,3 +117,6 @@ class BookingPassenger(SQLModel, table=True):
     cabin_class: CabinClass | None = None
 
     booking: Booking = Relationship(back_populates="passengers")
+    tickets: list["Ticket"] = Relationship(
+        back_populates="booking_passenger", cascade_delete=True
+    )

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, status, Query, Depends, Path
+import uuid
+
+from fastapi import APIRouter, HTTPException, Response, status, Query, Depends, Path
 from sqlmodel import Session
 
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
@@ -11,12 +13,17 @@ from backend.external_services.cache import (
 from backend.crud.bookings import (
     count_user_bookings,
     create_booking_from_order,
+    get_booking,
     get_booking_by_duffel_order_id,
     get_user_bookings,
     mark_booking_cancelled,
 )
 from backend.crud.db import get_session
-from backend.schemas.bookings import BookingListQueryParams, BookingListResponse
+from backend.schemas.bookings import (
+    BookingListQueryParams,
+    BookingListResponse,
+    BookingPublic,
+)
 from backend.schemas.common import PaginationMeta
 from backend.schemas.duffel_flights import (
     FlightSearchAndListQueryParams,
@@ -32,7 +39,9 @@ from backend.schemas.duffel_flights import (
     PlaceSuggestionsQuery,
     PlaceSuggestionsResponse,
 )
+from backend.utils.itinerary_pdf import build_itinerary_pdf
 from backend.utils.offer_filtering import build_flight_search_response
+from backend.utils.pricing import apply_markup_to_offer_dict
 
 from typing import Annotated
 from backend.utils.security import get_current_user
@@ -153,6 +162,7 @@ async def confirm_price(request: OfferPriceRequest):
     """
     try:
         response = await duffel_flight_service.confirm_price(request.offer_id)
+        response["data"] = apply_markup_to_offer_dict(response["data"])
         return response
     except DuffelAPIError as e:
         raise _duffel_http_exception(e)
@@ -292,6 +302,55 @@ async def list_flight_orders(
             total=total,
             has_more=params.offset + params.limit < total,
         ),
+    )
+
+
+@router.get("/booking/flight-orders/by-id/{booking_id}", response_model=BookingPublic)
+async def get_flight_order_by_id(
+    booking_id: Annotated[uuid.UUID, Path()],
+    current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    Get one of the current user's bookings by OUR OWN id (not Duffel's
+    order_id, which flight_order_management below uses) - backed by our
+    DB, so this includes ticket numbers (BookingPassengerPublic.tickets)
+    that Duffel's raw order response doesn't carry in the same shape.
+    """
+    booking = get_booking(session, booking_id)
+    if booking is None or booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    return booking
+
+
+@router.get("/booking/flight-orders/by-id/{booking_id}/itinerary.pdf")
+async def get_booking_itinerary_pdf(
+    booking_id: Annotated[uuid.UUID, Path()],
+    current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    Downloadable e-itinerary/receipt PDF for one of the current user's
+    bookings - generated fresh on every request (see utils/itinerary_pdf.py)
+    so it always reflects the booking's current state, rather than a
+    stale snapshot attached to the confirmation email at send time.
+    """
+    booking = get_booking(session, booking_id)
+    if booking is None or booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    pdf_bytes = build_itinerary_pdf(booking)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="flyt-{booking.booking_reference}.pdf"'
+            )
+        },
     )
 
 

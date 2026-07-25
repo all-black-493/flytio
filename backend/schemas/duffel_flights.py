@@ -187,6 +187,7 @@ class Airport(BaseSchema):
 class Carrier(BaseSchema):
     iata_code: str | None = None
     name: str | None = None
+    logo_symbol_url: str | None = None
 
 
 class Aircraft(BaseSchema):
@@ -345,6 +346,15 @@ class OrderConditions(BaseSchema):
     change_before_departure: OrderConditionDetail | None = None
 
 
+class OrderDocument(BaseSchema):
+    """An issued travel document (e-ticket, or an EMD for a service), only
+    present once an order has actually been paid for."""
+
+    unique_identifier: str
+    type: str = Field(description="e.g. electronic_ticket")
+    passenger_ids: list[str] = []
+
+
 class Order(BaseSchema):
     id: str
     booking_reference: str | None = None
@@ -362,6 +372,7 @@ class Order(BaseSchema):
     passengers: list[OrderPassengerDetail] = []
     payment_status: PaymentStatus | None = None
     conditions: OrderConditions | None = None
+    documents: list[OrderDocument] = []
     available_actions: list[str] = []
 
 

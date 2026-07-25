@@ -35,6 +35,7 @@ class Flight(SQLModel, table=True):
 
     marketing_carrier_iata_code: str | None = None
     marketing_carrier_name: str | None = None
+    marketing_carrier_logo_url: str | None = None
     marketing_carrier_flight_number: str | None = None
     operating_carrier_iata_code: str | None = None
     operating_carrier_name: str | None = None

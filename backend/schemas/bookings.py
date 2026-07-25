@@ -13,6 +13,7 @@ from sqlmodel import Field, SQLModel
 
 from backend.models.bookings import BookingStatus, CabinClass, PassengerType
 from backend.schemas.common import PaginationMeta
+from backend.schemas.tickets import TicketPublic
 
 
 class FlightPublic(SQLModel):
@@ -27,6 +28,7 @@ class FlightPublic(SQLModel):
     duration: str | None = None
     marketing_carrier_iata_code: str | None = None
     marketing_carrier_name: str | None = None
+    marketing_carrier_logo_url: str | None = None
     marketing_carrier_flight_number: str | None = None
     operating_carrier_iata_code: str | None = None
     operating_carrier_name: str | None = None
@@ -57,6 +59,7 @@ class BookingPassengerPublic(SQLModel):
     phone_number: str | None = None
     seat_designator: str | None = None
     cabin_class: CabinClass | None = None
+    tickets: list[TicketPublic] = []
 
 
 class BookingPublic(SQLModel):

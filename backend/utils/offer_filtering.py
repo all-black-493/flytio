@@ -24,6 +24,7 @@ from backend.schemas.duffel_flights import (
     OfferRequest,
     OfferSortKey,
 )
+from backend.utils.pricing import apply_markup_to_offer_dict
 
 _DURATION_RE = re.compile(r"^PT(?:(\d+)H)?(?:(\d+)M)?$")
 
@@ -212,7 +213,13 @@ def build_flight_search_response(
     actually sent back. Order matters - see group_by_route()'s docstring
     for why sort must run before grouping."""
     offer_request = duffel_response["data"]
-    offers = offer_request.get("offers") or []
+    # Marked up here, before anything downstream reads a price, so facets,
+    # filtering, sorting, and the final Offer.model_validate() all see
+    # consistent numbers - a shallow copy per offer keeps the Redis-cached
+    # raw Duffel response itself unmarked-up.
+    offers = [
+        apply_markup_to_offer_dict(dict(o)) for o in (offer_request.get("offers") or [])
+    ]
 
     facets = compute_facets(offers)
     filtered = apply_filters(offers, params)

@@ -19,6 +19,9 @@ def create_booking_from_order(
     user_id: uuid.UUID,
     order: Order,
     seat_by_passenger_id: dict[str, str] | None = None,
+    *,
+    charged_amount: str | None = None,
+    charged_currency: str | None = None,
 ) -> Booking:
     """Persist a confirmed Duffel order as a Booking, with its slices,
     flights (segments), and passengers, linked to the given user.
@@ -26,14 +29,20 @@ def create_booking_from_order(
     seat_by_passenger_id records the seat picked in our own seat-map UI
     (keyed by the Duffel passenger ID) - it's local-only bookkeeping, not
     a seat actually reserved with the airline via Duffel.
+
+    charged_amount/charged_currency let the caller show what the customer
+    actually paid (flyt's marked-up price - see utils/pricing.py) instead
+    of order.total_amount, Duffel's raw net fare. finalize_payment always
+    passes these; they default to order.total_amount so this stays
+    backward compatible for anything that doesn't need the distinction.
     """
     seat_by_passenger_id = seat_by_passenger_id or {}
     booking = Booking(
         user_id=user_id,
         duffel_order_id=order.id,
         booking_reference=order.booking_reference or "",
-        total_amount=order.total_amount or "0",
-        total_currency=order.total_currency or "",
+        total_amount=charged_amount or order.total_amount or "0",
+        total_currency=charged_currency or order.total_currency or "",
         owner_iata_code=order.owner.iata_code if order.owner else None,
         owner_name=order.owner.name if order.owner else None,
     )
@@ -74,6 +83,11 @@ def create_booking_from_order(
                     ),
                     marketing_carrier_name=(
                         segment.marketing_carrier.name
+                        if segment.marketing_carrier
+                        else None
+                    ),
+                    marketing_carrier_logo_url=(
+                        segment.marketing_carrier.logo_symbol_url
                         if segment.marketing_carrier
                         else None
                     ),
@@ -121,6 +135,12 @@ def get_booking_by_duffel_order_id(
     return session.exec(
         select(Booking).where(Booking.duffel_order_id == duffel_order_id)
     ).first()
+
+
+def get_booking(session: Session, booking_id: uuid.UUID) -> Booking | None:
+    """Look up by our own primary key, not Duffel's order_id - used by the
+    payment status endpoint, which only knows the booking via Payment.booking_id."""
+    return session.get(Booking, booking_id)
 
 
 def _filtered_user_bookings_query(
