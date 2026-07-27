@@ -1,6 +1,6 @@
 import { LoginForm } from "@/components/auth/login-form";
 
-export const metadata = { title: "Sign in — flyt.io" };
+export const metadata = { title: "Sign in — flyt" };
 
 interface PageProps {
   searchParams: Promise<{ next?: string }>;

@@ -128,6 +128,11 @@ export function BookingFlow({ offerId }: { offerId: string }) {
     checkoutMutation.mutate({ selected_offers: [offer.id], passengers });
   }
 
+  // Not called from anywhere right now - the "Pay by card" tile below is
+  // disabled (Duffel Payments doesn't support Kenya yet), but this is
+  // left wired up rather than deleted so re-enabling it later is just
+  // restoring the tile's onClick, not rebuilding this.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function payWithCard() {
     if (!offer || !passengers) return;
     setPaymentMethod("card");
@@ -194,10 +199,21 @@ export function BookingFlow({ offerId }: { offerId: string }) {
                   Pay via Pesapal — redirects to a secure payment page.
                 </p>
               </Card>
-              <Card className="cursor-pointer gap-2 p-5 hover:border-signal" onClick={payWithCard}>
+              {/* Duffel Payments (Duffel's own card-collection product,
+                  see DuffelCardPayment/checkoutWithCard/confirmCardPayment
+                  below) is disabled, not removed - Duffel confirmed it's
+                  only available for customers in Australia, Europe, the
+                  UK, and the US today, so it always fails for this app's
+                  Kenya-based customers. Left in place in case that
+                  changes, or the app later serves customers in a
+                  supported region. */}
+              <Card
+                aria-disabled
+                className="cursor-not-allowed gap-2 p-5 opacity-50"
+              >
                 <p className="font-semibold">Pay by card</p>
                 <p className="text-sm text-muted-foreground">
-                  Enter your card details directly here, no redirect.
+                  Not available in your region yet — use M-Pesa / mobile money / card above.
                 </p>
               </Card>
             </div>

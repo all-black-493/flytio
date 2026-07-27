@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeftRight, MapPin, PlaneTakeoff } from "lucide-react";
 
+import { PassengerCountPicker, type PassengerCounts } from "@/components/PassengerCountPicker";
 import { PlaceAutocomplete } from "@/components/PlaceAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,8 +19,7 @@ import {
 } from "@/components/ui/select";
 import { searchHrefFromForm } from "@/lib/search-params";
 import type { CabinClass } from "@/lib/api/schemas";
-
-const labelClass = "font-mono text-[10px] tracking-[0.2em] text-muted-foreground";
+import { compactLabelClass as labelClass } from "@/lib/utils";
 
 type TripType = "one_way" | "round_trip";
 
@@ -29,6 +29,8 @@ export interface SearchBarProps {
   defaultDepartureDate?: string;
   defaultReturnDate?: string;
   defaultAdults?: number;
+  defaultChildren?: number;
+  defaultInfants?: number;
   defaultCabinClass?: CabinClass;
 }
 
@@ -38,6 +40,8 @@ export function SearchBar({
   defaultDepartureDate = "",
   defaultReturnDate = "",
   defaultAdults = 1,
+  defaultChildren = 0,
+  defaultInfants = 0,
   defaultCabinClass = "economy",
 }: SearchBarProps) {
   const router = useRouter();
@@ -46,6 +50,11 @@ export function SearchBar({
   const [tripType, setTripType] = useState<TripType>(
     defaultReturnDate ? "round_trip" : "one_way",
   );
+  const [passengers, setPassengers] = useState<PassengerCounts>({
+    adults: defaultAdults,
+    children: defaultChildren,
+    infants: defaultInfants,
+  });
 
   function swap() {
     setOrigin(destination);
@@ -190,21 +199,14 @@ export function SearchBar({
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="adults" className={labelClass}>
-              ADULTS
+            <Label htmlFor="passengers" className={labelClass}>
+              PASSENGERS
             </Label>
-            <Select name="adults" defaultValue={String(defaultAdults)}>
-              <SelectTrigger id="adults" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <SelectItem key={n} value={String(n)}>
-                    {n} adult{n > 1 ? "s" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PassengerCountPicker
+              triggerId="passengers"
+              value={passengers}
+              onChange={setPassengers}
+            />
           </div>
 
           <Button type="submit" className="bg-signal font-semibold hover:bg-signal/90 lg:col-span-6">

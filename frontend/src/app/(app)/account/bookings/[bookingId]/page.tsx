@@ -6,7 +6,7 @@ import { BookingDetail } from "@/app/(app)/account/bookings/[bookingId]/_compone
 import { getQueryClient } from "@/lib/query/get-query-client";
 import { isAuthenticated } from "@/lib/auth/session";
 
-export const metadata = { title: "Booking details — flyt.io" };
+export const metadata = { title: "Booking details — flyt" };
 
 interface PageProps {
   params: Promise<{ bookingId: string }>;

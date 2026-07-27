@@ -4,10 +4,11 @@ import { redirect } from "next/navigation";
 import { bookingsQuery, meQuery } from "@/app/(app)/account/_lib/queries";
 import { BookingsList } from "@/components/account/bookings-list";
 import { ProfileCard } from "@/components/account/profile-card";
+import { TicketLookup } from "@/components/account/ticket-lookup";
 import { getQueryClient } from "@/lib/query/get-query-client";
 import { isAuthenticated } from "@/lib/auth/session";
 
-export const metadata = { title: "Your account — flyt.io" };
+export const metadata = { title: "Your account — flyt" };
 
 export default async function AccountPage() {
   if (!(await isAuthenticated())) redirect("/login?next=/account");
@@ -22,6 +23,7 @@ export default async function AccountPage() {
     <div className="flex flex-1 flex-col items-center px-4 py-16">
       <HydrationBoundary state={dehydrate(queryClient)}>
         <ProfileCard />
+        <TicketLookup />
         <BookingsList />
       </HydrationBoundary>
     </div>

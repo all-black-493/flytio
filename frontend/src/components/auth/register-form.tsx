@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { registerUser } from "@/lib/api/client";
-
-const labelClass = "font-mono text-[11px] tracking-widest text-muted-foreground";
+import { formLabelClass as labelClass } from "@/lib/utils";
 
 const registerSchema = z
   .object({

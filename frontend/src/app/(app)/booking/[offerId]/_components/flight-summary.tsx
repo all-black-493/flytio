@@ -1,7 +1,8 @@
 import { PlaneTakeoff } from "lucide-react";
 
 import { AirlineLogo } from "@/components/AirlineLogo";
-import { formatDuration, formatMoney, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
+import { PriceBreakdown } from "@/components/PriceBreakdown";
+import { formatDuration, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
 import type { Offer } from "@/lib/api/schemas";
 
 export function FlightSummary({ offer }: { offer: Offer }) {
@@ -19,9 +20,14 @@ export function FlightSummary({ offer }: { offer: Offer }) {
           />
           {offer.owner?.name ?? "Airline"}
         </span>
-        <span className="text-lg font-bold tabular-nums">
-          {formatMoney(offer.total_amount, offer.total_currency)}
-        </span>
+        <PriceBreakdown
+          baseAmount={offer.base_amount}
+          baseCurrency={offer.base_currency}
+          taxAmount={offer.tax_amount}
+          taxCurrency={offer.tax_currency}
+          totalAmount={offer.total_amount}
+          totalCurrency={offer.total_currency}
+        />
       </div>
       <div className="divide-y">
         {offer.slices.map((slice) => {

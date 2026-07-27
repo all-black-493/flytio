@@ -114,6 +114,8 @@ export const offerSchema = z.object({
   owner: carrierSchema.nullable(),
   slices: z.array(offerSliceSchema),
   passengers: z.array(offerPassengerSchema),
+  passenger_identity_documents_required: z.boolean().default(false),
+  supported_passenger_identity_document_types: z.array(z.string()).default([]),
 });
 export type Offer = z.infer<typeof offerSchema>;
 

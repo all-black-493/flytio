@@ -152,6 +152,37 @@ export async function resetPassword(
   return messageResponseSchema.parse(await res.json());
 }
 
+/** POST /api/change-password — self-service change for a signed-in user;
+ * distinct from resetPassword, which proves identity via an emailed token
+ * instead of the current password. */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/change-password`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** DELETE /api/me — soft-deletes (anonymizes) the current user's own
+ * account; booking/payment history is preserved. Requires the current
+ * password, same reasoning as changePassword. */
+export async function deleteAccount(password: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/me`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
 /* ---------- shopping: mirrors backend/routers/flights.py ---------- */
 
 /** Repeats `airlines` as multiple query params (FastAPI's default for
@@ -309,6 +340,17 @@ export async function listBookings(
  * (not Duffel's order_id, see getOrder below) — includes ticket numbers. */
 export async function getBookingById(bookingId: string): Promise<BookingPublic> {
   const res = await fetch(`${API_URL}/booking/flight-orders/by-id/${bookingId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return bookingPublicSchema.parse(await res.json());
+}
+
+/** GET /booking/flight-orders/by-ticket/{ticketNumber} — find one of the
+ * current user's bookings from an airline-issued ticket number alone. */
+export async function getBookingByTicketNumber(ticketNumber: string): Promise<BookingPublic> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/by-ticket/${ticketNumber}`, {
     credentials: "include",
     headers: await authHeaders(),
   });

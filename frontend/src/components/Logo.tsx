@@ -5,7 +5,12 @@ const SIZES = {
 } as const;
 
 /** Shape data kept in sync by hand with app/icon.svg (a static favicon file
- * that can't import this component) — edit both together. */
+ * that can't import this component) — edit both together.
+ *
+ * A hex "flower" of 7 dots (1 center + 6 around, 60° apart) — re-centered
+ * and rescaled from the source artwork so the center dot lands on (24,24)
+ * and the cluster gets breathing room comparable to the mark's previous
+ * diagonal-stroke version. */
 export function LogoMark({ size = 36 }: { size?: number }) {
   return (
     <svg
@@ -17,18 +22,15 @@ export function LogoMark({ size = 36 }: { size?: number }) {
       aria-hidden="true"
     >
       <rect width="48" height="48" rx="11" fill="#0B1526" />
-      {/* ascent — solid and straight so it stays legible at favicon size */}
-      <line
-        x1="13"
-        y1="35"
-        x2="32"
-        y2="15"
-        stroke="#F6F8FA"
-        strokeWidth="7"
-        strokeLinecap="round"
-      />
-      {/* destination dot — the "." in flyt.io */}
-      <circle cx="34" cy="13.5" r="5.5" fill="#FF4F00" />
+      <g fill="var(--signal)">
+        <circle cx="24" cy="24" r="5" />
+        <circle cx="24" cy="12" r="5" />
+        <circle cx="34.4" cy="18" r="5" />
+        <circle cx="34.4" cy="30" r="5" />
+        <circle cx="24" cy="36" r="5" />
+        <circle cx="13.6" cy="30" r="5" />
+        <circle cx="13.6" cy="18" r="5" />
+      </g>
     </svg>
   );
 }
@@ -41,8 +43,7 @@ export default function Logo({ size = "md" }: { size?: keyof typeof SIZES }) {
       <span
         className={`${s.text} font-bold tracking-tight leading-none translate-y-[0.08em] text-foreground`}
       >
-        flyt<span className="text-signal">.</span>
-        <span className="text-muted-foreground">io</span>
+        flyt
       </span>
     </span>
   );

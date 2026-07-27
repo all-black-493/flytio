@@ -8,7 +8,7 @@ import { parseFilterSortParams } from "@/app/(app)/search/_lib/pagination-params
 import { getQueryClient } from "@/lib/query/get-query-client";
 import { flattenSearchParams, parseSearchParams } from "@/lib/search-params";
 
-export const metadata = { title: "Search flights - flyt.io" };
+export const metadata = { title: "Search flights - flyt" };
 
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -32,6 +32,8 @@ export default async function SearchPage({ searchParams }: PageProps) {
         defaultDepartureDate={parsed?.departureDate}
         defaultReturnDate={parsed?.returnDate ?? undefined}
         defaultAdults={parsed?.adults}
+        defaultChildren={parsed?.children}
+        defaultInfants={parsed?.infants}
         defaultCabinClass={parsed?.cabinClass ?? undefined}
       />
 

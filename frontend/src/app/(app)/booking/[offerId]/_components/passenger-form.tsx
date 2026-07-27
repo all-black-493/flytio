@@ -18,8 +18,7 @@ import {
 } from "@/components/ui/select";
 import type { OfferPassenger } from "@/lib/api/schemas";
 import type { OrderPassenger } from "@/lib/api/types";
-
-const labelClass = "font-mono text-[10px] tracking-[0.2em] text-muted-foreground";
+import { compactLabelClass as labelClass } from "@/lib/utils";
 
 export type PassengerDetails = Omit<OrderPassenger, "id" | "seat_designator">;
 
