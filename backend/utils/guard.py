@@ -1,16 +1,16 @@
 """fastapi-guard wiring, shared by main.py (middleware) and every router
 that needs a per-route rate limit override (guard_deco.rate_limit).
 
-fastapi-guard's rate limiter is IP-keyed only (see extract_client_ip in the
-library) - it has no notion of "per authenticated user" or "per email
-address". It replaces every rate limit in this app that was IP-only
-(registration, the IP leg of login/forgot-password, password reset,
-flight search/pricing). The limits that were deliberately keyed by
-something other than the caller's IP - per-email (guards one account
-against credential stuffing regardless of source IP) or per-user (guards
-an authenticated action per account) - still go through
-utils/rate_limit.py's enforce_rate_limit, which fastapi-guard can't
-express.
+This is the app's only rate limiter - there is no separate per-email or
+per-user limiter anymore. fastapi-guard's own rate limiter is IP-keyed
+only (confirmed from its source: every check path in guard_core's
+RateLimitCheck resolves to extract_client_ip - there's no hook for keying
+by an authenticated user or a request field like email), so limits that
+used to be deliberately keyed by something other than the caller's IP
+(credential stuffing against one account regardless of source IP; an
+authenticated action per account rather than per network) are now IP-only
+too. Accepted trade-off for having exactly one rate-limiting mechanism in
+the app.
 """
 
 from guard import SecurityConfig, SecurityDecorator

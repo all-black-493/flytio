@@ -40,7 +40,7 @@ def delete_user_account(session: Session, user: UserInDB) -> UserInDB:
     Frees the real email for reuse (UserInDB.email is unique-indexed) and
     invalidates any other active session via password_changed_at, the
     same mechanism a password change uses."""
-    user.email = f"deleted-{user.id}@flyt.io"
+    user.email = f"deleted-{user.id}@flyt.africa"
     user.password = hash_password(uuid.uuid4().hex)
     user.deleted_at = datetime.utcnow()
     user.password_changed_at = datetime.utcnow()

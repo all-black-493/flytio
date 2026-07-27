@@ -48,8 +48,8 @@ def email_shell(preheader: str, inner_html: str) -> str:
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #d8e0e8;">
         <tr>
           <td style="background:#0b1526;padding:20px 32px;">
-            <img src="{logo_url}" alt="flyt.io" width="32" height="32" style="vertical-align:middle;border-radius:8px;" />
-            <span style="font-size:20px;font-weight:bold;color:#ffffff;vertical-align:middle;margin-left:10px;">flyt<span style="color:#ff4f00;">.</span>io</span>
+            <img src="{logo_url}" alt="flyt" width="32" height="32" style="vertical-align:middle;border-radius:8px;" />
+            <span style="font-size:20px;font-weight:bold;color:#ffffff;vertical-align:middle;margin-left:10px;">flyt</span>
           </td>
         </tr>
         <tr>
@@ -59,7 +59,7 @@ def email_shell(preheader: str, inner_html: str) -> str:
         </tr>
         <tr>
           <td style="padding:20px 32px;border-top:1px solid #d8e0e8;color:#55677c;font-size:12px;">
-            <p style="margin:0;">Safe travels, from the flyt.io team.</p>
+            <p style="margin:0;">Safe travels, from the flyt team.</p>
             <p style="margin:8px 0 0;">This is an automated message - please don't reply directly to this email.</p>
           </td>
         </tr>

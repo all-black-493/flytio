@@ -11,4 +11,4 @@ client = TestClient(app, client=("127.0.0.1", 50000))
 def test_read_main():
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Flyt.io is live"}
+    assert response.json() == {"message": "Flyt is live"}

@@ -25,9 +25,9 @@ from backend.schemas.payments import (
     PaymentStatusResponse,
 )
 from backend.schemas.pesapal import PesapalBillingAddress
+from backend.utils.guard import guard_deco
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pricing import marked_up_amount
-from backend.utils.rate_limit import enforce_rate_limit
 from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
@@ -36,20 +36,14 @@ router = APIRouter(prefix="/payments")
 
 FRONTEND_URL = settings.FRONTEND_URL
 
-# Per-user: both checkout paths are authenticated and each call re-confirms
-# price with Duffel and creates a provider-side order (Pesapal order /
-# Duffel PaymentIntent) - this guards against a runaway retry loop (bug or
+# Both checkout paths are authenticated and each call re-confirms price
+# with Duffel and creates a provider-side order (Pesapal order / Duffel
+# PaymentIntent) - this guards against a runaway retry loop (bug or
 # otherwise) spamming either provider with duplicate in-flight payments.
-CHECKOUT_USER_LIMIT = 10
+# IP-keyed via guard_deco.rate_limit (fastapi-guard) below, not per-user -
+# see routers/users.py's constants block for why.
+CHECKOUT_IP_LIMIT = 10
 CHECKOUT_WINDOW_SECONDS = 60 * 10
-
-
-def _check_checkout_rate_limit(current_user: UserInDB) -> None:
-    enforce_rate_limit(
-        f"ratelimit:checkout:user:{current_user.id}",
-        limit=CHECKOUT_USER_LIMIT,
-        window_seconds=CHECKOUT_WINDOW_SECONDS,
-    )
 
 
 def _get_owned_payment(
@@ -100,6 +94,7 @@ async def _reconfirm_price_and_create_payment(
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
+@guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
 async def checkout(
     request: CheckoutRequest,
     current_user: UserInDB = Depends(get_current_user),
@@ -114,7 +109,6 @@ async def checkout(
     and /payments/ipn), so no airline-side hold is ever created for a
     purchase the customer doesn't complete.
     """
-    _check_checkout_rate_limit(current_user)
     offer_id = request.selected_offers[0]
     payment = await _reconfirm_price_and_create_payment(
         session, current_user, request, PaymentProvider.PESAPAL
@@ -133,7 +127,7 @@ async def checkout(
             merchant_reference=payment.merchant_reference,
             amount=float(payment.amount),
             currency=payment.currency,
-            description=f"flyt.io flight booking ({offer_id})",
+            description=f"flyt flight booking ({offer_id})",
             callback_url=f"{FRONTEND_URL}/booking/payment-callback?payment_id={payment.id}",
             cancellation_url=(
                 f"{FRONTEND_URL}/booking/payment-callback"
@@ -157,6 +151,7 @@ async def checkout(
 
 
 @router.post("/checkout/card", response_model=CardCheckoutResponse)
+@guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
 async def checkout_card(
     request: CheckoutRequest,
     current_user: UserInDB = Depends(get_current_user),
@@ -170,7 +165,6 @@ async def checkout_card(
     never reach our backend. See POST /payments/{payment_id}/confirm-card
     for what happens once the customer submits their card.
     """
-    _check_checkout_rate_limit(current_user)
     payment = await _reconfirm_price_and_create_payment(
         session, current_user, request, PaymentProvider.DUFFEL
     )

@@ -21,11 +21,11 @@ logger = get_app_logger(__name__)
 async def lifespan(app: FastAPI):
     # Schema is now owned by Alembic migrations (see alembic/), run before
     # the app starts (compose.yaml's command) - not created/altered here.
-    logger.info("flyt.io backend starting up")
+    logger.info("flyt backend starting up")
     yield
     await duffel_flight_service.aclose()
     await pesapal_payment_service.aclose()
-    logger.info("flyt.io backend shutting down")
+    logger.info("flyt backend shutting down")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -56,7 +56,7 @@ app.include_router(payments.router)
 
 @app.get("/")
 def hello():
-    return {"message": "Flyt.io is live"}
+    return {"message": "Flyt is live"}
 
 
 @app.get("/health")

@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # named senders - hello@, noreply@, bookings@ - all built from this).
     RESEND_API_KEY: str
     MAIL_DOMAIN: str
-    MAIL_FROM_NAME: str = "flyt.io"
+    MAIL_FROM_NAME: str = "flyt"
 
     # Auth
     SECRET_KEY: str
