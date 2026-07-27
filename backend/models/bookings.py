@@ -37,8 +37,13 @@ class Booking(SQLModel, table=True):
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4, nullable=False, primary_key=True, index=True
     )
+    # RESTRICT, not CASCADE: account deletion (crud/users.py's
+    # delete_user_account) scrubs the UserInDB row's identity but never
+    # hard-deletes it, specifically so booking history survives - this FK
+    # setting is the DB-level backstop against a future hard-delete
+    # (admin tooling, a cleanup script) silently wiping it instead.
     user_id: uuid.UUID = Field(
-        foreign_key="userindb.id", index=True, ondelete="CASCADE"
+        foreign_key="userindb.id", index=True, ondelete="RESTRICT"
     )
 
     duffel_order_id: str = Field(

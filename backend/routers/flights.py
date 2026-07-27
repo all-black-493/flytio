@@ -1,6 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Response, status, Query, Depends, Path
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Response,
+    status,
+    Query,
+    Depends,
+    Path,
+)
 from sqlmodel import Session
 
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
@@ -19,6 +27,7 @@ from backend.crud.bookings import (
     mark_booking_cancelled,
 )
 from backend.crud.db import get_session
+from backend.crud.tickets import get_ticket_by_number
 from backend.schemas.bookings import (
     BookingListQueryParams,
     BookingListResponse,
@@ -39,7 +48,9 @@ from backend.schemas.duffel_flights import (
     PlaceSuggestionsQuery,
     PlaceSuggestionsResponse,
 )
+from backend.utils.guard import guard_deco
 from backend.utils.itinerary_pdf import build_itinerary_pdf
+from backend.utils.log_manager import get_app_logger
 from backend.utils.offer_filtering import build_flight_search_response
 from backend.utils.pricing import apply_markup_to_offer_dict
 
@@ -48,10 +59,22 @@ from backend.utils.security import get_current_user
 from backend.models.users import UserInDB
 from backend.models.bookings import Booking
 
+logger = get_app_logger(__name__)
+
 router = APIRouter()
 
 CACHE_TTL_SECONDS = 60
 PLACES_CACHE_TTL_SECONDS = 60 * 60 * 24
+
+# Per-IP only: both endpoints are unauthenticated. Search is cache-backed
+# (CACHE_TTL_SECONDS) but a cache miss still hits Duffel directly, and
+# pricing has no cache at all - both are real per-request Duffel cost, so
+# this guards against a sweep that varies params just enough to always
+# miss the cache. Enforced via guard_deco.rate_limit decorators below
+# (fastapi-guard, IP-keyed) rather than our own limiter - see utils/guard.py.
+SEARCH_IP_LIMIT = 30
+PRICING_IP_LIMIT = 30
+SHOPPING_WINDOW_SECONDS = 60
 
 
 def _duffel_http_exception(error: DuffelAPIError) -> HTTPException:
@@ -97,6 +120,7 @@ async def _search_flights_cached(request: OfferRequestCreate) -> dict:
 
 
 @router.post("/shopping/flight-offers", response_model=FlightSearchResponse)
+@guard_deco.rate_limit(requests=SEARCH_IP_LIMIT, window=SHOPPING_WINDOW_SECONDS)
 async def search_flights(
     request: OfferRequestCreate,
     params: Annotated[OfferListQueryParams, Query()],
@@ -119,7 +143,7 @@ async def search_flights(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        print("Error: ", e)
+        logger.exception("Unexpected error during flight search")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Flight search failed: {str(e)}",
@@ -127,7 +151,10 @@ async def search_flights(
 
 
 @router.get("/shopping/flight-offers", response_model=FlightSearchResponse)
-async def search_flights_2(params: Annotated[FlightSearchAndListQueryParams, Query()]):
+@guard_deco.rate_limit(requests=SEARCH_IP_LIMIT, window=SHOPPING_WINDOW_SECONDS)
+async def search_flights_2(
+    params: Annotated[FlightSearchAndListQueryParams, Query()],
+):
     """
     Simple flight search via query parameters.
 
@@ -152,6 +179,7 @@ async def search_flights_2(params: Annotated[FlightSearchAndListQueryParams, Que
 
 
 @router.post("/shopping/flight-offers/pricing", response_model=OfferResponse)
+@guard_deco.rate_limit(requests=PRICING_IP_LIMIT, window=SHOPPING_WINDOW_SECONDS)
 async def confirm_price(request: OfferPriceRequest):
     """
     Confirm the live price of a selected offer.
@@ -212,12 +240,12 @@ async def flight_order(
     try:
         order = Order.model_validate(response["data"])
         create_booking_from_order(session, current_user.id, order, seat_by_passenger_id)
-    except Exception as e:
+    except Exception:
         # The airline booking already succeeded at this point - a failure
         # persisting our own record must not turn that into an error the
         # caller could mistake for a failed/retriable booking attempt.
-        print(
-            f"Failed to persist booking for order {response.get('data', {}).get('id')}: {e}"
+        logger.exception(
+            "Failed to persist booking for order %s", response.get("data", {}).get("id")
         )
 
     return response
@@ -318,6 +346,32 @@ async def get_flight_order_by_id(
     that Duffel's raw order response doesn't carry in the same shape.
     """
     booking = get_booking(session, booking_id)
+    if booking is None or booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    return booking
+
+
+@router.get(
+    "/booking/flight-orders/by-ticket/{ticket_number}", response_model=BookingPublic
+)
+async def get_flight_order_by_ticket_number(
+    ticket_number: Annotated[str, Path()],
+    current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    Look up one of the current user's bookings by an airline-issued ticket
+    number alone, for a traveler who has the ticket number but not our
+    internal booking id handy.
+    """
+    ticket = get_ticket_by_number(session, ticket_number)
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    booking = get_booking(session, ticket.booking_id)
     if booking is None or booking.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"

@@ -5,9 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aiosmtplib>=5.1.2",
+    "alembic>=1.18.5",
     "email-validator>=2.3.0",
-    "fastapi-mail>=1.6.5",
+    "fastapi-guard>=7.3.0",
     "fastapi[standard]>=0.139.0",
     "fpdf2>=2.8.7",
     "httpx>=0.28.1",
@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "qrcode[pil]>=8.2",
     "redis>=8.0.1",
+    "resend>=2.16.0",
     "ruff>=0.15.22",
     "sqlmodel>=0.0.39",
 ]

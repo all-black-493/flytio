@@ -71,8 +71,18 @@ def create_booking_from_order(
                     duffel_segment_id=segment.id,
                     origin_iata_code=segment.origin.iata_code or "",
                     origin_name=segment.origin.name,
+                    origin_terminal=(
+                        str(segment.origin_terminal)
+                        if segment.origin_terminal is not None
+                        else None
+                    ),
                     destination_iata_code=segment.destination.iata_code or "",
                     destination_name=segment.destination.name,
+                    destination_terminal=(
+                        str(segment.destination_terminal)
+                        if segment.destination_terminal is not None
+                        else None
+                    ),
                     departing_at=segment.departing_at,
                     arriving_at=segment.arriving_at,
                     duration=segment.duration,
@@ -102,6 +112,7 @@ def create_booking_from_order(
                         if segment.operating_carrier
                         else None
                     ),
+                    operating_carrier_flight_number=segment.operating_carrier_flight_number,
                     aircraft_name=segment.aircraft.name if segment.aircraft else None,
                 )
             )

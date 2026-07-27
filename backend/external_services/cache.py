@@ -5,6 +5,9 @@ import redis
 
 from backend.config import settings
 from backend.schemas.duffel_flights import OfferRequestCreate, PlaceSuggestionsQuery
+from backend.utils.log_manager import get_app_logger
+
+logger = get_app_logger(__name__)
 
 
 class RedisCache:
@@ -15,20 +18,20 @@ class RedisCache:
         try:
             json_value = json.dumps(value)
             self.r.setex(key, expiration_seconds, json_value)
-            print(f"Cached key: {key} for {expiration_seconds} seconds")
+            logger.debug("Cached key: %s for %ss", key, expiration_seconds)
         except redis.exceptions.ConnectionError as e:
-            print(f"Redis connection error: {e}")
+            logger.warning("Redis connection error while caching %s: %s", key, e)
 
     def get(self, key: str):
         try:
             json_value = self.r.get(key)
             if json_value:
-                print(f"Cache hit for key: {key}")
+                logger.debug("Cache hit for key: %s", key)
                 return json.loads(json_value)
-            print(f"Cache miss for key: {key}")
+            logger.debug("Cache miss for key: %s", key)
             return None
         except redis.exceptions.ConnectionError as e:
-            print(f"Redis connection error: {e}")
+            logger.warning("Redis connection error while reading %s: %s", key, e)
             return None
 
 

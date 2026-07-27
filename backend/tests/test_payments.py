@@ -11,7 +11,7 @@ import uuid
 from datetime import date
 
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.crud.bookings import get_booking
@@ -19,6 +19,7 @@ from backend.crud.payments import confirm_card_payment, create_payment, finalize
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
 from backend.models.payments import PaymentProvider, PaymentStatus
+from backend.models.tickets import Ticket
 from backend.schemas.duffel_flights import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 from backend.schemas.pesapal import PesapalTransactionStatusResponse
@@ -87,7 +88,23 @@ def _pending_card_payment(session: Session):
     return payment
 
 
-def _fake_duffel_order() -> dict:
+_DEFAULT_FAKE_DOCUMENTS = [
+    {
+        "unique_identifier": "1234567890123",
+        "type": "electronic_ticket",
+        "passenger_ids": ["pas_test123"],
+    }
+]
+
+
+def _fake_duffel_order(documents: list | None = None) -> dict:
+    """Defaults to a non-empty `documents` list so callers that don't care
+    about ticket-issuance timing (most tests) never hit _complete_booking's
+    documents-empty retry path, which calls the real (unmocked, in these
+    tests) get_flight_order - pass documents=[] explicitly to opt into
+    that path, as test_finalize_payment_retries_and_picks_up_tickets_
+    issued_late and test_finalize_payment_completes_even_if_tickets_never_
+    arrive do."""
     return {
         "data": {
             "id": "ord_test123",
@@ -108,7 +125,9 @@ def _fake_duffel_order() -> dict:
                     "phone_number": "+254757573984",
                 }
             ],
-            "documents": [],
+            "documents": documents
+            if documents is not None
+            else _DEFAULT_FAKE_DOCUMENTS,
         }
     }
 
@@ -139,6 +158,104 @@ def test_finalize_payment_completed(session, monkeypatch):
     assert result.status == PaymentStatus.COMPLETED
     assert result.booking_id is not None
     assert result.pesapal_confirmation_code == "conf_1"
+
+
+def test_finalize_payment_retries_and_picks_up_tickets_issued_late(
+    session, monkeypatch
+):
+    """Duffel's own docs say ticketing can lag order creation - if the
+    creation response comes back with no documents, _complete_booking
+    should re-fetch the order rather than settling for zero tickets."""
+    payment = _pending_payment(session)
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1,
+            confirmation_code="conf_1",
+            payment_status_description="COMPLETED",
+        )
+
+    async def fake_create_flight_order(order):
+        return _fake_duffel_order(documents=[])
+
+    get_flight_order_calls = []
+
+    async def fake_get_flight_order(order_id):
+        get_flight_order_calls.append(order_id)
+        # Ticket shows up on the first re-check.
+        return _fake_duffel_order(
+            documents=[
+                {
+                    "unique_identifier": "1234567890123",
+                    "type": "electronic_ticket",
+                    "passenger_ids": ["pas_test123"],
+                }
+            ]
+        )
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "get_flight_order", fake_get_flight_order
+    )
+    monkeypatch.setattr("backend.crud.payments._TICKETING_CONFIRM_DELAY_SECONDS", 0)
+
+    result = asyncio.run(finalize_payment(session, payment))
+
+    assert result.status == PaymentStatus.COMPLETED
+    assert get_flight_order_calls == ["ord_test123"]
+    booking = get_booking(session, result.booking_id)
+    tickets = [t for p in booking.passengers for t in p.tickets] + list(
+        session.exec(select(Ticket).where(Ticket.booking_id == booking.id))
+    )
+    assert any(t.ticket_number == "1234567890123" for t in tickets)
+
+
+def test_finalize_payment_completes_even_if_tickets_never_arrive(session, monkeypatch):
+    """If Duffel still hasn't issued documents after every retry, the
+    booking still completes (the order is genuinely paid and confirmed) -
+    it just ends up with zero Ticket rows rather than blocking forever."""
+    payment = _pending_payment(session)
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1,
+            confirmation_code="conf_1",
+            payment_status_description="COMPLETED",
+        )
+
+    async def fake_create_flight_order(order):
+        return _fake_duffel_order(documents=[])
+
+    get_flight_order_calls = []
+
+    async def fake_get_flight_order(order_id):
+        get_flight_order_calls.append(order_id)
+        return _fake_duffel_order(documents=[])
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "get_flight_order", fake_get_flight_order
+    )
+    monkeypatch.setattr("backend.crud.payments._TICKETING_CONFIRM_DELAY_SECONDS", 0)
+
+    result = asyncio.run(finalize_payment(session, payment))
+
+    assert result.status == PaymentStatus.COMPLETED
+    assert len(get_flight_order_calls) == 3
+    booking = get_booking(session, result.booking_id)
+    assert (
+        list(session.exec(select(Ticket).where(Ticket.booking_id == booking.id))) == []
+    )
 
 
 def test_finalize_payment_pays_duffel_the_raw_amount_not_the_charged_one(

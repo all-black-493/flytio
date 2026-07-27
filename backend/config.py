@@ -33,13 +33,13 @@ class Settings(BaseSettings):
     # CORS - comma-separated origins allowed to hit the API with credentials
     CORS_ORIGINS: str = ""
 
-    # Outbound mail (fastapi-mail)
-    MAIL_USERNAME: str
-    MAIL_PASSWORD: str
-    MAIL_FROM: str
+    # Outbound mail (Resend). MAIL_DOMAIN must be verified in the Resend
+    # dashboard - once it is, Resend lets you send from *any* address at
+    # that domain with no further per-address setup (see utils/email.py's
+    # named senders - hello@, noreply@, bookings@ - all built from this).
+    RESEND_API_KEY: str
+    MAIL_DOMAIN: str
     MAIL_FROM_NAME: str = "flyt.io"
-    MAIL_PORT: int
-    MAIL_SERVER: str
 
     # Auth
     SECRET_KEY: str

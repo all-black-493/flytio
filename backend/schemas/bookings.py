@@ -21,8 +21,10 @@ class FlightPublic(SQLModel):
     duffel_segment_id: str
     origin_iata_code: str
     origin_name: str | None = None
+    origin_terminal: str | None = None
     destination_iata_code: str
     destination_name: str | None = None
+    destination_terminal: str | None = None
     departing_at: datetime
     arriving_at: datetime
     duration: str | None = None
@@ -32,6 +34,7 @@ class FlightPublic(SQLModel):
     marketing_carrier_flight_number: str | None = None
     operating_carrier_iata_code: str | None = None
     operating_carrier_name: str | None = None
+    operating_carrier_flight_number: str | None = None
     aircraft_name: str | None = None
 
 

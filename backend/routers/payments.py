@@ -25,12 +25,31 @@ from backend.schemas.payments import (
     PaymentStatusResponse,
 )
 from backend.schemas.pesapal import PesapalBillingAddress
+from backend.utils.log_manager import get_app_logger
 from backend.utils.pricing import marked_up_amount
+from backend.utils.rate_limit import enforce_rate_limit
 from backend.utils.security import get_current_user
+
+logger = get_app_logger(__name__)
 
 router = APIRouter(prefix="/payments")
 
 FRONTEND_URL = settings.FRONTEND_URL
+
+# Per-user: both checkout paths are authenticated and each call re-confirms
+# price with Duffel and creates a provider-side order (Pesapal order /
+# Duffel PaymentIntent) - this guards against a runaway retry loop (bug or
+# otherwise) spamming either provider with duplicate in-flight payments.
+CHECKOUT_USER_LIMIT = 10
+CHECKOUT_WINDOW_SECONDS = 60 * 10
+
+
+def _check_checkout_rate_limit(current_user: UserInDB) -> None:
+    enforce_rate_limit(
+        f"ratelimit:checkout:user:{current_user.id}",
+        limit=CHECKOUT_USER_LIMIT,
+        window_seconds=CHECKOUT_WINDOW_SECONDS,
+    )
 
 
 def _get_owned_payment(
@@ -95,6 +114,7 @@ async def checkout(
     and /payments/ipn), so no airline-side hold is ever created for a
     purchase the customer doesn't complete.
     """
+    _check_checkout_rate_limit(current_user)
     offer_id = request.selected_offers[0]
     payment = await _reconfirm_price_and_create_payment(
         session, current_user, request, PaymentProvider.PESAPAL
@@ -150,6 +170,7 @@ async def checkout_card(
     never reach our backend. See POST /payments/{payment_id}/confirm-card
     for what happens once the customer submits their card.
     """
+    _check_checkout_rate_limit(current_user)
     payment = await _reconfirm_price_and_create_payment(
         session, current_user, request, PaymentProvider.DUFFEL
     )
@@ -259,8 +280,12 @@ async def pesapal_ipn(
     if payment is not None:
         try:
             await finalize_payment(session, payment)
-        except PesapalAPIError:
-            pass  # Pesapal retries the IPN on failure; nothing more to do here
+        except PesapalAPIError as e:
+            # Pesapal retries the IPN on failure; nothing more to do here
+            # beyond a record of it, since this is expected to self-heal.
+            logger.info(
+                "IPN-triggered status check failed for payment %s: %s", payment.id, e
+            )
 
     return {
         "orderNotificationType": OrderNotificationType,

@@ -2,22 +2,30 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from guard import SecurityMiddleware
 from sqlmodel import Session, text
 
 from backend.config import settings
-from backend.crud.db import get_session, init_db
+from backend.crud.db import get_session
 from backend.external_services.flight import duffel_flight_service
 from backend.external_services.payment import pesapal_payment_service
+from backend.utils.guard import guard_deco, security_config
+from backend.utils.log_manager import get_app_logger
 
 from .routers import flights, payments, users
+
+logger = get_app_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # Schema is now owned by Alembic migrations (see alembic/), run before
+    # the app starts (compose.yaml's command) - not created/altered here.
+    logger.info("flyt.io backend starting up")
     yield
     await duffel_flight_service.aclose()
     await pesapal_payment_service.aclose()
+    logger.info("flyt.io backend shutting down")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -34,6 +42,12 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+
+app.add_middleware(SecurityMiddleware, config=security_config)
+# Required for guard_deco.rate_limit(...) route overrides (see routers/) to
+# actually take effect - SecurityMiddleware reads route-specific config off
+# this, not off the guard_deco instance directly.
+app.state.guard_decorator = guard_deco
 
 app.include_router(users.router)
 app.include_router(flights.router)

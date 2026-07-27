@@ -20,5 +20,13 @@ class UserInDB(SQLModel, table=True):
         "before this timestamp are rejected by get_current_user, so a "
         "reset also invalidates any already-issued session.",
     )
+    deleted_at: datetime | None = Field(
+        default=None,
+        description="Set when the account owner deletes their account. "
+        "The row itself is kept (not hard-deleted) so booking/payment "
+        "history stays intact - email/password are scrubbed instead (see "
+        "crud/users.py's delete_user_account), and get_current_user/"
+        "authenticate_user both reject any account with this set.",
+    )
 
     bookings: list["Booking"] = Relationship(back_populates="user")

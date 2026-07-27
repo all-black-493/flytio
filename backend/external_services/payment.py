@@ -46,7 +46,7 @@ class PesapalPaymentService:
         self.consumer_secret = settings.PESAPAL_CONSUMER_SECRET
         self.ipn_id = settings.PESAPAL_IPN_ID
         self.base_url = PESAPAL_BASE_URLS.get(
-            settings.PESAPAL_ENV, PESAPAL_BASE_URLS["sandbox"]
+            settings.PESAPAL_ENV, PESAPAL_BASE_URLS["live"]
         )
         self._client: httpx.AsyncClient | None = None
 
@@ -160,10 +160,7 @@ class PesapalPaymentService:
         cancellation_url: str | None = None,
     ) -> PesapalSubmitOrderResponse:
         if not self.ipn_id:
-            raise ValueError(
-                "Pesapal IPN not registered (set PESAPAL_IPN_ID - see "
-                "backend/scripts/register_pesapal_ipn.py)"
-            )
+            raise ValueError("Pesapal IPN not registered")
         body = {
             "id": merchant_reference,
             "currency": currency,

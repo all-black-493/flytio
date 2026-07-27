@@ -85,6 +85,11 @@ def authenticate_user(session: Session, email: str, password: str):
         return False
     if not verify_password(password, user.password):
         return False
+    # Belt-and-suspenders: a deleted account's email is already scrubbed
+    # (crud/users.py's delete_user_account), so this lookup should already
+    # miss - this guards the same outcome if that ever isn't true.
+    if user.deleted_at is not None:
+        return False
     return user
 
 
@@ -140,6 +145,8 @@ def get_current_user(token: str = Depends(get_token), session=Depends(get_sessio
 
         user = session.exec(select(UserInDB).where(UserInDB.email == email)).first()
         if user is None:
+            raise credentials_exception
+        if user.deleted_at is not None:
             raise credentials_exception
 
         # A password reset invalidates any access token issued before it -

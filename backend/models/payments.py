@@ -38,8 +38,12 @@ class Payment(SQLModel, table=True):
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4, nullable=False, primary_key=True, index=True
     )
+    # RESTRICT, not CASCADE - see models/bookings.py's Booking.user_id for
+    # the reasoning (account deletion soft-deletes, never hard-deletes,
+    # UserInDB; this is the DB-level backstop preserving payment/financial
+    # history against a future hard-delete doing it anyway).
     user_id: uuid.UUID = Field(
-        foreign_key="userindb.id", index=True, ondelete="CASCADE"
+        foreign_key="userindb.id", index=True, ondelete="RESTRICT"
     )
     booking_id: uuid.UUID | None = Field(
         default=None, foreign_key="booking.id", index=True

@@ -12,4 +12,7 @@ wheels/
 # env vars
 .env
 
+# rotating app logs (utils/log_manager.py)
+*.log
+
 flytio_keypair.pem

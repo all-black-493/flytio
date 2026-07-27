@@ -1,8 +1,17 @@
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from backend.models.bookings import Booking
 from backend.models.tickets import Ticket
 from backend.schemas.duffel_flights import Order
+
+
+def get_ticket_by_number(session: Session, ticket_number: str) -> Ticket | None:
+    """Looks up a ticket by its airline-issued number alone, so a
+    traveler/support agent can find which booking a ticket belongs to
+    without already knowing our internal booking id."""
+    return session.exec(
+        select(Ticket).where(Ticket.ticket_number == ticket_number)
+    ).first()
 
 
 def create_tickets_from_order(

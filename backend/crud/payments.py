@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime
 
@@ -11,8 +12,11 @@ from backend.models.payments import Payment, PaymentProvider, PaymentStatus
 from backend.models.users import UserInDB
 from backend.schemas.duffel_flights import Order, OrderCreate, OrderPayment
 from backend.schemas.payments import CheckoutRequest
-from backend.utils.email import send_html_email_async
+from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
+from backend.utils.log_manager import get_app_logger
+
+logger = get_app_logger(__name__)
 
 # Pesapal's status_code: 0 INVALID, 1 COMPLETED, 2 FAILED, 3 REVERSED.
 _PESAPAL_COMPLETED = 1
@@ -21,6 +25,17 @@ _PESAPAL_COMPLETED = 1
 # and message "Pending Payment" - i.e. INVALID can mean "not resolved yet",
 # not just "malformed/dead". Only 2/3 are genuinely final.
 _PESAPAL_TERMINAL_FAILURE_CODES = {2, 3}
+
+# Duffel's own docs (holding-orders-and-paying-later, holding-flights-and-
+# paying-later, using-airline-credits) all give the same instruction after
+# paying for an order: re-fetch it and confirm `documents` were actually
+# issued, rather than trusting the order-creation response as final -
+# implying ticketing can lag slightly behind order creation/payment. This
+# bounds how long _complete_booking will wait for that to happen before
+# giving up and proceeding with whatever documents (possibly none) Duffel
+# has issued so far.
+_TICKETING_CONFIRM_RETRIES = 3
+_TICKETING_CONFIRM_DELAY_SECONDS = 2
 
 
 def create_payment(
@@ -85,6 +100,15 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
                     currency=payment.currency,
                 )
             ],
+            # Duffel echoes this back on every future GET of the order, so
+            # it's a reconciliation hook back to our own Payment/Booking
+            # rows that survives independent of - and is queryable straight
+            # from Duffel's side without - our own DB (e.g. from Duffel's
+            # dashboard/support when investigating a specific order).
+            metadata={
+                "payment_id": str(payment.id),
+                "merchant_reference": payment.merchant_reference,
+            },
         )
         request_body = order_request.model_dump(mode="json", exclude_none=True)
         for passenger in request_body.get("passengers", []):
@@ -92,6 +116,37 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
 
         duffel_response = await duffel_flight_service.create_flight_order(request_body)
         order = Order.model_validate(duffel_response["data"])
+
+        # See _TICKETING_CONFIRM_RETRIES above: give Duffel a few chances to
+        # finish issuing e-tickets before we settle for whatever `documents`
+        # came back on the order-creation response.
+        for attempt in range(_TICKETING_CONFIRM_RETRIES):
+            if order.documents:
+                break
+            await asyncio.sleep(_TICKETING_CONFIRM_DELAY_SECONDS)
+            try:
+                refreshed = await duffel_flight_service.get_flight_order(order.id)
+                order = Order.model_validate(refreshed["data"])
+            except DuffelAPIError as e:
+                # The order itself is already paid and confirmed - a failed
+                # re-check is not a booking failure, just a missed chance to
+                # pick up tickets that may have since been issued.
+                logger.warning(
+                    "Ticket-issuance re-check %d/%d failed for order %s: %s",
+                    attempt + 1,
+                    _TICKETING_CONFIRM_RETRIES,
+                    order.id,
+                    e,
+                )
+                break
+        if not order.documents:
+            logger.warning(
+                "Order %s still has no issued documents after %d re-check(s) -"
+                " booking will be recorded without ticket numbers for now",
+                order.id,
+                _TICKETING_CONFIRM_RETRIES,
+            )
+
         booking = create_booking_from_order(
             session,
             payment.user_id,
@@ -112,16 +167,25 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
                     f"You're booked! Reference {booking.booking_reference}",
                     [user.email],
                     booking_confirmation_email_html(booking),
+                    from_address=SENDER_BOOKINGS,
                 )
-        except Exception as e:
+        except Exception:
             # The booking itself already succeeded - a failed
             # notification email must not undo that or be mistaken for a
             # booking failure.
-            print(f"Failed to send confirmation email for booking {booking.id}: {e}")
+            logger.exception(
+                "Failed to send confirmation email for booking %s", booking.id
+            )
     except DuffelAPIError as e:
         # The customer's money already landed with us at this point -
         # this is the "flag for manual refund" case, not an error to
         # silently swallow.
+        logger.error(
+            "Booking failed for payment %s after money already collected"
+            " (needs manual follow-up): %s",
+            payment.id,
+            e,
+        )
         payment.status = PaymentStatus.BOOKING_FAILED
         payment.failure_reason = str(e)
 
@@ -166,8 +230,10 @@ async def finalize_payment(session: Session, payment: Payment) -> Payment:
         # status_code below, rather than raising into the router's 502
         # (which would also stop the frontend's poll loop, since a fetch
         # error means query.state.data never gets a status to key off).
-        print(
-            f"Pesapal status check failed for payment {payment.id}, still pending: {e}"
+        logger.info(
+            "Pesapal status check failed for payment %s, still pending: %s",
+            payment.id,
+            e,
         )
         return payment
 
@@ -223,6 +289,9 @@ async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
             payment.duffel_payment_intent_id
         )
     except DuffelAPIError as e:
+        logger.warning(
+            "Duffel PaymentIntent confirm failed for payment %s: %s", payment.id, e
+        )
         payment.status = PaymentStatus.FAILED
         payment.failure_reason = str(e)
         payment.updated_at = datetime.utcnow()
@@ -241,6 +310,11 @@ async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
     if intent_data.get("status") == "succeeded":
         await _complete_booking(session, payment)
     else:
+        logger.info(
+            "Card payment %s not completed (status: %s)",
+            payment.id,
+            intent_data.get("status"),
+        )
         payment.status = PaymentStatus.FAILED
         payment.failure_reason = (
             f"Card payment not completed (status: {intent_data.get('status')})"
