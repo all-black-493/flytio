@@ -58,6 +58,44 @@ def seat_services_cost(
     return f"{total:.2f}", currency
 
 
+def extra_baggage_cost(
+    available_services: list[dict], passengers: list
+) -> tuple[str, str] | None:
+    """Sums the price of every passenger's picked extra-baggage service
+    (OrderPassenger.extra_baggage_service_ids) - same pricing-integrity
+    reasoning as seat_services_cost above, and priced from the same
+    source (an offer's available_services, already fetched by the
+    caller's confirm_price call) rather than a second Duffel request.
+
+    Looks prices up from Duffel's own available_services list - a service
+    id that list doesn't actually offer to that specific passenger is
+    silently ignored, same defense as seat_services_cost.
+    """
+    service_index: dict[str, tuple[str, str, list[str]]] = {}
+    for service in available_services:
+        if service.get("type") != "baggage":
+            continue
+        service_index[service["id"]] = (
+            service["total_amount"],
+            service["total_currency"],
+            service.get("passenger_ids", []),
+        )
+
+    total = 0.0
+    currency: str | None = None
+    for passenger in passengers:
+        for service_id in getattr(passenger, "extra_baggage_service_ids", None) or []:
+            match = service_index.get(service_id)
+            if match is None or passenger.id not in match[2]:
+                continue
+            total += float(match[0])
+            currency = match[1]
+
+    if total == 0.0 or currency is None:
+        return None
+    return f"{total:.2f}", currency
+
+
 def apply_markup_to_offer_dict(offer: dict) -> dict:
     """Marks up an Offer/OfferGroup member's total_amount in place, folding
     the added margin into tax_amount (not base_amount) so base + tax still

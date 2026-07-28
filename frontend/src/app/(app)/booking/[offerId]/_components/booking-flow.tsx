@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { BaggagePicker } from "@/app/(app)/booking/[offerId]/_components/baggage-picker";
 import { FlightSummary } from "@/app/(app)/booking/[offerId]/_components/flight-summary";
 import { PassengerForm, type PassengerDetails } from "@/app/(app)/booking/[offerId]/_components/passenger-form";
 import { SeatPicker, type SeatPick } from "@/app/(app)/booking/[offerId]/_components/seat-picker";
@@ -32,6 +33,7 @@ export function BookingFlow({ offerId }: { offerId: string }) {
 
   const [step, setStep] = useState<Step>("seats");
   const [selectedSeats, setSelectedSeats] = useState<Record<string, SeatPick>>({});
+  const [selectedBaggage, setSelectedBaggage] = useState<Record<string, Set<string>>>({});
   const [activePassengerId, setActivePassengerId] = useState<string | null>(null);
   const [passengers, setPassengers] = useState<OrderPassenger[] | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -133,6 +135,7 @@ export function BookingFlow({ offerId }: { offerId: string }) {
         ...passengerDetails[index],
         seat_designator: selectedSeats[p.id]?.designator,
         seat_service_id: selectedSeats[p.id]?.serviceId,
+        extra_baggage_service_ids: Array.from(selectedBaggage[p.id] ?? []),
       })),
     );
 
@@ -176,6 +179,26 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   );
   const seatCurrency = Object.values(selectedSeats)[0]?.currency;
 
+  const selectedBaggageServices = offer.available_services.filter((service) =>
+    Object.values(selectedBaggage).some((ids) => ids.has(service.id)),
+  );
+  const baggageTotal = selectedBaggageServices.reduce(
+    (sum, service) => sum + parseFloat(service.total_amount),
+    0,
+  );
+  const baggageCurrency = selectedBaggageServices[0]?.total_currency;
+  const extrasTotal = seatTotal + baggageTotal;
+  const extrasCurrency = seatCurrency ?? baggageCurrency;
+
+  function toggleBaggage(passengerId: string, serviceId: string) {
+    setSelectedBaggage((prev) => {
+      const next = new Set(prev[passengerId] ?? []);
+      if (next.has(serviceId)) next.delete(serviceId);
+      else next.add(serviceId);
+      return { ...prev, [passengerId]: next };
+    });
+  }
+
   function payWithPesapal() {
     if (!offer || !passengers) return;
     setPaymentMethod("pesapal");
@@ -218,9 +241,15 @@ export function BookingFlow({ offerId }: { offerId: string }) {
               }
             />
           )}
-          {seatTotal > 0 && seatCurrency && (
+          <BaggagePicker
+            services={offer.available_services}
+            passengers={seatEligiblePassengers}
+            selected={selectedBaggage}
+            onToggle={toggleBaggage}
+          />
+          {extrasTotal > 0 && extrasCurrency && (
             <p className="text-center text-sm text-muted-foreground">
-              Seats add {seatCurrency} {seatTotal.toFixed(2)} to your total.
+              Seats and extras add {extrasCurrency} {extrasTotal.toFixed(2)} to your total.
             </p>
           )}
           <Button

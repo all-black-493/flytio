@@ -112,6 +112,10 @@ export interface OrderPassenger {
    * the airline. The backend re-prices it from Duffel's own seat map at
    * checkout time rather than trusting this value's cost. */
   seat_service_id?: string | null;
+  /** Purchasable-baggage available_services[].id entries picked for this
+   * passenger (Offer.available_services, type "baggage") - same
+   * server-side re-pricing treatment as seat_service_id. */
+  extra_baggage_service_ids?: string[];
 }
 
 export interface OrderPayment {

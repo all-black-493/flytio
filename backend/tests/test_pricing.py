@@ -6,15 +6,22 @@ are kept separate end-to-end)."""
 from backend.utils.pricing import (
     MARKUP_RATE,
     apply_markup_to_offer_dict,
+    extra_baggage_cost,
     marked_up_amount,
     seat_services_cost,
 )
 
 
 class _FakePassenger:
-    def __init__(self, id: str, seat_service_id: str | None):
+    def __init__(
+        self,
+        id: str,
+        seat_service_id: str | None = None,
+        extra_baggage_service_ids: list[str] | None = None,
+    ):
         self.id = id
         self.seat_service_id = seat_service_id
+        self.extra_baggage_service_ids = extra_baggage_service_ids or []
 
 
 def _seat_map(elements: list[dict]) -> dict:
@@ -122,3 +129,52 @@ def test_apply_markup_to_offer_dict_without_tax_amount():
 def test_apply_markup_to_offer_dict_missing_total_amount_is_a_noop():
     offer = {"base_amount": "10.00", "tax_amount": "1.00"}
     assert apply_markup_to_offer_dict(offer) == offer
+
+
+def _baggage_service(id: str, passenger_ids: list[str], amount: str = "30.00") -> dict:
+    return {
+        "id": id,
+        "type": "baggage",
+        "total_amount": amount,
+        "total_currency": "USD",
+        "passenger_ids": passenger_ids,
+    }
+
+
+def test_extra_baggage_cost_sums_matching_passenger_picks():
+    available_services = [
+        _baggage_service("bag_1", ["pas_1"], "30.00"),
+        _baggage_service("bag_2", ["pas_2"], "20.00"),
+    ]
+    passengers = [
+        _FakePassenger("pas_1", extra_baggage_service_ids=["bag_1"]),
+        _FakePassenger("pas_2", extra_baggage_service_ids=["bag_2"]),
+    ]
+
+    assert extra_baggage_cost(available_services, passengers) == ("50.00", "USD")
+
+
+def test_extra_baggage_cost_ignores_a_service_id_not_owned_by_that_passenger():
+    available_services = [_baggage_service("bag_1", ["pas_1"], "30.00")]
+    passengers = [_FakePassenger("pas_2", extra_baggage_service_ids=["bag_1"])]
+
+    assert extra_baggage_cost(available_services, passengers) is None
+
+
+def test_extra_baggage_cost_ignores_non_baggage_service_types():
+    available_services = [
+        {
+            "id": "srv_1",
+            "type": "something_else",
+            "total_amount": "10.00",
+            "total_currency": "USD",
+            "passenger_ids": ["pas_1"],
+        }
+    ]
+    passengers = [_FakePassenger("pas_1", extra_baggage_service_ids=["srv_1"])]
+
+    assert extra_baggage_cost(available_services, passengers) is None
+
+
+def test_extra_baggage_cost_none_when_no_passenger_picked_extra_bags():
+    assert extra_baggage_cost([], [_FakePassenger("pas_1")]) is None

@@ -101,6 +101,17 @@ export const offerPassengerSchema = z.object({
 });
 export type OfferPassenger = z.infer<typeof offerPassengerSchema>;
 
+export const availableServiceSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  total_amount: z.string(),
+  total_currency: z.string(),
+  maximum_quantity: z.number().default(1),
+  passenger_ids: z.array(z.string()).default([]),
+  segment_ids: z.array(z.string()).default([]),
+});
+export type AvailableService = z.infer<typeof availableServiceSchema>;
+
 export const offerSchema = z.object({
   id: z.string(),
   live_mode: z.boolean().nullable(),
@@ -116,6 +127,7 @@ export const offerSchema = z.object({
   passengers: z.array(offerPassengerSchema),
   passenger_identity_documents_required: z.boolean().default(false),
   supported_passenger_identity_document_types: z.array(z.string()).default([]),
+  available_services: z.array(availableServiceSchema).default([]),
 });
 export type Offer = z.infer<typeof offerSchema>;
 

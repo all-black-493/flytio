@@ -19,7 +19,11 @@ from backend.schemas.payments import CheckoutRequest
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
 from backend.utils.log_manager import get_app_logger
-from backend.utils.pricing import marked_up_amount, seat_services_cost
+from backend.utils.pricing import (
+    extra_baggage_cost,
+    marked_up_amount,
+    seat_services_cost,
+)
 
 logger = get_app_logger(__name__)
 
@@ -158,6 +162,17 @@ async def reconfirm_price_and_create_payment(
         if seat_cost is not None:
             seat_amount, _seat_currency = seat_cost
             duffel_amount = f"{float(duffel_amount) + float(seat_amount):.2f}"
+
+    # Same reasoning for extra baggage, priced from the available_services
+    # already on offer_data - no second Duffel request needed here, unlike
+    # seats (which live on the separate seat-map endpoint).
+    if any(p.extra_baggage_service_ids for p in request.passengers):
+        baggage_cost = extra_baggage_cost(
+            offer_data.get("available_services", []), request.passengers
+        )
+        if baggage_cost is not None:
+            baggage_amount, _baggage_currency = baggage_cost
+            duffel_amount = f"{float(duffel_amount) + float(baggage_amount):.2f}"
 
     amount = marked_up_amount(duffel_amount)
 

@@ -324,6 +324,25 @@ class OfferPassenger(BaseSchema):
     )
 
 
+class AvailableService(BaseSchema):
+    """A purchasable ancillary on a priced offer - today only baggage
+    (Duffel's only currently-supported available_services type). Only
+    present when the offer was fetched with return_available_services=true
+    (see external_services/flight.py's confirm_price). segment_ids/
+    passenger_ids scope which segment(s) and passenger(s) this specific
+    service applies to - a multi-segment trip typically needs a separate
+    service purchased per segment for the same physical bag."""
+
+    id: str
+    type: str = Field(description="e.g. baggage")
+    total_amount: str
+    total_currency: str
+    maximum_quantity: int = 1
+    passenger_ids: list[str] = []
+    segment_ids: list[str] = []
+    metadata: dict = {}
+
+
 class Offer(BaseSchema):
     id: str
     live_mode: bool | None = None
@@ -351,6 +370,7 @@ class Offer(BaseSchema):
     supported_passenger_identity_document_types: list[str] = []
     conditions: Conditions | None = None
     payment_requirements: PaymentRequirements | None = None
+    available_services: list[AvailableService] = []
 
 
 class OfferRequest(BaseSchema):
