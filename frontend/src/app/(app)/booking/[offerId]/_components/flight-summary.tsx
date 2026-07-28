@@ -1,8 +1,7 @@
-import { PlaneTakeoff } from "lucide-react";
-
 import { AirlineLogo } from "@/components/AirlineLogo";
+import { FlightItineraryTimeline, segmentFromOffer } from "@/components/FlightItineraryTimeline";
 import { PriceBreakdown } from "@/components/PriceBreakdown";
-import { formatDuration, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
+import { formatDuration, stopsLabel } from "@/lib/api/format";
 import type { Offer } from "@/lib/api/schemas";
 
 export function FlightSummary({ offer }: { offer: Offer }) {
@@ -30,43 +29,15 @@ export function FlightSummary({ offer }: { offer: Offer }) {
         />
       </div>
       <div className="divide-y">
-        {offer.slices.map((slice) => {
-          const first = slice.segments[0];
-          const last = slice.segments[slice.segments.length - 1];
-          return (
-            <div key={slice.id} className="flex items-center gap-4 p-4">
-              <div>
-                <p className="text-lg font-bold tabular-nums leading-none">
-                  {formatTime(first.departing_at)}
-                </p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {first.origin.iata_code} · {formatShortDate(first.departing_at)}
-                </p>
-              </div>
-              <div className="flex flex-1 flex-col items-center px-2">
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {formatDuration(slice.duration)}
-                </span>
-                <div className="flex w-full items-center gap-1">
-                  <span className="h-px flex-1 bg-border" />
-                  <PlaneTakeoff className="size-3.5 rotate-45 text-signal" />
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {stopsLabel(slice)}
-                </span>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-bold tabular-nums leading-none">
-                  {formatTime(last.arriving_at)}
-                </p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {last.destination.iata_code} · {formatShortDate(last.arriving_at)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+        {offer.slices.map((slice) => (
+          <div key={slice.id} className="p-4">
+            <p className="mb-1 font-mono text-[11px] tracking-wide text-muted-foreground">
+              {slice.origin.iata_code} → {slice.destination.iata_code} ·{" "}
+              {formatDuration(slice.duration)} · {stopsLabel(slice)}
+            </p>
+            <FlightItineraryTimeline segments={slice.segments.map(segmentFromOffer)} />
+          </div>
+        ))}
       </div>
     </div>
   );

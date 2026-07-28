@@ -7,6 +7,7 @@ import { ArrowLeft, Download, PlaneTakeoff, Ticket as TicketIcon } from "lucide-
 import { bookingDetailQuery } from "@/app/(app)/account/bookings/[bookingId]/_lib/queries";
 import { CancelBookingDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/cancel-booking-dialog";
 import { AirlineLogo } from "@/components/AirlineLogo";
+import { FlightItineraryTimeline, segmentFromFlight } from "@/components/FlightItineraryTimeline";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -57,21 +58,8 @@ function SliceCard({ slice }: { slice: BookingSlicePublic }) {
           </p>
         </div>
       </div>
-      <div className="divide-y">
-        {slice.flights.map((flight) => (
-          <div
-            key={flight.id}
-            className="flex items-center justify-between px-4 py-2 text-sm text-muted-foreground"
-          >
-            <span>
-              {flight.origin_iata_code} → {flight.destination_iata_code}
-            </span>
-            <span>
-              {flight.marketing_carrier_name ?? flight.marketing_carrier_iata_code ?? ""}{" "}
-              {flight.marketing_carrier_flight_number ?? ""}
-            </span>
-          </div>
-        ))}
+      <div className="px-4">
+        <FlightItineraryTimeline segments={slice.flights.map(segmentFromFlight)} />
       </div>
     </div>
   );
