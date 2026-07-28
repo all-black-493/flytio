@@ -4,17 +4,35 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
 
 import { AuthCard } from "@/components/auth/auth-card";
+import { ExpiryCountdown } from "@/components/auth/expiry-countdown";
 import { friendlyAuthError } from "@/components/auth/form-error";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { resetPassword } from "@/lib/api/client";
 import { formLabelClass as labelClass } from "@/lib/utils";
+
+/** Reads the token's own `exp` claim rather than hardcoding the backend's
+ * PASSWORD_RESET_TOKEN_EXPIRE_MINUTES here - stays correct automatically
+ * if that ever changes, and needs no extra API call. Just a base64url
+ * decode for display purposes; the actual, authoritative expiry check
+ * still happens server-side on submit. */
+function decodeJwtExpiryMs(token: string): number | null {
+  try {
+    const payloadSegment = token.split(".")[1];
+    const base64 = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(base64));
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
 
 const resetPasswordSchema = z
   .object({
@@ -34,6 +52,13 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: { password: "", confirm: "" },
   });
+  // Only flips once, at the exact moment the link actually expires - the
+  // ticking itself lives in ExpiryCountdown and never touches this state,
+  // so typing in the form below doesn't compete with a re-render every
+  // second.
+  const [isExpired, setIsExpired] = useState(false);
+
+  const expiresAtMs = token ? decodeJwtExpiryMs(token) : null;
 
   const mutation = useMutation({
     mutationFn: (values: ResetPasswordValues) => resetPassword(token ?? "", values.password),
@@ -64,6 +89,27 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
     );
   }
 
+  // Caught before ever submitting, rather than letting the customer fill
+  // out the whole form and only find out it's expired from the backend's
+  // 400 response.
+  if (isExpired) {
+    return (
+      <AuthCard
+        strip="CHECK-IN"
+        gate="GATE 01"
+        title="This link has expired"
+        subtitle="Password reset links are only valid for a short time. Request a new one below."
+        footer={
+          <Link href="/forgot-password" className="font-semibold text-signal">
+            Request a new link
+          </Link>
+        }
+      >
+        <div />
+      </AuthCard>
+    );
+  }
+
   return (
     <AuthCard
       strip="CHECK-IN"
@@ -80,6 +126,12 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         className="mt-6 grid gap-4"
       >
+        {expiresAtMs !== null && (
+          <p className="text-center font-mono text-[11px] tracking-widest text-muted-foreground">
+            LINK EXPIRES IN{" "}
+            <ExpiryCountdown expiresAtMs={expiresAtMs} onExpire={() => setIsExpired(true)} />
+          </p>
+        )}
         <Field>
           <FieldLabel htmlFor="password" className={labelClass}>
             NEW PASSWORD
