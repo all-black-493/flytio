@@ -28,5 +28,17 @@ class UserInDB(SQLModel, table=True):
         "crud/users.py's delete_user_account), and get_current_user/"
         "authenticate_user both reject any account with this set.",
     )
+    is_staff: bool = Field(
+        default=False,
+        description="Can reach the staff/admin surface (routers/admin.py) "
+        "at all - independent of any specific permission, same as "
+        "Django's is_staff. See utils/rbac.py's require_staff.",
+    )
+    is_superuser: bool = Field(
+        default=False,
+        description="Implicitly has every permission (utils/rbac.py's "
+        "has_perm) and can manage groups/permissions themselves - same as "
+        "Django's is_superuser.",
+    )
 
     bookings: list["Booking"] = Relationship(back_populates="user")

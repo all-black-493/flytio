@@ -13,7 +13,7 @@ from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
 from backend.utils.log_manager import get_app_logger
 
-from .routers import bookings, flights, payments, stays, support, users, webhooks
+from .routers import admin, bookings, flights, payments, stays, support, users, webhooks
 
 logger = get_app_logger(__name__)
 
@@ -58,6 +58,7 @@ app.include_router(payments.router)
 app.include_router(webhooks.router)
 app.include_router(stays.router)
 app.include_router(support.router)
+app.include_router(admin.router)
 
 
 @app.get("/")

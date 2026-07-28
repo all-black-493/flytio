@@ -368,6 +368,23 @@ def count_user_bookings(
     return session.exec(count_query).one()
 
 
+def get_all_bookings(
+    session: Session, *, limit: int = 50, offset: int = 0
+) -> list[Booking]:
+    """Every booking in the system, unfiltered by owner - the staff/admin
+    counterpart to get_user_bookings, backing routers/admin.py's
+    GET /api/admin/bookings (gated by utils/rbac.py's require_permission
+    ("view_booking"))."""
+    query = (
+        select(Booking).order_by(Booking.created_at.desc()).offset(offset).limit(limit)
+    )
+    return list(session.exec(query).all())
+
+
+def count_all_bookings(session: Session) -> int:
+    return session.exec(select(func.count()).select_from(Booking)).one()
+
+
 def mark_booking_cancelled(session: Session, booking: Booking) -> Booking:
     booking.status = BookingStatus.CANCELLED
     booking.cancelled_at = datetime.utcnow()
