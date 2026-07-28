@@ -41,6 +41,13 @@ def create_booking_from_order(
         user_id=user_id,
         duffel_order_id=order.id,
         booking_reference=order.booking_reference or "",
+        # This function only ever runs after Duffel has actually issued the
+        # order (see crud/payments.py's _complete_booking) - a Booking row
+        # existing at all already means "confirmed" (see this model's own
+        # docstring). Explicit rather than relying on the model's PENDING
+        # default, which exists for a possible future hold-order flow
+        # (reserved, not yet paid), not for this path.
+        status=BookingStatus.CONFIRMED,
         total_amount=charged_amount or order.total_amount or "0",
         total_currency=charged_currency or order.total_currency or "",
         owner_iata_code=order.owner.iata_code if order.owner else None,

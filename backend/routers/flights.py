@@ -57,7 +57,7 @@ from backend.utils.pricing import apply_markup_to_offer_dict
 from typing import Annotated
 from backend.utils.security import get_current_user
 from backend.models.users import UserInDB
-from backend.models.bookings import Booking
+from backend.models.bookings import Booking, BookingStatus
 
 logger = get_app_logger(__name__)
 
@@ -450,7 +450,12 @@ async def request_order_cancellation(
     - Confirm the quote via the /confirm endpoint before it expires,
       otherwise a new quote must be requested
     """
-    _get_owned_booking(session, order_id, current_user)
+    booking = _get_owned_booking(session, order_id, current_user)
+    if booking.status == BookingStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This booking has already been cancelled.",
+        )
     try:
         response = await duffel_flight_service.request_order_cancellation(order_id)
         return response
@@ -478,6 +483,11 @@ async def confirm_order_cancellation(
     though Duffel only requires the cancellation ID to confirm.
     """
     booking = _get_owned_booking(session, order_id, current_user)
+    if booking.status == BookingStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This booking has already been cancelled.",
+        )
     try:
         response = await duffel_flight_service.confirm_order_cancellation(
             order_cancellation_id

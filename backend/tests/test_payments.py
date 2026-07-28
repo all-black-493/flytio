@@ -18,6 +18,7 @@ from backend.crud.bookings import get_booking
 from backend.crud.payments import confirm_card_payment, create_payment, finalize_payment
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
+from backend.models.bookings import BookingStatus
 from backend.models.payments import PaymentProvider, PaymentStatus
 from backend.models.tickets import Ticket
 from backend.schemas.duffel_flights import OrderPassenger
@@ -158,6 +159,11 @@ def test_finalize_payment_completed(session, monkeypatch):
     assert result.status == PaymentStatus.COMPLETED
     assert result.booking_id is not None
     assert result.pesapal_confirmation_code == "conf_1"
+
+    # A Booking row only ever gets created after Duffel has actually
+    # issued the order - it must never sit at the model's PENDING default.
+    booking = get_booking(session, result.booking_id)
+    assert booking.status == BookingStatus.CONFIRMED
 
 
 def test_finalize_payment_retries_and_picks_up_tickets_issued_late(
