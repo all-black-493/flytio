@@ -2,16 +2,19 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from backend.config import settings
 from backend.crud.bookings import get_booking
 from backend.crud.db import get_session
 from backend.crud.payments import (
+    attach_duffel_payment_intent,
+    attach_pesapal_tracking_id,
     confirm_card_payment,
-    create_payment,
     finalize_payment,
     get_payment,
+    get_payment_by_pesapal_tracking_id,
+    reconfirm_price_and_create_payment,
 )
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
@@ -25,9 +28,9 @@ from backend.schemas.payments import (
     PaymentStatusResponse,
 )
 from backend.schemas.pesapal import PesapalBillingAddress
+from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
 from backend.utils.log_manager import get_app_logger
-from backend.utils.pricing import marked_up_amount, seat_services_cost
 from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
@@ -59,74 +62,6 @@ def _get_owned_payment(
     return payment
 
 
-async def _reconfirm_price_and_create_payment(
-    session: Session,
-    current_user: UserInDB,
-    request: CheckoutRequest,
-    provider: PaymentProvider,
-) -> Payment:
-    """Shared by both checkout endpoints below: re-confirms the offer's
-    live price, applies flyt's markup, and persists a pending Payment.
-    The one place this money-critical price/markup logic lives, so both
-    payment providers can never drift apart on it."""
-    offer_id = request.selected_offers[0]
-    try:
-        priced = await duffel_flight_service.confirm_price(offer_id)
-    except DuffelAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.errors)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    offer_data = priced["data"]
-    duffel_amount = offer_data["total_amount"]
-    currency = offer_data["total_currency"]
-
-    # Some itineraries won't be accepted by the airline (and Duffel will
-    # reject the order) without a passport on file for every passenger -
-    # catching it here gives a clear error before we ever charge the
-    # customer, rather than a failed booking after payment already landed.
-    if offer_data.get("passenger_identity_documents_required"):
-        missing = [
-            p.given_name or p.id for p in request.passengers if not p.identity_documents
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "This itinerary requires passport details for every "
-                    f"passenger. Missing for: {', '.join(missing)}"
-                ),
-            )
-
-    # If any passenger picked a paid seat, its cost must be folded into
-    # what Duffel is paid (and what the customer is charged) now - Duffel
-    # rejects an order whose payments[].amount doesn't exactly match the
-    # order's real total, services included (see _complete_booking).
-    if any(p.seat_service_id for p in request.passengers):
-        try:
-            seat_map_response = await duffel_flight_service.view_seat_map(offer_id)
-        except DuffelAPIError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.errors)
-        seat_cost = seat_services_cost(
-            seat_map_response.get("data", []), request.passengers
-        )
-        if seat_cost is not None:
-            seat_amount, _seat_currency = seat_cost
-            duffel_amount = f"{float(duffel_amount) + float(seat_amount):.2f}"
-
-    amount = marked_up_amount(duffel_amount)
-
-    return create_payment(
-        session,
-        current_user.id,
-        request,
-        amount,
-        duffel_amount,
-        currency,
-        provider=provider,
-    )
-
-
 @router.post("/checkout", response_model=CheckoutResponse)
 @guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
 async def checkout(
@@ -144,9 +79,14 @@ async def checkout(
     purchase the customer doesn't complete.
     """
     offer_id = request.selected_offers[0]
-    payment = await _reconfirm_price_and_create_payment(
-        session, current_user, request, PaymentProvider.PESAPAL
-    )
+    try:
+        payment = await reconfirm_price_and_create_payment(
+            session, current_user.id, request, PaymentProvider.PESAPAL
+        )
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     primary_passenger = request.passengers[0]
     billing_address = PesapalBillingAddress(
@@ -175,9 +115,7 @@ async def checkout(
             detail=f"Payment provider error: {e}",
         )
 
-    payment.pesapal_order_tracking_id = pesapal_order.order_tracking_id
-    session.add(payment)
-    session.commit()
+    attach_pesapal_tracking_id(session, payment, pesapal_order.order_tracking_id)
 
     return CheckoutResponse(
         payment_id=payment.id, redirect_url=pesapal_order.redirect_url
@@ -199,21 +137,24 @@ async def checkout_card(
     never reach our backend. See POST /payments/{payment_id}/confirm-card
     for what happens once the customer submits their card.
     """
-    payment = await _reconfirm_price_and_create_payment(
-        session, current_user, request, PaymentProvider.DUFFEL
-    )
+    try:
+        payment = await reconfirm_price_and_create_payment(
+            session, current_user.id, request, PaymentProvider.DUFFEL
+        )
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     try:
         intent = await duffel_flight_service.create_payment_intent(
             payment.amount, payment.currency
         )
     except DuffelAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.errors)
+        raise duffel_http_exception(e)
 
     intent_data = intent["data"]
-    payment.duffel_payment_intent_id = intent_data["id"]
-    session.add(payment)
-    session.commit()
+    attach_duffel_payment_intent(session, payment, intent_data["id"])
 
     return CardCheckoutResponse(
         payment_id=payment.id, client_token=intent_data["client_token"]
@@ -302,9 +243,7 @@ async def pesapal_ipn(
     where the customer closes their browser before returning from Pesapal.
     Must respond with this exact JSON echo per Pesapal's IPN spec.
     """
-    payment = session.exec(
-        select(Payment).where(Payment.pesapal_order_tracking_id == OrderTrackingId)
-    ).first()
+    payment = get_payment_by_pesapal_tracking_id(session, OrderTrackingId)
     if payment is not None:
         try:
             await finalize_payment(session, payment)

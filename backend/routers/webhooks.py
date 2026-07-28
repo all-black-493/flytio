@@ -1,11 +1,9 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, Request, Response, status
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from backend.config import settings
+from backend.crud.bookings import record_airline_initiated_change
 from backend.crud.db import get_session
-from backend.models.bookings import Booking
 from backend.utils.duffel_webhooks import verify_duffel_signature
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import airline_change_email_html
@@ -66,19 +64,13 @@ async def duffel_webhook(request: Request, session: Session = Depends(get_sessio
         logger.warning("Duffel webhook event missing an order id: %s", event)
         return Response(status_code=status.HTTP_200_OK)
 
-    booking = session.exec(
-        select(Booking).where(Booking.duffel_order_id == order_id)
-    ).first()
-    if booking is None:
-        logger.warning("Duffel webhook event for an unknown order: %s", order_id)
-        return Response(status_code=status.HTTP_200_OK)
-
     # Idempotent by construction - re-processing the same event (Duffel
     # retries on anything but a fast 2xx) just re-sets the same timestamp,
     # no duplicate side effect beyond a possible duplicate email below.
-    booking.airline_initiated_change_detected_at = datetime.utcnow()
-    session.add(booking)
-    session.commit()
+    booking = record_airline_initiated_change(session, order_id)
+    if booking is None:
+        logger.warning("Duffel webhook event for an unknown order: %s", order_id)
+        return Response(status_code=status.HTTP_200_OK)
 
     try:
         user = booking.user

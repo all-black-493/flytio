@@ -17,7 +17,7 @@ the same way POST /booking/flight-orders does.
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, Path, status
 
 from backend.external_services.stay import DuffelAPIError, duffel_stay_service
 from backend.schemas.duffel_stays import (
@@ -25,21 +25,13 @@ from backend.schemas.duffel_stays import (
     StaysQuoteRequest,
     StaysSearchRequest,
 )
+from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
 
 router = APIRouter(prefix="/stays")
 
 STAYS_IP_LIMIT = 20
 STAYS_WINDOW_SECONDS = 60
-
-
-def _duffel_http_exception(error: DuffelAPIError) -> HTTPException:
-    status_code = (
-        error.status_code
-        if 400 <= error.status_code < 500
-        else status.HTTP_502_BAD_GATEWAY
-    )
-    return HTTPException(status_code=status_code, detail=error.errors or str(error))
 
 
 @router.post("/search")
@@ -53,7 +45,7 @@ async def search_stays(request: StaysSearchRequest):
             request.model_dump(mode="json", exclude_none=True)
         )
     except DuffelAPIError as e:
-        raise _duffel_http_exception(e)
+        raise duffel_http_exception(e)
 
 
 @router.post("/search-results/{search_result_id}/rates")
@@ -65,7 +57,7 @@ async def fetch_stay_rates(search_result_id: Annotated[str, Path()]):
     try:
         return await duffel_stay_service.fetch_rates(search_result_id)
     except DuffelAPIError as e:
-        raise _duffel_http_exception(e)
+        raise duffel_http_exception(e)
 
 
 @router.post("/quotes")
@@ -77,7 +69,7 @@ async def create_stay_quote(request: StaysQuoteRequest):
     try:
         return await duffel_stay_service.create_quote(request.rate_id)
     except DuffelAPIError as e:
-        raise _duffel_http_exception(e)
+        raise duffel_http_exception(e)
 
 
 @router.post("/bookings", status_code=status.HTTP_201_CREATED)
@@ -92,4 +84,4 @@ async def create_stay_booking(request: StaysBookingCreate):
             request.model_dump(mode="json", exclude_none=True)
         )
     except DuffelAPIError as e:
-        raise _duffel_http_exception(e)
+        raise duffel_http_exception(e)

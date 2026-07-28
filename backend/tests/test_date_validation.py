@@ -8,11 +8,8 @@ from datetime import date, timedelta
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas.duffel_flights import (
-    FlightSearchQueryParams,
-    OrderPassenger,
-    SlicePlan,
-)
+from backend.schemas.duffel_flights import FlightSearchQueryParams, SlicePlan
+from backend.schemas.duffel_orders import OrderPassenger
 
 TODAY = date.today()
 YESTERDAY = TODAY - timedelta(days=1)

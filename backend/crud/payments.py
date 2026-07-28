@@ -4,17 +4,22 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from backend.crud.bookings import create_booking_from_order
+from backend.crud.bookings import (
+    build_order_request_body,
+    create_booking_from_order,
+    seat_designators_by_passenger,
+)
 from backend.crud.tickets import create_tickets_from_order
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
 from backend.models.payments import Payment, PaymentProvider, PaymentStatus
 from backend.models.users import UserInDB
-from backend.schemas.duffel_flights import Order, OrderCreate, OrderPayment
+from backend.schemas.duffel_orders import Order, OrderCreate, OrderPayment
 from backend.schemas.payments import CheckoutRequest
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
 from backend.utils.log_manager import get_app_logger
+from backend.utils.pricing import marked_up_amount, seat_services_cost
 
 logger = get_app_logger(__name__)
 
@@ -73,6 +78,100 @@ def get_payment(session: Session, payment_id: uuid.UUID) -> Payment | None:
     return session.exec(select(Payment).where(Payment.id == payment_id)).first()
 
 
+def get_payment_by_pesapal_tracking_id(
+    session: Session, order_tracking_id: str
+) -> Payment | None:
+    """Used by Pesapal's IPN webhook, which only knows the payment via the
+    tracking ID Pesapal itself generated - not anything client-suppliable."""
+    return session.exec(
+        select(Payment).where(Payment.pesapal_order_tracking_id == order_tracking_id)
+    ).first()
+
+
+def attach_pesapal_tracking_id(
+    session: Session, payment: Payment, order_tracking_id: str
+) -> Payment:
+    payment.pesapal_order_tracking_id = order_tracking_id
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    return payment
+
+
+def attach_duffel_payment_intent(
+    session: Session, payment: Payment, payment_intent_id: str
+) -> Payment:
+    payment.duffel_payment_intent_id = payment_intent_id
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    return payment
+
+
+async def reconfirm_price_and_create_payment(
+    session: Session,
+    user_id: uuid.UUID,
+    request: CheckoutRequest,
+    provider: PaymentProvider,
+) -> Payment:
+    """Shared by both checkout endpoints (routers/payments.py's checkout/
+    checkout_card): re-confirms the offer's live price, validates
+    passport requirements, folds in any paid seat's cost, applies flyt's
+    markup, and persists a pending Payment. The one place this
+    money-critical price/markup logic lives, so both payment providers
+    can never drift apart on it.
+
+    Raises DuffelAPIError (propagated to the router as a 502/matching
+    status) or ValueError (propagated as a 400) - never HTTPException
+    directly, consistent with every other crud function in this module.
+    """
+    offer_id = request.selected_offers[0]
+    priced = await duffel_flight_service.confirm_price(offer_id)
+
+    offer_data = priced["data"]
+    duffel_amount = offer_data["total_amount"]
+    currency = offer_data["total_currency"]
+
+    # Some itineraries won't be accepted by the airline (and Duffel will
+    # reject the order) without a passport on file for every passenger -
+    # catching it here gives a clear error before we ever charge the
+    # customer, rather than a failed booking after payment already landed.
+    if offer_data.get("passenger_identity_documents_required"):
+        missing = [
+            p.given_name or p.id for p in request.passengers if not p.identity_documents
+        ]
+        if missing:
+            raise ValueError(
+                "This itinerary requires passport details for every "
+                f"passenger. Missing for: {', '.join(missing)}"
+            )
+
+    # If any passenger picked a paid seat, its cost must be folded into
+    # what Duffel is paid (and what the customer is charged) now - Duffel
+    # rejects an order whose payments[].amount doesn't exactly match the
+    # order's real total, services included (see _complete_booking).
+    if any(p.seat_service_id for p in request.passengers):
+        seat_map_response = await duffel_flight_service.view_seat_map(offer_id)
+        seat_cost = seat_services_cost(
+            seat_map_response.get("data", []), request.passengers
+        )
+        if seat_cost is not None:
+            seat_amount, _seat_currency = seat_cost
+            duffel_amount = f"{float(duffel_amount) + float(seat_amount):.2f}"
+
+    amount = marked_up_amount(duffel_amount)
+
+    return create_payment(
+        session,
+        user_id,
+        request,
+        amount,
+        duffel_amount,
+        currency,
+        provider=provider,
+    )
+
+
 async def _complete_booking(session: Session, payment: Payment) -> None:
     """Replays the snapshotted checkout to Duffel (paid from flyt's own
     balance) to actually create the booking, ticket records, and send the
@@ -83,9 +182,6 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
     """
     try:
         checkout = CheckoutRequest.model_validate_json(payment.order_request_snapshot)
-        seat_by_passenger_id = {
-            p.id: p.seat_designator for p in checkout.passengers if p.seat_designator
-        }
         order_request = OrderCreate(
             selected_offers=checkout.selected_offers,
             passengers=checkout.passengers,
@@ -110,17 +206,7 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
                 "merchant_reference": payment.merchant_reference,
             },
         )
-        request_body = order_request.model_dump(mode="json", exclude_none=True)
-        seat_services = []
-        for passenger in request_body.get("passengers", []):
-            passenger.pop("seat_designator", None)
-            seat_service_id = passenger.pop("seat_service_id", None)
-            if seat_service_id:
-                seat_services.append({"id": seat_service_id, "quantity": 1})
-        if seat_services:
-            request_body.setdefault("services", [])
-            request_body["services"].extend(seat_services)
-
+        request_body = build_order_request_body(order_request)
         duffel_response = await duffel_flight_service.create_flight_order(request_body)
         order = Order.model_validate(duffel_response["data"])
 
@@ -158,7 +244,7 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
             session,
             payment.user_id,
             order,
-            seat_by_passenger_id,
+            seat_designators_by_passenger(order_request),
             charged_amount=payment.amount,
             charged_currency=payment.currency,
         )

@@ -1,5 +1,5 @@
 """Flyt's own payment API schemas - distinct from Pesapal's wire format
-(schemas/pesapal.py), same split as duffel_flights.py (vendor) vs
+(schemas/pesapal.py), same split as duffel_orders.py (vendor) vs
 bookings.py (ours).
 """
 
@@ -9,7 +9,7 @@ from sqlmodel import Field, SQLModel
 
 from backend.models.payments import PaymentStatus
 from backend.schemas.bookings import BookingPublic
-from backend.schemas.duffel_flights import OrderPassenger
+from backend.schemas.duffel_orders import OrderPassenger
 
 
 class CheckoutRequest(SQLModel):

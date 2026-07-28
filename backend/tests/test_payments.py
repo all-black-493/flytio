@@ -21,7 +21,7 @@ from backend.external_services.payment import PesapalAPIError, pesapal_payment_s
 from backend.models.bookings import BookingStatus, CabinClass
 from backend.models.payments import PaymentProvider, PaymentStatus
 from backend.models.tickets import Ticket
-from backend.schemas.duffel_flights import OrderPassenger
+from backend.schemas.duffel_orders import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 from backend.schemas.pesapal import PesapalTransactionStatusResponse
 

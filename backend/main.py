@@ -13,7 +13,7 @@ from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
 from backend.utils.log_manager import get_app_logger
 
-from .routers import flights, payments, stays, users, webhooks
+from .routers import bookings, flights, payments, stays, users, webhooks
 
 logger = get_app_logger(__name__)
 
@@ -53,6 +53,7 @@ app.state.guard_decorator = guard_deco
 
 app.include_router(users.router)
 app.include_router(flights.router)
+app.include_router(bookings.router)
 app.include_router(payments.router)
 app.include_router(webhooks.router)
 app.include_router(stays.router)

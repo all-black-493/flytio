@@ -4,7 +4,8 @@ import json
 import redis
 
 from backend.config import settings
-from backend.schemas.duffel_flights import OfferRequestCreate, PlaceSuggestionsQuery
+from backend.schemas.duffel_flights import OfferRequestCreate
+from backend.schemas.duffel_places import PlaceSuggestionsQuery
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)

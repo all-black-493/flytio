@@ -2,7 +2,7 @@ from sqlmodel import Session, select
 
 from backend.models.bookings import Booking
 from backend.models.tickets import Ticket
-from backend.schemas.duffel_flights import Order
+from backend.schemas.duffel_orders import Order
 
 
 def get_ticket_by_number(session: Session, ticket_number: str) -> Ticket | None:

@@ -1,4 +1,8 @@
-"""Duffel-native request/response schemas for the flights API (Duffel API v2).
+"""Duffel-native request/response schemas for the FLIGHTS/OFFERS side of
+the flights API (Duffel API v2) - searching and pricing. Order creation/
+management schemas live in schemas/duffel_orders.py; airport/city search
+lives in schemas/duffel_places.py - see those modules' docstrings for why
+they're split out.
 
 Field names follow Duffel's snake_case wire format exactly, so no aliases
 are needed. See https://duffel.com/docs/api for the source of truth.
@@ -7,32 +11,9 @@ are needed. See https://duffel.com/docs/api for the source of truth.
 import enum
 from datetime import date, datetime
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    EmailStr,
-    Field,
-    field_validator,
-    model_validator,
-)
+from pydantic import Field, field_validator, model_validator
 
-from backend.schemas.common import PaginationMeta
-
-
-class BaseSchema(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-
-def _not_in_past(value: date) -> date:
-    if value < date.today():
-        raise ValueError("Date cannot be in the past")
-    return value
-
-
-def _not_in_future(value: date) -> date:
-    if value > date.today():
-        raise ValueError("Date cannot be in the future")
-    return value
+from backend.schemas.common import BaseSchema, PaginationMeta, not_in_past
 
 
 class CabinClass(str, enum.Enum):
@@ -62,7 +43,7 @@ class SlicePlan(BaseSchema):
     )
     departure_date: date = Field(description="Departure date (YYYY-MM-DD)")
 
-    _validate_departure_date = field_validator("departure_date")(_not_in_past)
+    _validate_departure_date = field_validator("departure_date")(not_in_past)
 
 
 class SearchPassenger(BaseSchema):
@@ -93,7 +74,7 @@ class FlightSearchQueryParams(BaseSchema):
     cabin_class: CabinClass | None = None
     max_connections: int | None = Field(default=None, ge=0, le=2)
 
-    _validate_departure_date = field_validator("departure_date")(_not_in_past)
+    _validate_departure_date = field_validator("departure_date")(not_in_past)
 
     @model_validator(mode="after")
     def _validate_return_after_departure(self) -> "FlightSearchQueryParams":
@@ -166,87 +147,26 @@ class OfferPriceRequest(BaseSchema):
     offer_id: str = Field(description="Duffel offer ID (off_...)")
 
 
-class IdentityDocument(BaseSchema):
-    """A passport/tax-id required by some itineraries - see `Offer.
-    passenger_identity_documents_required`. Passed straight through to
-    Duffel's order-creation payload."""
+class LoyaltyProgrammeAccount(BaseSchema):
+    """A frequent-flyer account to attach to an already-priced offer via
+    PATCH /air/offers/{offer_id}/passengers/{offer_passenger_id} (see
+    routers/flights.py's update_offer_passenger) - may reveal a
+    loyalty-discounted fare, reflected by re-fetching the offer
+    afterward. Not sent again at order-creation time; Duffel carries it
+    through automatically from the offer it was attached to."""
 
-    unique_identifier: str = Field(description="Document/passport number")
-    type: str = Field(default="passport", description="passport or tax_id")
-    issuing_country_code: str = Field(min_length=2, max_length=2)
-    expires_on: date
+    airline_iata_code: str = Field(min_length=2, max_length=2)
+    account_number: str
 
 
-class OrderPassenger(BaseSchema):
-    id: str = Field(description="Passenger ID issued by the offer request")
-    title: str = Field(description="e.g. mr, ms, mrs, miss, dr")
-    gender: str = Field(description="m or f, as required by airlines")
+class OfferPassengerUpdate(BaseSchema):
+    """Request body for attaching loyalty programme accounts to a
+    specific passenger on an already-created offer. Duffel requires the
+    passenger's name alongside the loyalty details."""
+
     given_name: str
     family_name: str
-    born_on: date
-    email: EmailStr
-    phone_number: str = Field(description="E.164 format, e.g. +442080160508")
-    infant_passenger_id: str | None = Field(
-        default=None,
-        description="For adults responsible for an infant: the infant's passenger ID",
-    )
-    identity_documents: list[IdentityDocument] | None = Field(
-        default=None,
-        description="Required when the offer's passenger_identity_documents_required is true",
-    )
-    seat_designator: str | None = Field(
-        default=None,
-        description=(
-            "Seat picked in our own seat-map UI (e.g. '14C'), stored on our "
-            "booking record for display. Not itself sent to Duffel - "
-            "seat_service_id below is what actually reserves it."
-        ),
-    )
-    seat_service_id: str | None = Field(
-        default=None,
-        description=(
-            "The seat's `available_services[].id` (ase_...) from GET "
-            "/air/seat_maps, for THIS passenger. Stripped from the "
-            "passenger payload before sending to Duffel (it's not a real "
-            "passenger field) and instead collected into OrderCreate."
-            "services below, so the airline actually holds the seat."
-        ),
-    )
-
-    _validate_born_on = field_validator("born_on")(_not_in_future)
-
-
-class OrderPayment(BaseSchema):
-    type: str = Field(default="balance", description="balance or arc_bsp_cash")
-    currency: str = Field(min_length=3, max_length=3)
-    amount: str = Field(description="Must match the offer's total_amount")
-
-
-class OrderService(BaseSchema):
-    """A paid ancillary to attach to the order - today only used for seat
-    selection (see OrderPassenger.seat_service_id), one service per seated
-    passenger."""
-
-    id: str
-    quantity: int = 1
-
-
-class OrderCreate(BaseSchema):
-    selected_offers: list[str] = Field(
-        min_length=1, max_length=1, description="A single offer ID to book"
-    )
-    passengers: list[OrderPassenger] = Field(min_length=1)
-    payments: list[OrderPayment] = Field(min_length=1)
-    services: list[OrderService] | None = None
-    metadata: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Arbitrary key-value pairs Duffel stores on the order and "
-            "echoes back on every future read - our own reconciliation "
-            "hook back to Payment/Booking, independent of Duffel's own "
-            "order/booking_reference IDs."
-        ),
-    )
+    loyalty_programme_accounts: list[LoyaltyProgrammeAccount] = Field(min_length=1)
 
 
 # Response models
@@ -486,166 +406,3 @@ class OfferResponse(BaseSchema):
     """Duffel envelope for a single, freshly priced offer."""
 
     data: Offer
-
-
-# Order management models
-
-
-class OrderSegment(BaseSchema):
-    id: str
-    origin: Airport
-    destination: Airport
-    origin_terminal: str | int | None = None
-    destination_terminal: str | int | None = None
-    departing_at: datetime
-    arriving_at: datetime
-    duration: str | None = None
-    distance: float | None = None
-    marketing_carrier: Carrier | None = None
-    marketing_carrier_flight_number: str | None = None
-    operating_carrier: Carrier | None = None
-    operating_carrier_flight_number: str | None = None
-    aircraft: Aircraft | None = None
-    stops: list[dict] = []
-    passengers: list[OfferSegmentPassenger] = []
-
-
-class OrderSlice(BaseSchema):
-    id: str
-    origin: Airport
-    destination: Airport
-    duration: str | None = None
-    segments: list[OrderSegment] = []
-
-
-class OrderPassengerDetail(BaseSchema):
-    id: str
-    type: PassengerType | None = None
-    title: str | None = None
-    gender: str | None = None
-    given_name: str | None = None
-    family_name: str | None = None
-    born_on: date | None = None
-    email: str | None = None
-    phone_number: str | None = None
-    infant_passenger_id: str | None = None
-
-
-class PaymentStatus(BaseSchema):
-    awaiting_payment: bool | None = None
-    payment_required_by: datetime | None = None
-    price_guarantee_expires_at: datetime | None = None
-
-
-class OrderDocument(BaseSchema):
-    """An issued travel document (e-ticket, or an EMD for a service), only
-    present once an order has actually been paid for."""
-
-    unique_identifier: str
-    type: str = Field(description="e.g. electronic_ticket")
-    passenger_ids: list[str] = []
-
-
-class Order(BaseSchema):
-    id: str
-    booking_reference: str | None = None
-    live_mode: bool | None = None
-    created_at: datetime | None = None
-    cancelled_at: datetime | None = None
-    total_amount: str | None = None
-    total_currency: str | None = None
-    base_amount: str | None = None
-    base_currency: str | None = None
-    tax_amount: str | None = None
-    tax_currency: str | None = None
-    owner: Carrier | None = None
-    slices: list[OrderSlice] = []
-    passengers: list[OrderPassengerDetail] = []
-    payment_status: PaymentStatus | None = None
-    conditions: Conditions | None = None
-    documents: list[OrderDocument] = []
-    available_actions: list[str] = []
-
-
-class OrderResponse(BaseSchema):
-    """Duffel envelope for a single order."""
-
-    data: Order
-
-
-class OrderCancellationQuote(BaseSchema):
-    id: str
-    order_id: str | None = None
-    refund_amount: str | None = None
-    refund_currency: str | None = None
-    refund_to: str | None = None
-    expires_at: datetime | None = None
-    confirmed_at: datetime | None = None
-
-
-class OrderCancellationResponse(BaseSchema):
-    """Duffel envelope for an order cancellation quote or its confirmation."""
-
-    data: OrderCancellationQuote
-
-
-# Places (airport/city) search models
-
-
-class PlaceType(str, enum.Enum):
-    AIRPORT = "airport"
-    CITY = "city"
-
-
-class PlaceSuggestionsQuery(BaseSchema):
-    """Query params for GET /places/suggestions.
-
-    Duffel's endpoint runs in exactly one of two modes: text autocomplete
-    (`query`) or a geographic radius search (`lat`+`lng`+`rad`), never both.
-    """
-
-    query: str | None = Field(
-        default=None, min_length=1, description="Free-text name or IATA code"
-    )
-    lat: float | None = Field(default=None, ge=-90, le=90)
-    lng: float | None = Field(default=None, ge=-180, le=180)
-    rad: int | None = Field(default=None, ge=1, description="Radius in meters")
-
-    @model_validator(mode="after")
-    def _check_exactly_one_mode(self) -> "PlaceSuggestionsQuery":
-        has_query = self.query is not None
-        geo_fields = (self.lat, self.lng, self.rad)
-        has_any_geo = any(f is not None for f in geo_fields)
-        has_full_geo = all(f is not None for f in geo_fields)
-
-        if not has_query and not has_any_geo:
-            raise ValueError("Provide either `query` or `lat`+`lng`+`rad`")
-        if has_query and has_any_geo:
-            raise ValueError("Provide either `query` or `lat`+`lng`+`rad`, not both")
-        if has_any_geo and not has_full_geo:
-            raise ValueError("`lat`, `lng`, and `rad` must all be provided together")
-        return self
-
-
-class Place(BaseSchema):
-    id: str
-    type: PlaceType
-    name: str
-    iata_code: str | None = None
-    iata_country_code: str | None = None
-    iata_city_code: str | None = None
-    icao_code: str | None = None
-    city_name: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    time_zone: str | None = None
-    airports: list["Place"] | None = Field(
-        default=None, description="Present on city-type places"
-    )
-
-
-class PlaceSuggestionsResponse(BaseSchema):
-    """Duffel envelope for a list of airport/city suggestions."""
-
-    data: list[Place]
-    meta: dict | None = None

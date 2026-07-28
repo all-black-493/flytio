@@ -1,5 +1,5 @@
-"""Unit tests for checkout-time validation in routers/payments.py's
-_reconfirm_price_and_create_payment - specifically the passport-required
+"""Unit tests for checkout-time validation in crud/payments.py's
+reconfirm_price_and_create_payment - specifically the passport-required
 check, which must reject before any payment provider is ever contacted.
 
 Uses an isolated in-memory SQLite engine, same pattern as test_payments.py.
@@ -8,17 +8,15 @@ Uses an isolated in-memory SQLite engine, same pattern as test_payments.py.
 import asyncio
 import uuid
 from datetime import date
-from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine
 
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
+from backend.crud.payments import reconfirm_price_and_create_payment
 from backend.external_services.flight import duffel_flight_service
 from backend.models.payments import PaymentProvider
-from backend.routers.payments import _reconfirm_price_and_create_payment
-from backend.schemas.duffel_flights import IdentityDocument, OrderPassenger
+from backend.schemas.duffel_orders import IdentityDocument, OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
@@ -69,17 +67,16 @@ def test_checkout_rejects_when_passport_required_but_missing(session, monkeypatc
     request = CheckoutRequest(
         selected_offers=["off_test123"], passengers=[_passenger()]
     )
-    current_user = SimpleNamespace(id=uuid.uuid4())
+    user_id = uuid.uuid4()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         asyncio.run(
-            _reconfirm_price_and_create_payment(
-                session, current_user, request, PaymentProvider.PESAPAL
+            reconfirm_price_and_create_payment(
+                session, user_id, request, PaymentProvider.PESAPAL
             )
         )
 
-    assert exc_info.value.status_code == 400
-    assert "passport" in exc_info.value.detail.lower()
+    assert "passport" in str(exc_info.value).lower()
 
 
 def test_checkout_succeeds_when_passport_required_and_provided(session, monkeypatch):
@@ -102,11 +99,11 @@ def test_checkout_succeeds_when_passport_required_and_provided(session, monkeypa
             )
         ],
     )
-    current_user = SimpleNamespace(id=uuid.uuid4())
+    user_id = uuid.uuid4()
 
     payment = asyncio.run(
-        _reconfirm_price_and_create_payment(
-            session, current_user, request, PaymentProvider.PESAPAL
+        reconfirm_price_and_create_payment(
+            session, user_id, request, PaymentProvider.PESAPAL
         )
     )
 
@@ -122,11 +119,11 @@ def test_checkout_skips_passport_check_when_not_required(session, monkeypatch):
     request = CheckoutRequest(
         selected_offers=["off_test123"], passengers=[_passenger()]
     )
-    current_user = SimpleNamespace(id=uuid.uuid4())
+    user_id = uuid.uuid4()
 
     payment = asyncio.run(
-        _reconfirm_price_and_create_payment(
-            session, current_user, request, PaymentProvider.PESAPAL
+        reconfirm_price_and_create_payment(
+            session, user_id, request, PaymentProvider.PESAPAL
         )
     )
 

@@ -12,7 +12,37 @@ from backend.models.bookings import (
     PassengerType,
 )
 from backend.models.flights import Flight
-from backend.schemas.duffel_flights import Order
+from backend.schemas.duffel_orders import Order, OrderCreate
+
+
+def build_order_request_body(order: OrderCreate) -> dict:
+    """Turns an OrderCreate into the exact JSON body Duffel's POST
+    /air/orders expects: strips fields that are ours only
+    (seat_designator, kept for local display), and collects the
+    Duffel-facing ones (seat_service_id, extra_baggage_service_ids) into
+    the top-level `services` array Duffel actually expects instead of a
+    passenger field - see OrderPassenger's field docstrings. Shared by
+    the direct-booking endpoint (routers/bookings.py) and the
+    checkout-triggered path (crud/payments.py's _complete_booking)."""
+    request_body = order.model_dump(mode="json", exclude_none=True)
+    services = []
+    for passenger in request_body.get("passengers", []):
+        passenger.pop("seat_designator", None)
+        seat_service_id = passenger.pop("seat_service_id", None)
+        if seat_service_id:
+            services.append({"id": seat_service_id, "quantity": 1})
+        for baggage_service_id in passenger.pop("extra_baggage_service_ids", []):
+            services.append({"id": baggage_service_id, "quantity": 1})
+    if services:
+        request_body.setdefault("services", [])
+        request_body["services"].extend(services)
+    return request_body
+
+
+def seat_designators_by_passenger(order: OrderCreate) -> dict[str, str]:
+    """passenger id -> seat designator, for the passengers who picked one
+    - passed through to create_booking_from_order for local display."""
+    return {p.id: p.seat_designator for p in order.passengers if p.seat_designator}
 
 
 def _fare_breakdown(
@@ -63,65 +93,17 @@ def _passenger_baggage_and_cabin(
     return 0, 0, None
 
 
-def create_booking_from_order(
-    session: Session,
-    user_id: uuid.UUID,
-    order: Order,
-    seat_by_passenger_id: dict[str, str] | None = None,
-    *,
-    charged_amount: str | None = None,
-    charged_currency: str | None = None,
-) -> Booking:
-    """Persist a confirmed Duffel order as a Booking, with its slices,
-    flights (segments), and passengers, linked to the given user.
-
-    seat_by_passenger_id records the seat picked in our own seat-map UI
-    (keyed by the Duffel passenger ID) - it's local-only bookkeeping, not
-    a seat actually reserved with the airline via Duffel.
-
-    charged_amount/charged_currency let the caller show what the customer
-    actually paid (flyt's marked-up price - see utils/pricing.py) instead
-    of order.total_amount, Duffel's raw net fare. finalize_payment always
-    passes these; they default to order.total_amount so this stays
-    backward compatible for anything that doesn't need the distinction.
-    """
-    seat_by_passenger_id = seat_by_passenger_id or {}
-    final_total = charged_amount or order.total_amount or "0"
-    base_amount, tax_amount = _fare_breakdown(order, charged_amount)
-    refund = order.conditions.refund_before_departure if order.conditions else None
-    change = order.conditions.change_before_departure if order.conditions else None
-    booking = Booking(
-        user_id=user_id,
-        duffel_order_id=order.id,
-        booking_reference=order.booking_reference or "",
-        # This function only ever runs after Duffel has actually issued the
-        # order (see crud/payments.py's _complete_booking) - a Booking row
-        # existing at all already means "confirmed" (see this model's own
-        # docstring). Explicit rather than relying on the model's PENDING
-        # default, which exists for a possible future hold-order flow
-        # (reserved, not yet paid), not for this path.
-        status=BookingStatus.CONFIRMED,
-        total_amount=final_total,
-        total_currency=charged_currency or order.total_currency or "",
-        base_amount=base_amount,
-        base_currency=order.base_currency,
-        tax_amount=tax_amount,
-        tax_currency=order.tax_currency,
-        owner_iata_code=order.owner.iata_code if order.owner else None,
-        owner_name=order.owner.name if order.owner else None,
-        refund_allowed=refund.allowed if refund else None,
-        refund_penalty_amount=refund.penalty_amount if refund else None,
-        refund_penalty_currency=refund.penalty_currency if refund else None,
-        change_allowed=change.allowed if change else None,
-        change_penalty_amount=change.penalty_amount if change else None,
-        change_penalty_currency=change.penalty_currency if change else None,
-    )
-    session.add(booking)
-    session.flush()  # assigns booking.id without committing yet
-
+def _add_slices_and_flights(
+    session: Session, booking_id: uuid.UUID, order: Order
+) -> None:
+    """Builds BookingSlice/Flight rows for `order` under an existing
+    booking_id - shared by create_booking_from_order (a brand new
+    booking) and resync_booking_slices_from_order (an existing booking
+    whose flights changed via a confirmed order change). Caller is
+    responsible for having cleared any pre-existing slices first."""
     for slice_data in order.slices:
         booking_slice = BookingSlice(
-            booking_id=booking.id,
+            booking_id=booking_id,
             duffel_slice_id=slice_data.id,
             origin_iata_code=slice_data.origin.iata_code or "",
             origin_name=slice_data.origin.name,
@@ -187,6 +169,65 @@ def create_booking_from_order(
                 )
             )
 
+
+def create_booking_from_order(
+    session: Session,
+    user_id: uuid.UUID,
+    order: Order,
+    seat_by_passenger_id: dict[str, str] | None = None,
+    *,
+    charged_amount: str | None = None,
+    charged_currency: str | None = None,
+) -> Booking:
+    """Persist a confirmed Duffel order as a Booking, with its slices,
+    flights (segments), and passengers, linked to the given user.
+
+    seat_by_passenger_id records the seat picked in our own seat-map UI
+    (keyed by the Duffel passenger ID) - it's local-only bookkeeping, not
+    a seat actually reserved with the airline via Duffel.
+
+    charged_amount/charged_currency let the caller show what the customer
+    actually paid (flyt's marked-up price - see utils/pricing.py) instead
+    of order.total_amount, Duffel's raw net fare. finalize_payment always
+    passes these; they default to order.total_amount so this stays
+    backward compatible for anything that doesn't need the distinction.
+    """
+    seat_by_passenger_id = seat_by_passenger_id or {}
+    final_total = charged_amount or order.total_amount or "0"
+    base_amount, tax_amount = _fare_breakdown(order, charged_amount)
+    refund = order.conditions.refund_before_departure if order.conditions else None
+    change = order.conditions.change_before_departure if order.conditions else None
+    booking = Booking(
+        user_id=user_id,
+        duffel_order_id=order.id,
+        booking_reference=order.booking_reference or "",
+        # This function only ever runs after Duffel has actually issued the
+        # order (see crud/payments.py's _complete_booking) - a Booking row
+        # existing at all already means "confirmed" (see this model's own
+        # docstring). Explicit rather than relying on the model's PENDING
+        # default, which exists for a possible future hold-order flow
+        # (reserved, not yet paid), not for this path.
+        status=BookingStatus.CONFIRMED,
+        total_amount=final_total,
+        total_currency=charged_currency or order.total_currency or "",
+        base_amount=base_amount,
+        base_currency=order.base_currency,
+        tax_amount=tax_amount,
+        tax_currency=order.tax_currency,
+        owner_iata_code=order.owner.iata_code if order.owner else None,
+        owner_name=order.owner.name if order.owner else None,
+        refund_allowed=refund.allowed if refund else None,
+        refund_penalty_amount=refund.penalty_amount if refund else None,
+        refund_penalty_currency=refund.penalty_currency if refund else None,
+        change_allowed=change.allowed if change else None,
+        change_penalty_amount=change.penalty_amount if change else None,
+        change_penalty_currency=change.penalty_currency if change else None,
+    )
+    session.add(booking)
+    session.flush()  # assigns booking.id without committing yet
+
+    _add_slices_and_flights(session, booking.id, order)
+
     for passenger in order.passengers:
         checked_bags, carry_on_bags, cabin_class = _passenger_baggage_and_cabin(
             order, passenger.id
@@ -211,6 +252,34 @@ def create_booking_from_order(
             )
         )
 
+    session.commit()
+    session.refresh(booking)
+    return booking
+
+
+def resync_booking_slices_from_order(
+    session: Session, booking: Booking, order: Order
+) -> Booking:
+    """Rebuilds a booking's slices/flights (and total/fare breakdown) from
+    a freshly re-fetched order - called after a Duffel order change is
+    confirmed (routers/bookings.py's confirm_order_change), since the
+    flight segments and price may now differ from what was persisted at
+    booking time. Passengers are left untouched: order changes only ever
+    change flights, never who's traveling."""
+    for slice_ in list(booking.slices):
+        session.delete(slice_)
+    session.flush()
+
+    _add_slices_and_flights(session, booking.id, order)
+
+    base_amount, tax_amount = _fare_breakdown(order, order.total_amount)
+    booking.total_amount = order.total_amount or booking.total_amount
+    booking.total_currency = order.total_currency or booking.total_currency
+    booking.base_amount = base_amount
+    booking.base_currency = order.base_currency
+    booking.tax_amount = tax_amount
+    booking.tax_currency = order.tax_currency
+    session.add(booking)
     session.commit()
     session.refresh(booking)
     return booking
@@ -302,6 +371,23 @@ def count_user_bookings(
 def mark_booking_cancelled(session: Session, booking: Booking) -> Booking:
     booking.status = BookingStatus.CANCELLED
     booking.cancelled_at = datetime.utcnow()
+    session.add(booking)
+    session.commit()
+    session.refresh(booking)
+    return booking
+
+
+def record_airline_initiated_change(
+    session: Session, duffel_order_id: str
+) -> Booking | None:
+    """Flags a booking as having an airline-initiated change pending
+    review - called by the Duffel webhook receiver (routers/webhooks.py)
+    on an order.airline_initiated_change_detected event. Returns None
+    (and does nothing) if the order isn't one of ours."""
+    booking = get_booking_by_duffel_order_id(session, duffel_order_id)
+    if booking is None:
+        return None
+    booking.airline_initiated_change_detected_at = datetime.utcnow()
     session.add(booking)
     session.commit()
     session.refresh(booking)

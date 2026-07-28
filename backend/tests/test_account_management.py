@@ -19,7 +19,7 @@ import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.crud.payments import create_payment
 from backend.crud.users import create_user, delete_user_account, get_user_by_email
 from backend.models.bookings import Booking, BookingStatus
-from backend.schemas.duffel_flights import OrderPassenger
+from backend.schemas.duffel_orders import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 from backend.utils.security import authenticate_user, get_current_user, verify_password
 from backend.utils.security import create_access_token
