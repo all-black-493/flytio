@@ -54,10 +54,29 @@ class Booking(SQLModel, table=True):
 
     total_amount: str
     total_currency: str
+    # Duffel's own fare split (base_amount is the airline's genuine fare,
+    # tax_amount absorbs both real taxes and flyt's markup - see
+    # utils/pricing.py's apply_markup_to_offer_dict for the same
+    # convention). Populated from Order.base_amount/tax_amount at booking
+    # time; None on any booking created before this field existed.
+    base_amount: str | None = None
+    base_currency: str | None = None
+    tax_amount: str | None = None
+    tax_currency: str | None = None
     owner_iata_code: str | None = Field(
         default=None, description="Owning airline, e.g. EK"
     )
     owner_name: str | None = None
+
+    # Flattened from Order.conditions (Conditions/ConditionDetail in
+    # schemas/duffel_flights.py) at booking time - None means Duffel didn't
+    # report a condition for this order, not that it's disallowed.
+    refund_allowed: bool | None = None
+    refund_penalty_amount: str | None = None
+    refund_penalty_currency: str | None = None
+    change_allowed: bool | None = None
+    change_penalty_amount: str | None = None
+    change_penalty_currency: str | None = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     cancelled_at: datetime | None = None
@@ -120,6 +139,8 @@ class BookingPassenger(SQLModel, table=True):
 
     seat_designator: str | None = Field(default=None, description="e.g. C2")
     cabin_class: CabinClass | None = None
+    checked_bags: int = 0
+    carry_on_bags: int = 0
 
     booking: Booking = Relationship(back_populates="passengers")
     tickets: list["Ticket"] = Relationship(

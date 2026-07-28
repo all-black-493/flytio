@@ -225,10 +225,20 @@ async def flight_order(
 
     # seat_designator is our own field for the local booking record only -
     # Duffel doesn't recognize it, so it's stripped from the payload sent
-    # to them (see OrderPassenger.seat_designator's docstring).
+    # to them (see OrderPassenger.seat_designator's docstring). The seat's
+    # actual reservation with the airline instead goes through
+    # seat_service_id, collected here into the top-level `services` field
+    # Duffel expects (see OrderPassenger.seat_service_id's docstring).
     request_body = request.model_dump(mode="json", exclude_none=True)
+    seat_services = []
     for passenger in request_body.get("passengers", []):
         passenger.pop("seat_designator", None)
+        seat_service_id = passenger.pop("seat_service_id", None)
+        if seat_service_id:
+            seat_services.append({"id": seat_service_id, "quantity": 1})
+    if seat_services:
+        request_body.setdefault("services", [])
+        request_body["services"].extend(seat_services)
 
     try:
         response = await duffel_flight_service.create_flight_order(request_body)

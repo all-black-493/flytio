@@ -62,6 +62,8 @@ class BookingPassengerPublic(SQLModel):
     phone_number: str | None = None
     seat_designator: str | None = None
     cabin_class: CabinClass | None = None
+    checked_bags: int = 0
+    carry_on_bags: int = 0
     tickets: list[TicketPublic] = []
 
 
@@ -72,8 +74,18 @@ class BookingPublic(SQLModel):
     status: BookingStatus
     total_amount: str
     total_currency: str
+    base_amount: str | None = None
+    base_currency: str | None = None
+    tax_amount: str | None = None
+    tax_currency: str | None = None
     owner_iata_code: str | None = None
     owner_name: str | None = None
+    refund_allowed: bool | None = None
+    refund_penalty_amount: str | None = None
+    refund_penalty_currency: str | None = None
+    change_allowed: bool | None = None
+    change_penalty_amount: str | None = None
+    change_penalty_currency: str | None = None
     created_at: datetime
     cancelled_at: datetime | None = None
     slices: list[BookingSlicePublic] = []

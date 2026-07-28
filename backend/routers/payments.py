@@ -27,7 +27,7 @@ from backend.schemas.payments import (
 from backend.schemas.pesapal import PesapalBillingAddress
 from backend.utils.guard import guard_deco
 from backend.utils.log_manager import get_app_logger
-from backend.utils.pricing import marked_up_amount
+from backend.utils.pricing import marked_up_amount, seat_services_cost
 from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
@@ -80,6 +80,23 @@ async def _reconfirm_price_and_create_payment(
     offer_data = priced["data"]
     duffel_amount = offer_data["total_amount"]
     currency = offer_data["total_currency"]
+
+    # If any passenger picked a paid seat, its cost must be folded into
+    # what Duffel is paid (and what the customer is charged) now - Duffel
+    # rejects an order whose payments[].amount doesn't exactly match the
+    # order's real total, services included (see _complete_booking).
+    if any(p.seat_service_id for p in request.passengers):
+        try:
+            seat_map_response = await duffel_flight_service.view_seat_map(offer_id)
+        except DuffelAPIError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.errors)
+        seat_cost = seat_services_cost(
+            seat_map_response.get("data", []), request.passengers
+        )
+        if seat_cost is not None:
+            seat_amount, _seat_currency = seat_cost
+            duffel_amount = f"{float(duffel_amount) + float(seat_amount):.2f}"
+
     amount = marked_up_amount(duffel_amount)
 
     return create_payment(

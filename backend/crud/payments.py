@@ -111,8 +111,15 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
             },
         )
         request_body = order_request.model_dump(mode="json", exclude_none=True)
+        seat_services = []
         for passenger in request_body.get("passengers", []):
             passenger.pop("seat_designator", None)
+            seat_service_id = passenger.pop("seat_service_id", None)
+            if seat_service_id:
+                seat_services.append({"id": seat_service_id, "quantity": 1})
+        if seat_services:
+            request_body.setdefault("services", [])
+            request_body["services"].extend(seat_services)
 
         duffel_response = await duffel_flight_service.create_flight_order(request_body)
         order = Order.model_validate(duffel_response["data"])

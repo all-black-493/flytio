@@ -198,9 +198,18 @@ class OrderPassenger(BaseSchema):
         default=None,
         description=(
             "Seat picked in our own seat-map UI (e.g. '14C'), stored on our "
-            "booking record. NOT sent to Duffel - reserving the seat with "
-            "the airline requires attaching a paid seat service to the "
-            "order, which isn't wired up yet."
+            "booking record for display. Not itself sent to Duffel - "
+            "seat_service_id below is what actually reserves it."
+        ),
+    )
+    seat_service_id: str | None = Field(
+        default=None,
+        description=(
+            "The seat's `available_services[].id` (ase_...) from GET "
+            "/air/seat_maps, for THIS passenger. Stripped from the "
+            "passenger payload before sending to Duffel (it's not a real "
+            "passenger field) and instead collected into OrderCreate."
+            "services below, so the airline actually holds the seat."
         ),
     )
 
@@ -213,12 +222,22 @@ class OrderPayment(BaseSchema):
     amount: str = Field(description="Must match the offer's total_amount")
 
 
+class OrderService(BaseSchema):
+    """A paid ancillary to attach to the order - today only used for seat
+    selection (see OrderPassenger.seat_service_id), one service per seated
+    passenger."""
+
+    id: str
+    quantity: int = 1
+
+
 class OrderCreate(BaseSchema):
     selected_offers: list[str] = Field(
         min_length=1, max_length=1, description="A single offer ID to book"
     )
     passengers: list[OrderPassenger] = Field(min_length=1)
     payments: list[OrderPayment] = Field(min_length=1)
+    services: list[OrderService] | None = None
     metadata: dict[str, str] | None = Field(
         default=None,
         description=(
@@ -488,6 +507,7 @@ class OrderSegment(BaseSchema):
     operating_carrier_flight_number: str | None = None
     aircraft: Aircraft | None = None
     stops: list[dict] = []
+    passengers: list[OfferSegmentPassenger] = []
 
 
 class OrderSlice(BaseSchema):

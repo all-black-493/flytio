@@ -8,10 +8,59 @@ from backend.models.bookings import (
     BookingPassenger,
     BookingSlice,
     BookingStatus,
+    CabinClass,
     PassengerType,
 )
 from backend.models.flights import Flight
 from backend.schemas.duffel_flights import Order
+
+
+def _fare_breakdown(
+    order: Order, charged_amount: str | None
+) -> tuple[str | None, str | None]:
+    """Base/tax split for display, in whatever currency the customer was
+    actually charged. If charged_amount differs from Duffel's raw
+    order.total_amount (flyt's markup - see utils/pricing.py), the
+    difference is folded into tax_amount rather than base_amount, the same
+    convention apply_markup_to_offer_dict uses for offers - base_amount
+    always stays the airline's genuine fare, base+tax always sums to what
+    the customer actually paid.
+    """
+    if order.base_amount is None:
+        return None, order.tax_amount
+    if charged_amount is None or order.total_amount is None or order.tax_amount is None:
+        return order.base_amount, order.tax_amount
+    markup = float(charged_amount) - float(order.total_amount)
+    return order.base_amount, f"{float(order.tax_amount) + markup:.2f}"
+
+
+def _passenger_baggage_and_cabin(
+    order: Order, duffel_passenger_id: str
+) -> tuple[int, int, CabinClass | None]:
+    """Scans every segment for this passenger's baggage allowance/cabin
+    class and returns the first match - in practice identical across every
+    segment of a booking made through this app (one cabin class is chosen
+    for the whole trip at search time), so there's no meaningful
+    per-segment breakdown to preserve."""
+    for slice_data in order.slices:
+        for segment in slice_data.segments:
+            for seg_passenger in segment.passengers:
+                if seg_passenger.passenger_id != duffel_passenger_id:
+                    continue
+                checked = sum(
+                    b.quantity for b in seg_passenger.baggages if b.type == "checked"
+                )
+                carry_on = sum(
+                    b.quantity for b in seg_passenger.baggages if b.type == "carry_on"
+                )
+                cabin_class = None
+                if seg_passenger.cabin_class:
+                    try:
+                        cabin_class = CabinClass(seg_passenger.cabin_class)
+                    except ValueError:
+                        cabin_class = None
+                return checked, carry_on, cabin_class
+    return 0, 0, None
 
 
 def create_booking_from_order(
@@ -37,6 +86,10 @@ def create_booking_from_order(
     backward compatible for anything that doesn't need the distinction.
     """
     seat_by_passenger_id = seat_by_passenger_id or {}
+    final_total = charged_amount or order.total_amount or "0"
+    base_amount, tax_amount = _fare_breakdown(order, charged_amount)
+    refund = order.conditions.refund_before_departure if order.conditions else None
+    change = order.conditions.change_before_departure if order.conditions else None
     booking = Booking(
         user_id=user_id,
         duffel_order_id=order.id,
@@ -48,10 +101,20 @@ def create_booking_from_order(
         # default, which exists for a possible future hold-order flow
         # (reserved, not yet paid), not for this path.
         status=BookingStatus.CONFIRMED,
-        total_amount=charged_amount or order.total_amount or "0",
+        total_amount=final_total,
         total_currency=charged_currency or order.total_currency or "",
+        base_amount=base_amount,
+        base_currency=order.base_currency,
+        tax_amount=tax_amount,
+        tax_currency=order.tax_currency,
         owner_iata_code=order.owner.iata_code if order.owner else None,
         owner_name=order.owner.name if order.owner else None,
+        refund_allowed=refund.allowed if refund else None,
+        refund_penalty_amount=refund.penalty_amount if refund else None,
+        refund_penalty_currency=refund.penalty_currency if refund else None,
+        change_allowed=change.allowed if change else None,
+        change_penalty_amount=change.penalty_amount if change else None,
+        change_penalty_currency=change.penalty_currency if change else None,
     )
     session.add(booking)
     session.flush()  # assigns booking.id without committing yet
@@ -125,6 +188,9 @@ def create_booking_from_order(
             )
 
     for passenger in order.passengers:
+        checked_bags, carry_on_bags, cabin_class = _passenger_baggage_and_cabin(
+            order, passenger.id
+        )
         session.add(
             BookingPassenger(
                 booking_id=booking.id,
@@ -139,6 +205,9 @@ def create_booking_from_order(
                 phone_number=passenger.phone_number,
                 infant_passenger_id=passenger.infant_passenger_id,
                 seat_designator=seat_by_passenger_id.get(passenger.id),
+                cabin_class=cabin_class,
+                checked_bags=checked_bags,
+                carry_on_bags=carry_on_bags,
             )
         )
 

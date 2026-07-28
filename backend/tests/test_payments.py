@@ -18,7 +18,7 @@ from backend.crud.bookings import get_booking
 from backend.crud.payments import confirm_card_payment, create_payment, finalize_payment
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
-from backend.models.bookings import BookingStatus
+from backend.models.bookings import BookingStatus, CabinClass
 from backend.models.payments import PaymentProvider, PaymentStatus
 from backend.models.tickets import Ticket
 from backend.schemas.duffel_flights import OrderPassenger
@@ -115,7 +115,44 @@ def _fake_duffel_order(documents: list | None = None) -> dict:
             # charges for the order it created.
             "total_amount": "93.46",
             "total_currency": "USD",
-            "slices": [],
+            "base_amount": "85.00",
+            "base_currency": "USD",
+            "tax_amount": "8.46",
+            "tax_currency": "USD",
+            "conditions": {
+                "refund_before_departure": {"allowed": False},
+                "change_before_departure": {
+                    "allowed": True,
+                    "penalty_amount": "50.00",
+                    "penalty_currency": "USD",
+                },
+            },
+            "slices": [
+                {
+                    "id": "sli_test123",
+                    "origin": {"iata_code": "JFK"},
+                    "destination": {"iata_code": "LHR"},
+                    "segments": [
+                        {
+                            "id": "seg_test123",
+                            "origin": {"iata_code": "JFK"},
+                            "destination": {"iata_code": "LHR"},
+                            "departing_at": "2026-01-01T10:00:00",
+                            "arriving_at": "2026-01-01T22:00:00",
+                            "passengers": [
+                                {
+                                    "passenger_id": "pas_test123",
+                                    "baggages": [
+                                        {"type": "checked", "quantity": 1},
+                                        {"type": "carry_on", "quantity": 1},
+                                    ],
+                                    "cabin_class": "economy",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
             "passengers": [
                 {
                     "id": "pas_test123",
@@ -164,6 +201,20 @@ def test_finalize_payment_completed(session, monkeypatch):
     # issued the order - it must never sit at the model's PENDING default.
     booking = get_booking(session, result.booking_id)
     assert booking.status == BookingStatus.CONFIRMED
+
+    # base_amount stays the airline's genuine fare; the markup (charged
+    # amount "100.00" minus Duffel's raw total "93.46") is folded into
+    # tax_amount, so base + tax still sums to what the customer paid.
+    assert booking.base_amount == "85.00"
+    assert booking.tax_amount == "15.00"
+    assert booking.refund_allowed is False
+    assert booking.change_allowed is True
+    assert booking.change_penalty_amount == "50.00"
+
+    passenger = booking.passengers[0]
+    assert passenger.checked_bags == 1
+    assert passenger.carry_on_bags == 1
+    assert passenger.cabin_class == CabinClass.ECONOMY
 
 
 def test_finalize_payment_retries_and_picks_up_tickets_issued_late(
@@ -302,6 +353,70 @@ def test_finalize_payment_pays_duffel_the_raw_amount_not_the_charged_one(
 
     booking = get_booking(session, result.booking_id)
     assert booking.total_amount == "100.00"  # what the customer paid, not "93.46"
+
+
+def test_finalize_payment_sends_seat_choice_as_a_duffel_service(session, monkeypatch):
+    """A passenger's seat_service_id (the ase_... id of the seat they
+    picked in our seat-map UI) must reach Duffel as a paid service on the
+    order - not as a passenger field, which Duffel doesn't recognize - so
+    the airline actually holds the seat rather than it being local-only
+    bookkeeping."""
+    checkout = CheckoutRequest(
+        selected_offers=["off_test123"],
+        passengers=[
+            OrderPassenger(
+                id="pas_test123",
+                title="mr",
+                gender="m",
+                given_name="Test",
+                family_name="Passenger",
+                born_on=date(1990, 1, 1),
+                email="test@example.com",
+                phone_number="+254757573984",
+                seat_designator="14C",
+                seat_service_id="ase_test1",
+            )
+        ],
+    )
+    payment = create_payment(
+        session,
+        uuid.uuid4(),
+        checkout,
+        amount="100.00",
+        duffel_amount="93.46",
+        currency="USD",
+    )
+    payment.pesapal_order_tracking_id = "track_123"
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+
+    captured_order_requests = []
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1, confirmation_code="conf_1"
+        )
+
+    async def fake_create_flight_order(order):
+        captured_order_requests.append(order)
+        return _fake_duffel_order()
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+
+    asyncio.run(finalize_payment(session, payment))
+
+    assert len(captured_order_requests) == 1
+    sent = captured_order_requests[0]
+    assert sent["services"] == [{"id": "ase_test1", "quantity": 1}]
+    sent_passenger = sent["passengers"][0]
+    assert "seat_service_id" not in sent_passenger
+    assert "seat_designator" not in sent_passenger
 
 
 def test_finalize_payment_failed(session, monkeypatch):

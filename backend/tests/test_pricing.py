@@ -7,7 +7,86 @@ from backend.utils.pricing import (
     MARKUP_RATE,
     apply_markup_to_offer_dict,
     marked_up_amount,
+    seat_services_cost,
 )
+
+
+class _FakePassenger:
+    def __init__(self, id: str, seat_service_id: str | None):
+        self.id = id
+        self.seat_service_id = seat_service_id
+
+
+def _seat_map(elements: list[dict]) -> dict:
+    return {"cabins": [{"rows": [{"sections": [{"elements": elements}]}]}]}
+
+
+def test_seat_services_cost_sums_matching_passenger_picks():
+    seat_maps = [
+        _seat_map(
+            [
+                {
+                    "designator": "14C",
+                    "available_services": [
+                        {
+                            "id": "ase_1",
+                            "passenger_id": "pas_1",
+                            "total_amount": "15.00",
+                            "total_currency": "USD",
+                        }
+                    ],
+                },
+                {
+                    "designator": "14D",
+                    "available_services": [
+                        {
+                            "id": "ase_2",
+                            "passenger_id": "pas_2",
+                            "total_amount": "5.00",
+                            "total_currency": "USD",
+                        }
+                    ],
+                },
+            ]
+        )
+    ]
+    passengers = [
+        _FakePassenger("pas_1", "ase_1"),
+        _FakePassenger("pas_2", "ase_2"),
+    ]
+
+    assert seat_services_cost(seat_maps, passengers) == ("20.00", "USD")
+
+
+def test_seat_services_cost_ignores_a_service_id_not_owned_by_that_passenger():
+    """Defense against a tampered request: a client-supplied seat_service_id
+    that the seat map says belongs to a DIFFERENT passenger must not be
+    priced in - otherwise a passenger could claim someone else's cheaper
+    (or free) seat by swapping IDs."""
+    seat_maps = [
+        _seat_map(
+            [
+                {
+                    "designator": "14C",
+                    "available_services": [
+                        {
+                            "id": "ase_1",
+                            "passenger_id": "pas_1",
+                            "total_amount": "15.00",
+                            "total_currency": "USD",
+                        }
+                    ],
+                }
+            ]
+        )
+    ]
+    passengers = [_FakePassenger("pas_2", "ase_1")]
+
+    assert seat_services_cost(seat_maps, passengers) is None
+
+
+def test_seat_services_cost_none_when_no_passenger_picked_a_seat():
+    assert seat_services_cost([], [_FakePassenger("pas_1", None)]) is None
 
 
 def test_marked_up_amount():
