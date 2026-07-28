@@ -4,6 +4,16 @@ import { Armchair } from "lucide-react";
 
 import type { OfferPassenger, SeatElement, SeatMap } from "@/lib/api/schemas";
 
+export interface SeatPick {
+  designator: string;
+  /** Duffel's ase_... id for THIS passenger's seat - sent to checkout so
+   * the seat is actually reserved with the airline, not just recorded on
+   * our own booking record. */
+  serviceId: string;
+  amount: string;
+  currency: string;
+}
+
 export interface SeatPickerProps {
   seatMap: SeatMap;
   /** Seat-eligible passengers only (infant_without_seat is filtered out by
@@ -11,19 +21,16 @@ export interface SeatPickerProps {
   passengers: OfferPassenger[];
   activePassengerId: string;
   onActivePassengerChange: (passengerId: string) => void;
-  /** passengerId -> seat designator */
-  selectedSeats: Record<string, string>;
-  onSelect: (passengerId: string, designator: string) => void;
+  /** passengerId -> picked seat */
+  selectedSeats: Record<string, SeatPick>;
+  onSelect: (passengerId: string, pick: SeatPick) => void;
 }
 
 /** Availability and pricing are per-passenger in Duffel's seat map — a seat
  * can be open for one passenger and not another, so this checks the
  * specific passenger, not a flat available/unavailable boolean. */
-function isAvailableFor(element: SeatElement, passengerId: string): boolean {
-  return (
-    element.type === "seat" &&
-    (element.available_services?.some((s) => s.passenger_id === passengerId) ?? false)
-  );
+function serviceFor(element: SeatElement, passengerId: string) {
+  return element.available_services?.find((s) => s.passenger_id === passengerId);
 }
 
 function PassengerTabs({
@@ -35,7 +42,7 @@ function PassengerTabs({
   passengers: OfferPassenger[];
   activePassengerId: string;
   onActivePassengerChange: (passengerId: string) => void;
-  selectedSeats: Record<string, string>;
+  selectedSeats: Record<string, SeatPick>;
 }) {
   return (
     <div role="tablist" aria-label="Select a seat for" className="flex flex-wrap gap-1.5">
@@ -56,7 +63,7 @@ function PassengerTabs({
             }`}
           >
             PASSENGER {index + 1}
-            {seat ? ` · ${seat}` : ""}
+            {seat ? ` · ${seat.designator}` : ""}
           </button>
         );
       })}
@@ -68,14 +75,14 @@ function SeatCell({
   element,
   selectedByActive,
   takenByLabel,
-  available,
+  service,
   onSelect,
 }: {
   element: SeatElement;
   selectedByActive: boolean;
   takenByLabel: string | null;
-  available: boolean;
-  onSelect: (designator: string) => void;
+  service: ReturnType<typeof serviceFor>;
+  onSelect: () => void;
 }) {
   if (element.type !== "seat") {
     // non-seat elements (galley, lavatory, exit row, etc.) just reserve
@@ -84,21 +91,31 @@ function SeatCell({
   }
 
   const designator = element.designator ?? "?";
+  const available = service !== undefined;
   const canSelect = available && !takenByLabel;
+  const isFree = available && parseFloat(service.total_amount) === 0;
 
   return (
     <button
       type="button"
       disabled={!canSelect && !selectedByActive}
-      onClick={() => canSelect && onSelect(designator)}
+      onClick={() => canSelect && onSelect()}
       aria-label={
         takenByLabel
           ? `Seat ${designator} (taken by ${takenByLabel})`
-          : `Seat ${designator}${available ? "" : " (unavailable)"}`
+          : available
+            ? `Seat ${designator}${isFree ? "" : `, ${service.total_currency} ${service.total_amount}`}`
+            : `Seat ${designator} (unavailable)`
       }
       aria-pressed={selectedByActive}
-      title={takenByLabel ? `Taken by ${takenByLabel}` : undefined}
-      className={`flex size-9 flex-col items-center justify-center rounded-lg border font-mono text-[10px] leading-none transition-colors ${
+      title={
+        takenByLabel
+          ? `Taken by ${takenByLabel}`
+          : available && !isFree
+            ? `${service.total_currency} ${service.total_amount}`
+            : undefined
+      }
+      className={`flex size-9 flex-col items-center justify-center rounded-lg border font-mono text-[9px] leading-none transition-colors ${
         selectedByActive
           ? "border-signal bg-signal text-white"
           : takenByLabel
@@ -109,7 +126,10 @@ function SeatCell({
       }`}
     >
       <Armchair className="size-3.5" />
-      {designator}
+      <span>{designator}</span>
+      {available && !isFree && !selectedByActive && (
+        <span className="text-[7px] text-signal">{Math.round(parseFloat(service.total_amount))}</span>
+      )}
     </button>
   );
 }
@@ -127,7 +147,7 @@ export function SeatPicker({
   passengers.forEach((passenger, index) => {
     if (passenger.id === activePassengerId) return;
     const seat = selectedSeats[passenger.id];
-    if (seat) takenBy.set(seat, `PASSENGER ${index + 1}`);
+    if (seat) takenBy.set(seat.designator, `PASSENGER ${index + 1}`);
   });
 
   return (
@@ -153,14 +173,25 @@ export function SeatPicker({
                     <div key={sectionIndex} className="flex gap-1.5">
                       {section.elements.map((element, elementIndex) => {
                         const designator = element.designator;
+                        const service = serviceFor(element, activePassengerId);
                         return (
                           <SeatCell
                             key={elementIndex}
                             element={element}
-                            selectedByActive={designator === selectedSeats[activePassengerId]}
+                            selectedByActive={
+                              designator === selectedSeats[activePassengerId]?.designator
+                            }
                             takenByLabel={designator ? (takenBy.get(designator) ?? null) : null}
-                            available={isAvailableFor(element, activePassengerId)}
-                            onSelect={(d) => onSelect(activePassengerId, d)}
+                            service={service}
+                            onSelect={() => {
+                              if (!designator || !service) return;
+                              onSelect(activePassengerId, {
+                                designator,
+                                serviceId: service.id,
+                                amount: service.total_amount,
+                                currency: service.total_currency,
+                              });
+                            }}
                           />
                         );
                       })}

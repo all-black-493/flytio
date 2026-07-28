@@ -81,9 +81,14 @@ export interface OrderPassenger {
   email: string;
   phone_number: string;
   infant_passenger_id?: string | null;
-  /** Seat picked in our own seat-map UI. Recorded on our booking record
-   * only - the backend strips this before sending the order to Duffel. */
+  /** Seat picked in our own seat-map UI, for display only - the backend
+   * strips this before sending the order to Duffel. */
   seat_designator?: string | null;
+  /** The seat's available_services[].id (ase_...) for this passenger, from
+   * GET /shopping/seatmaps - this is what actually reserves the seat with
+   * the airline. The backend re-prices it from Duffel's own seat map at
+   * checkout time rather than trusting this value's cost. */
+  seat_service_id?: string | null;
 }
 
 export interface OrderPayment {

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { FlightSummary } from "@/app/(app)/booking/[offerId]/_components/flight-summary";
 import { PassengerForm, type PassengerDetails } from "@/app/(app)/booking/[offerId]/_components/passenger-form";
-import { SeatPicker } from "@/app/(app)/booking/[offerId]/_components/seat-picker";
+import { SeatPicker, type SeatPick } from "@/app/(app)/booking/[offerId]/_components/seat-picker";
 import { offerPriceQuery, seatMapQuery } from "@/app/(app)/booking/[offerId]/_lib/queries";
 import { DuffelCardPayment } from "@/components/DuffelCardPayment";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   const seatQuery = useQuery(seatMapQuery(offerId));
 
   const [step, setStep] = useState<Step>("seats");
-  const [selectedSeats, setSelectedSeats] = useState<Record<string, string>>({});
+  const [selectedSeats, setSelectedSeats] = useState<Record<string, SeatPick>>({});
   const [activePassengerId, setActivePassengerId] = useState<string | null>(null);
   const [passengers, setPassengers] = useState<OrderPassenger[] | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -116,11 +116,18 @@ export function BookingFlow({ offerId }: { offerId: string }) {
       offer.passengers.map((p, index) => ({
         id: p.id,
         ...passengerDetails[index],
-        seat_designator: selectedSeats[p.id],
+        seat_designator: selectedSeats[p.id]?.designator,
+        seat_service_id: selectedSeats[p.id]?.serviceId,
       })),
     );
     setStep("payment");
   }
+
+  const seatTotal = Object.values(selectedSeats).reduce(
+    (sum, seat) => sum + parseFloat(seat.amount),
+    0,
+  );
+  const seatCurrency = Object.values(selectedSeats)[0]?.currency;
 
   function payWithPesapal() {
     if (!offer || !passengers) return;
@@ -159,10 +166,15 @@ export function BookingFlow({ offerId }: { offerId: string }) {
               activePassengerId={effectiveActivePassengerId}
               onActivePassengerChange={setActivePassengerId}
               selectedSeats={selectedSeats}
-              onSelect={(passengerId, designator) =>
-                setSelectedSeats((prev) => ({ ...prev, [passengerId]: designator }))
+              onSelect={(passengerId, pick) =>
+                setSelectedSeats((prev) => ({ ...prev, [passengerId]: pick }))
               }
             />
+          )}
+          {seatTotal > 0 && seatCurrency && (
+            <p className="text-center text-sm text-muted-foreground">
+              Seats add {seatCurrency} {seatTotal.toFixed(2)} to your total.
+            </p>
           )}
           <Button
             size="lg"
