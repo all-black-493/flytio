@@ -147,3 +147,25 @@ export interface BookingListQueryParams {
   limit?: number;
   offset?: number;
 }
+
+/* ---------- order changes: POST .../change-requests, .../changes ---------- */
+
+export interface OrderChangeSliceRemove {
+  slice_id: string;
+}
+
+export interface OrderChangeSliceAdd {
+  origin: string;
+  destination: string;
+  departure_date: string;
+  cabin_class?: string;
+}
+
+export interface OrderChangeSlices {
+  remove: OrderChangeSliceRemove[];
+  add: OrderChangeSliceAdd[];
+}
+
+export interface OrderChangeCreate {
+  selected_order_change_offer: string;
+}

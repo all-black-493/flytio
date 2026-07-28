@@ -26,6 +26,9 @@ import {
   messageResponseSchema,
   offerResponseSchema,
   orderCancellationResponseSchema,
+  orderChangeOffersResponseSchema,
+  orderChangeRequestResponseSchema,
+  orderChangeResponseSchema,
   orderResponseSchema,
   paymentStatusResponseSchema,
   placeSuggestionsResponseSchema,
@@ -41,6 +44,9 @@ import {
   type MessageResponse,
   type OfferResponse,
   type OrderCancellationResponse,
+  type OrderChangeOffersResponse,
+  type OrderChangeRequestResponse,
+  type OrderChangeResponse,
   type OrderResponse,
   type PaymentStatusResponse,
   type PlaceSuggestionsResponse,
@@ -55,6 +61,8 @@ import type {
   OfferPassengerUpdate,
   OfferPriceRequest,
   OfferRequestCreate,
+  OrderChangeCreate,
+  OrderChangeSlices,
   OrderCreate,
   PlaceSuggestionsQuery,
 } from "./types";
@@ -412,6 +420,52 @@ export async function confirmCancellation(
   );
   if (!res.ok) throw new Error(await errorDetail(res));
   return orderCancellationResponseSchema.parse(await res.json());
+}
+
+/** POST .../change-requests — step 1 of changing an order: describe which
+ * slice to remove and what new slice to search for in its place. */
+export async function createOrderChangeRequest(
+  orderId: string,
+  request: OrderChangeSlices,
+): Promise<OrderChangeRequestResponse> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/${orderId}/change-requests`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return orderChangeRequestResponseSchema.parse(await res.json());
+}
+
+/** GET .../change-requests/{id}/offers — step 2: the priced ways to
+ * satisfy a change request. */
+export async function listOrderChangeOffers(
+  orderId: string,
+  orderChangeRequestId: string,
+): Promise<OrderChangeOffersResponse> {
+  const res = await fetch(
+    `${API_URL}/booking/flight-orders/${orderId}/change-requests/${orderChangeRequestId}/offers`,
+    { credentials: "include", headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return orderChangeOffersResponseSchema.parse(await res.json());
+}
+
+/** POST .../changes — step 3: create a pending change from a chosen
+ * offer. Not confirmed/charged yet - see backend/routers/bookings.py. */
+export async function createOrderChange(
+  orderId: string,
+  request: OrderChangeCreate,
+): Promise<OrderChangeResponse> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/${orderId}/changes`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return orderChangeResponseSchema.parse(await res.json());
 }
 
 /** GET /health — used by the navbar's status ticker. No credentials/auth

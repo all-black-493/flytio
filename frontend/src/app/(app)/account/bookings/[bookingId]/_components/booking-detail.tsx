@@ -6,6 +6,7 @@ import { ArrowLeft, Download, PlaneTakeoff, Ticket as TicketIcon } from "lucide-
 
 import { bookingDetailQuery } from "@/app/(app)/account/bookings/[bookingId]/_lib/queries";
 import { CancelBookingDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/cancel-booking-dialog";
+import { ChangeFlightDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/change-flight-dialog";
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { FlightItineraryTimeline, segmentFromFlight } from "@/components/FlightItineraryTimeline";
 import { buttonVariants } from "@/components/ui/button";
@@ -140,7 +141,12 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
             Download itinerary (PDF)
           </a>
 
-          {booking.status === "confirmed" && <CancelBookingDialog booking={booking} />}
+          {booking.status === "confirmed" && (
+            <>
+              <ChangeFlightDialog booking={booking} />
+              <CancelBookingDialog booking={booking} />
+            </>
+          )}
 
           <div className="space-y-3">
             <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">

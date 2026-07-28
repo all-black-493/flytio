@@ -336,6 +336,57 @@ export type OrderCancellationQuote = z.infer<typeof orderCancellationQuoteSchema
 export const orderCancellationResponseSchema = z.object({ data: orderCancellationQuoteSchema });
 export type OrderCancellationResponse = z.infer<typeof orderCancellationResponseSchema>;
 
+/* ---------- order changes: POST .../change-requests, .../changes (backend/schemas/duffel_orders.py) ---------- */
+
+export const orderChangeRequestSchema = z.object({
+  id: z.string(),
+  order_id: z.string().nullable(),
+  live_mode: z.boolean().nullable(),
+  created_at: z.string().nullable(),
+  updated_at: z.string().nullable(),
+});
+export const orderChangeRequestResponseSchema = z.object({ data: orderChangeRequestSchema });
+export type OrderChangeRequestResponse = z.infer<typeof orderChangeRequestResponseSchema>;
+
+export const orderChangeOfferSchema = z.object({
+  id: z.string(),
+  order_id: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  created_at: z.string().nullable(),
+  change_total_amount: z.string().nullable(),
+  change_total_currency: z.string().nullable(),
+  new_total_amount: z.string().nullable(),
+  new_total_currency: z.string().nullable(),
+  penalty_total_amount: z.string().nullable(),
+  penalty_total_currency: z.string().nullable(),
+  refund_to: z.string().nullable(),
+});
+export type OrderChangeOffer = z.infer<typeof orderChangeOfferSchema>;
+
+export const orderChangeOffersResponseSchema = z.object({
+  data: z.object({ offers: z.array(orderChangeOfferSchema).default([]) }),
+});
+export type OrderChangeOffersResponse = z.infer<typeof orderChangeOffersResponseSchema>;
+
+export const orderChangeSchema = z.object({
+  id: z.string(),
+  order_id: z.string().nullable(),
+  confirmed_at: z.string().nullable(),
+  created_at: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  change_total_amount: z.string().nullable(),
+  change_total_currency: z.string().nullable(),
+  new_total_amount: z.string().nullable(),
+  new_total_currency: z.string().nullable(),
+  penalty_total_amount: z.string().nullable(),
+  penalty_total_currency: z.string().nullable(),
+  refund_to: z.string().nullable(),
+});
+export type OrderChange = z.infer<typeof orderChangeSchema>;
+
+export const orderChangeResponseSchema = z.object({ data: orderChangeSchema });
+export type OrderChangeResponse = z.infer<typeof orderChangeResponseSchema>;
+
 /* ---------- our own bookings: GET /booking/flight-orders (backend/schemas/bookings.py) ---------- */
 
 export const flightPublicSchema = z.object({
