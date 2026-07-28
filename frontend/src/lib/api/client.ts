@@ -52,6 +52,7 @@ import type {
   BookingListQueryParams,
   CheckoutRequest,
   OfferListQueryParams,
+  OfferPassengerUpdate,
   OfferPriceRequest,
   OfferRequestCreate,
   OrderCreate,
@@ -224,6 +225,27 @@ export async function confirmOfferPrice(request: OfferPriceRequest): Promise<Off
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return offerResponseSchema.parse(await res.json());
+}
+
+/** PATCH /shopping/flight-offers/{offerId}/passengers/{offerPassengerId} —
+ * attach loyalty programme accounts to a passenger on an already-priced
+ * offer; returns the offer re-fetched (and re-marked-up), which may
+ * reflect a loyalty discount. */
+export async function updateOfferPassengerLoyalty(
+  offerId: string,
+  offerPassengerId: string,
+  request: OfferPassengerUpdate,
+): Promise<OfferResponse> {
+  const res = await fetch(
+    `${API_URL}/shopping/flight-offers/${offerId}/passengers/${offerPassengerId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
   if (!res.ok) throw new Error(await errorDetail(res));
   return offerResponseSchema.parse(await res.json());
 }

@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { OfferPassenger } from "@/lib/api/schemas";
-import type { OrderPassenger } from "@/lib/api/types";
+import type { LoyaltyProgrammeAccount, OrderPassenger } from "@/lib/api/types";
 import { compactLabelClass as labelClass } from "@/lib/utils";
 
 export type PassengerDetails = Omit<OrderPassenger, "id" | "seat_designator">;
@@ -37,6 +37,11 @@ const passportOptionalSchema = z.object({
   expires_on: z.string().optional(),
 });
 
+const loyaltySchema = z.object({
+  airline_iata_code: z.string().optional(),
+  account_number: z.string().optional(),
+});
+
 function buildPassengerSchema(identityDocumentRequired: boolean) {
   return z.object({
     title: z.string().min(1, "Required"),
@@ -47,6 +52,7 @@ function buildPassengerSchema(identityDocumentRequired: boolean) {
     email: z.email("Enter a valid email"),
     phone_number: z.string().refine(isValidPhoneNumber, "Enter a valid phone number"),
     passport: identityDocumentRequired ? passportSchema : passportOptionalSchema,
+    loyalty: loyaltySchema,
   });
 }
 
@@ -67,6 +73,7 @@ const EMPTY_DETAILS: PassengersFormValues["passengers"][number] = {
   email: "",
   phone_number: "",
   passport: { unique_identifier: "", issuing_country_code: "", expires_on: "" },
+  loyalty: { airline_iata_code: "", account_number: "" },
 };
 
 export interface PassengerFormProps {
@@ -75,7 +82,14 @@ export interface PassengerFormProps {
    * require passport details before Duffel will accept the order. */
   identityDocumentRequired: boolean;
   onBack: () => void;
-  onSubmit: (passengers: PassengerDetails[]) => void;
+  /** loyaltyAccounts is one entry per passenger (null if they left the
+   * frequent-flyer fields blank), same order as `passengers` - the
+   * caller (BookingFlow) attaches these to the offer before final
+   * pricing, since Duffel only reflects a loyalty discount that way. */
+  onSubmit: (
+    passengers: PassengerDetails[],
+    loyaltyAccounts: (LoyaltyProgrammeAccount | null)[],
+  ) => void;
   isSubmitting: boolean;
   submitLabel: string;
 }
@@ -95,8 +109,17 @@ export function PassengerForm({
   const { fields } = useFieldArray({ control: form.control, name: "passengers" });
 
   function handleSubmit(values: PassengersFormValues) {
+    const loyaltyAccounts = values.passengers.map(({ loyalty }) =>
+      loyalty.airline_iata_code && loyalty.account_number
+        ? {
+            airline_iata_code: loyalty.airline_iata_code.toUpperCase(),
+            account_number: loyalty.account_number,
+          }
+        : null,
+    );
     onSubmit(
-      values.passengers.map(({ passport, ...rest }) => ({
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- loyalty is only needed above, excluded from PassengerDetails
+      values.passengers.map(({ passport, loyalty, ...rest }) => ({
         ...rest,
         identity_documents: identityDocumentRequired
           ? [
@@ -109,6 +132,7 @@ export function PassengerForm({
             ]
           : undefined,
       })),
+      loyaltyAccounts,
     );
   }
 
@@ -249,6 +273,27 @@ export function PassengerForm({
                 </div>
               </div>
             )}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel className={labelClass}>
+                  FREQUENT FLYER AIRLINE (OPTIONAL)
+                </FieldLabel>
+                <Input
+                  placeholder="e.g. QF"
+                  maxLength={2}
+                  {...form.register(`passengers.${index}.loyalty.airline_iata_code`)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel className={labelClass}>
+                  FREQUENT FLYER NUMBER (OPTIONAL)
+                </FieldLabel>
+                <Input
+                  {...form.register(`passengers.${index}.loyalty.account_number`)}
+                />
+              </Field>
+            </div>
           </div>
         );
       })}
@@ -263,7 +308,7 @@ export function PassengerForm({
           className="flex-1 font-semibold"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Redirecting to payment…" : submitLabel}
+          {isSubmitting ? "Please wait…" : submitLabel}
         </Button>
       </div>
     </form>

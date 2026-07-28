@@ -60,6 +60,19 @@ export interface OfferPriceRequest {
   offer_id: string;
 }
 
+/* ---------- loyalty: PATCH /shopping/flight-offers/{id}/passengers/{id} ---------- */
+
+export interface LoyaltyProgrammeAccount {
+  airline_iata_code: string;
+  account_number: string;
+}
+
+export interface OfferPassengerUpdate {
+  given_name: string;
+  family_name: string;
+  loyalty_programme_accounts: LoyaltyProgrammeAccount[];
+}
+
 /* ---------- places: GET /shopping/places ---------- */
 
 export interface PlaceSuggestionsQuery {

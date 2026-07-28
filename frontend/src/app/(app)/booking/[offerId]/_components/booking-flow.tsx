@@ -13,8 +13,14 @@ import { DuffelCardPayment } from "@/components/DuffelCardPayment";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { checkout, checkoutWithCard, confirmCardPayment } from "@/lib/api/client";
-import type { OrderPassenger } from "@/lib/api/types";
+import {
+  checkout,
+  checkoutWithCard,
+  confirmCardPayment,
+  updateOfferPassengerLoyalty,
+} from "@/lib/api/client";
+import type { Offer } from "@/lib/api/schemas";
+import type { LoyaltyProgrammeAccount, OrderPassenger } from "@/lib/api/types";
 
 type Step = "seats" | "passengers" | "payment";
 type PaymentMethod = "pesapal" | "card";
@@ -31,8 +37,14 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [cardClientToken, setCardClientToken] = useState<string | null>(null);
   const [cardPaymentId, setCardPaymentId] = useState<string | null>(null);
+  // Set once a passenger's frequent-flyer number has been attached to the
+  // offer and it's been re-priced - Duffel only reflects a loyalty
+  // discount after re-fetching, so this may differ from priceQuery's
+  // original offer.
+  const [repricedOffer, setRepricedOffer] = useState<Offer | null>(null);
+  const [isApplyingLoyalty, setIsApplyingLoyalty] = useState(false);
 
-  const offer = priceQuery.data?.data;
+  const offer = repricedOffer ?? priceQuery.data?.data;
   const seatMap = seatQuery.data?.data[0];
   const hasSelectableSeats = useMemo(
     () =>
@@ -110,7 +122,10 @@ export function BookingFlow({ offerId }: { offerId: string }) {
     );
   }
 
-  function handlePassengerSubmit(passengerDetails: PassengerDetails[]) {
+  async function handlePassengerSubmit(
+    passengerDetails: PassengerDetails[],
+    loyaltyAccounts: (LoyaltyProgrammeAccount | null)[],
+  ) {
     if (!offer) return;
     setPassengers(
       offer.passengers.map((p, index) => ({
@@ -120,6 +135,38 @@ export function BookingFlow({ offerId }: { offerId: string }) {
         seat_service_id: selectedSeats[p.id]?.serviceId,
       })),
     );
+
+    // Duffel only reflects a loyalty-discounted fare after the offer is
+    // re-fetched post-attach - applied sequentially (each PATCH re-fetches
+    // the whole offer) so the final total accounts for every passenger's
+    // loyalty account, not just the last one applied.
+    const loyaltyEntries = offer.passengers
+      .map((p, index) => ({ offerPassengerId: p.id, details: passengerDetails[index], loyalty: loyaltyAccounts[index] }))
+      .filter((entry) => entry.loyalty !== null);
+    if (loyaltyEntries.length > 0) {
+      setIsApplyingLoyalty(true);
+      try {
+        let latestOffer = offer;
+        for (const entry of loyaltyEntries) {
+          const response = await updateOfferPassengerLoyalty(offer.id, entry.offerPassengerId, {
+            given_name: entry.details.given_name,
+            family_name: entry.details.family_name,
+            loyalty_programme_accounts: [entry.loyalty!],
+          });
+          latestOffer = response.data;
+        }
+        setRepricedOffer(latestOffer);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Couldn't apply your frequent flyer number - continuing without it.",
+        );
+      } finally {
+        setIsApplyingLoyalty(false);
+      }
+    }
+
     setStep("payment");
   }
 
@@ -194,7 +241,7 @@ export function BookingFlow({ offerId }: { offerId: string }) {
           identityDocumentRequired={offer.passenger_identity_documents_required}
           onBack={() => setStep("seats")}
           onSubmit={handlePassengerSubmit}
-          isSubmitting={false}
+          isSubmitting={isApplyingLoyalty}
           submitLabel={`Continue to payment · ${offer.total_currency} ${offer.total_amount}`}
         />
       )}
