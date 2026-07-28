@@ -2,19 +2,90 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, Download, PlaneTakeoff, Ticket as TicketIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  Briefcase,
+  Download,
+  Luggage,
+  PlaneTakeoff,
+  Ticket as TicketIcon,
+  TriangleAlert,
+} from "lucide-react";
 
 import { bookingDetailQuery } from "@/app/(app)/account/bookings/[bookingId]/_lib/queries";
 import { CancelBookingDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/cancel-booking-dialog";
 import { ChangeFlightDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/change-flight-dialog";
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { FlightItineraryTimeline, segmentFromFlight } from "@/components/FlightItineraryTimeline";
+import { PriceBreakdown } from "@/components/PriceBreakdown";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_URL } from "@/lib/api/client";
 import { formatMoney, formatShortDate, formatTime } from "@/lib/api/format";
-import type { BookingSlicePublic } from "@/lib/api/schemas";
+import type { BookingPassengerPublic, BookingPublic, BookingSlicePublic } from "@/lib/api/schemas";
+
+/** Fare rules row - only rendered once the backend actually has a
+ * refund/change verdict for this booking (older bookings predate this
+ * persistence and will have both fields null). */
+function FareRulesCard({ booking }: { booking: BookingPublic }) {
+  if (booking.refund_allowed === null && booking.change_allowed === null) return null;
+
+  return (
+    <Card className="gap-2 p-4">
+      <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">FARE RULES</p>
+      <div className="space-y-1.5 text-sm">
+        {booking.refund_allowed !== null && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Refund</span>
+            <span>
+              {booking.refund_allowed ? "Allowed" : "Not allowed"}
+              {booking.refund_allowed && booking.refund_penalty_amount && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({formatMoney(booking.refund_penalty_amount, booking.refund_penalty_currency!)}{" "}
+                  fee)
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+        {booking.change_allowed !== null && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Changes</span>
+            <span>
+              {booking.change_allowed ? "Allowed" : "Not allowed"}
+              {booking.change_allowed && booking.change_penalty_amount && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({formatMoney(booking.change_penalty_amount, booking.change_penalty_currency!)}{" "}
+                  fee)
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function BaggageSummary({ passenger }: { passenger: BookingPassengerPublic }) {
+  if (passenger.checked_bags === 0 && passenger.carry_on_bags === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1">
+        <Briefcase className="size-3.5" />
+        {passenger.carry_on_bags} carry-on
+      </span>
+      <span className="flex items-center gap-1">
+        <Luggage className="size-3.5" />
+        {passenger.checked_bags} checked
+      </span>
+    </div>
+  );
+}
 
 function SliceCard({ slice }: { slice: BookingSlicePublic }) {
   const first = slice.flights[0];
@@ -125,13 +196,33 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
                   <p className="font-mono text-[11px] tracking-widest text-muted-foreground">
                     TOTAL PAID
                   </p>
-                  <p className="font-semibold">
-                    {formatMoney(booking.total_amount, booking.total_currency)}
-                  </p>
+                  <PriceBreakdown
+                    baseAmount={booking.base_amount}
+                    baseCurrency={booking.base_currency}
+                    taxAmount={booking.tax_amount}
+                    taxCurrency={booking.tax_currency}
+                    totalAmount={booking.total_amount}
+                    totalCurrency={booking.total_currency}
+                  />
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {booking.airline_initiated_change_detected_at && (
+            <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                The airline changed this booking&apos;s schedule on{" "}
+                {formatShortDate(booking.airline_initiated_change_detected_at)}. Review your
+                itinerary below, or{" "}
+                <Link href="/contact" className="underline underline-offset-2">
+                  contact support
+                </Link>{" "}
+                if it no longer works for you.
+              </span>
+            </p>
+          )}
 
           <a
             href={`${API_URL}/booking/flight-orders/by-id/${booking.id}/itinerary.pdf`}
@@ -157,6 +248,8 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
             ))}
           </div>
 
+          <FareRulesCard booking={booking} />
+
           <div className="space-y-3">
             <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
               PASSENGERS &amp; TICKETS
@@ -171,6 +264,7 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
                     SEAT {passenger.seat_designator ?? "TBD"}
                   </span>
                 </div>
+                <BaggageSummary passenger={passenger} />
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <TicketIcon className="size-3.5" />
                   {passenger.tickets.length > 0 ? (

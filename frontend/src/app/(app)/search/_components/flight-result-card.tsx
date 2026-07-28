@@ -12,6 +12,7 @@ import {
   layoverMinutes,
   segmentFromOffer,
 } from "@/components/FlightItineraryTimeline";
+import { SelfTransferNotice } from "@/components/SelfTransferNotice";
 import { formatDuration, formatMoney, formatTime, stopsLabel } from "@/lib/api/format";
 import type { Offer, OfferSlice } from "@/lib/api/schemas";
 
@@ -92,6 +93,7 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
           {offer.slices.map((slice) => (
             <SliceRow key={slice.id} slice={slice} />
           ))}
+          {offer.partial && <SelfTransferNotice className="mt-3" />}
         </div>
 
         {/* boarding-pass stub: same dark board + signal treatment as the
@@ -175,6 +177,7 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
                       {alt.slices.map((slice) => (
                         <SliceRow key={slice.id} slice={slice} />
                       ))}
+                      {alt.partial && <SelfTransferNotice className="mt-3" />}
                     </div>
                     <div className="flex flex-col items-end gap-2 pl-3">
                       <p className="text-lg font-bold tabular-nums">

@@ -1,8 +1,52 @@
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { FlightItineraryTimeline, segmentFromOffer } from "@/components/FlightItineraryTimeline";
 import { PriceBreakdown } from "@/components/PriceBreakdown";
-import { formatDuration, stopsLabel } from "@/lib/api/format";
+import { SelfTransferNotice } from "@/components/SelfTransferNotice";
+import { formatDuration, formatMoney, stopsLabel } from "@/lib/api/format";
 import type { Offer } from "@/lib/api/schemas";
+
+/** Pre-purchase refund/change eligibility, straight from the offer Duffel
+ * quoted us - shown before checkout so travelers see it while they can
+ * still pick a different fare, not after they've already paid. */
+function ConditionsNotice({ offer }: { offer: Offer }) {
+  const refund = offer.conditions?.refund_before_departure;
+  const change = offer.conditions?.change_before_departure;
+  if (!refund && !change) return null;
+
+  return (
+    <div className="space-y-1.5 p-4 text-sm">
+      <p className="font-mono text-[11px] tracking-widest text-muted-foreground">FARE RULES</p>
+      {refund && (
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Refund before departure</span>
+          <span>
+            {refund.allowed ? "Allowed" : "Not allowed"}
+            {refund.allowed && refund.penalty_amount && (
+              <span className="text-muted-foreground">
+                {" "}
+                ({formatMoney(refund.penalty_amount, refund.penalty_currency!)} fee)
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+      {change && (
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Change before departure</span>
+          <span>
+            {change.allowed ? "Allowed" : "Not allowed"}
+            {change.allowed && change.penalty_amount && (
+              <span className="text-muted-foreground">
+                {" "}
+                ({formatMoney(change.penalty_amount, change.penalty_currency!)} fee)
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function FlightSummary({ offer }: { offer: Offer }) {
   const firstSegmentCarrier = offer.slices[0]?.segments[0]?.marketing_carrier;
@@ -38,6 +82,12 @@ export function FlightSummary({ offer }: { offer: Offer }) {
             <FlightItineraryTimeline segments={slice.segments.map(segmentFromOffer)} />
           </div>
         ))}
+        {offer.partial && (
+          <div className="p-4">
+            <SelfTransferNotice />
+          </div>
+        )}
+        <ConditionsNotice offer={offer} />
       </div>
     </div>
   );

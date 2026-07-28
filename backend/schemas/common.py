@@ -6,8 +6,9 @@ without either importing the other's base class.
 """
 
 from datetime import date
+from typing import Any, get_origin
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class PaginationMeta(BaseModel):
@@ -23,6 +24,30 @@ class BaseSchema(BaseModel):
     pass-through/subset mapping, not a strict contract."""
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_none_collections(cls, data: Any) -> Any:
+        """Duffel sends an explicit `null` for some empty list/dict
+        fields, not just an omitted key - confirmed the hard way for
+        Offer.available_services, which crashed every single search
+        until this was found (a plain `= []` default only covers a
+        missing key, never an explicit None). Applied once here, to
+        every list/dict-typed field on every subclass, rather than
+        chasing this down field-by-field as each one happens to be the
+        next to receive a real `null` from Duffel."""
+        if not isinstance(data, dict):
+            return data
+        for name, field in cls.model_fields.items():
+            key = field.alias or name
+            if key not in data or data[key] is not None:
+                continue
+            origin = get_origin(field.annotation)
+            if field.annotation is list or origin is list:
+                data[key] = []
+            elif field.annotation is dict or origin is dict:
+                data[key] = {}
+        return data
 
 
 def not_in_past(value: date) -> date:

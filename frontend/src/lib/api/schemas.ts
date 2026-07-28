@@ -69,18 +69,40 @@ export const aircraftSchema = z.object({
 });
 export type Aircraft = z.infer<typeof aircraftSchema>;
 
+/** Shared shape for every refund/change condition Duffel returns - on an
+ * offer (pre-purchase) or an order (post-purchase); see
+ * backend/schemas/duffel_flights.py's ConditionDetail/Conditions. */
+export const conditionDetailSchema = z.object({
+  allowed: z.boolean().nullable(),
+  penalty_amount: z.string().nullable(),
+  penalty_currency: z.string().nullable(),
+});
+export type ConditionDetail = z.infer<typeof conditionDetailSchema>;
+
+export const conditionsSchema = z.object({
+  refund_before_departure: conditionDetailSchema.nullable(),
+  change_before_departure: conditionDetailSchema.nullable(),
+});
+export type Conditions = z.infer<typeof conditionsSchema>;
+
 /* ---------- search: POST/GET /shopping/flight-offers ---------- */
 
 export const offerSegmentSchema = z.object({
   id: z.string(),
   origin: airportSchema,
   destination: airportSchema,
+  // Duffel's sandbox has been observed sending this as either a string
+  // or a number - matches backend/schemas/duffel_flights.py's
+  // `str | int | None` typing for the same field.
+  origin_terminal: z.union([z.string(), z.number()]).nullable(),
+  destination_terminal: z.union([z.string(), z.number()]).nullable(),
   departing_at: z.string(),
   arriving_at: z.string(),
   duration: z.string().nullable(),
   marketing_carrier: carrierSchema.nullable(),
   marketing_carrier_flight_number: z.string().nullable(),
   operating_carrier: carrierSchema.nullable(),
+  operating_carrier_flight_number: z.string().nullable(),
   aircraft: aircraftSchema.nullable(),
 });
 export type OfferSegment = z.infer<typeof offerSegmentSchema>;
@@ -98,6 +120,7 @@ export const offerPassengerSchema = z.object({
   id: z.string(),
   type: passengerTypeSchema.nullable(),
   age: z.number().nullable(),
+  fare_type: z.string().nullable(),
 });
 export type OfferPassenger = z.infer<typeof offerPassengerSchema>;
 
@@ -109,6 +132,7 @@ export const availableServiceSchema = z.object({
   maximum_quantity: z.number().default(1),
   passenger_ids: z.array(z.string()).default([]),
   segment_ids: z.array(z.string()).default([]),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 export type AvailableService = z.infer<typeof availableServiceSchema>;
 
@@ -128,6 +152,14 @@ export const offerSchema = z.object({
   passenger_identity_documents_required: z.boolean().default(false),
   supported_passenger_identity_document_types: z.array(z.string()).default([]),
   available_services: z.array(availableServiceSchema).default([]),
+  // True for a self-transfer itinerary Duffel stitched together from
+  // separate airlines' offers - no through check-in/baggage, and a
+  // missed connection isn't the airline's responsibility. Worth flagging
+  // to the traveler wherever an offer is shown.
+  partial: z.boolean().nullable().default(null),
+  // Pre-purchase refund/change eligibility - shown before checkout so a
+  // customer isn't surprised by a non-refundable fare after paying.
+  conditions: conditionsSchema.nullable().default(null),
 });
 export type Offer = z.infer<typeof offerSchema>;
 
@@ -259,7 +291,10 @@ export interface Place {
   airports: Place[] | null;
 }
 
-export const placeSuggestionsResponseSchema = z.object({ data: z.array(placeSchema) });
+export const placeSuggestionsResponseSchema = z.object({
+  data: z.array(placeSchema),
+  meta: z.record(z.string(), z.unknown()).nullable().default(null),
+});
 export type PlaceSuggestionsResponse = z.infer<typeof placeSuggestionsResponseSchema>;
 
 /* ---------- booking: POST /booking/flight-orders (creates a Duffel order) ---------- */
@@ -270,19 +305,6 @@ export const paymentStatusSchema = z.object({
   price_guarantee_expires_at: z.string().nullable(),
 });
 export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
-
-export const orderConditionDetailSchema = z.object({
-  allowed: z.boolean().nullable(),
-  penalty_amount: z.string().nullable(),
-  penalty_currency: z.string().nullable(),
-});
-export type OrderConditionDetail = z.infer<typeof orderConditionDetailSchema>;
-
-export const orderConditionsSchema = z.object({
-  refund_before_departure: orderConditionDetailSchema.nullable(),
-  change_before_departure: orderConditionDetailSchema.nullable(),
-});
-export type OrderConditions = z.infer<typeof orderConditionsSchema>;
 
 export const orderPassengerDetailSchema = z.object({
   id: z.string(),
@@ -314,7 +336,7 @@ export const orderSchema = z.object({
   slices: z.array(offerSliceSchema),
   passengers: z.array(orderPassengerDetailSchema),
   payment_status: paymentStatusSchema.nullable(),
-  conditions: orderConditionsSchema.nullable(),
+  conditions: conditionsSchema.nullable(),
   available_actions: z.array(z.string()),
 });
 export type Order = z.infer<typeof orderSchema>;
@@ -360,6 +382,7 @@ export const orderChangeOfferSchema = z.object({
   penalty_total_amount: z.string().nullable(),
   penalty_total_currency: z.string().nullable(),
   refund_to: z.string().nullable(),
+  live_mode: z.boolean().nullable(),
 });
 export type OrderChangeOffer = z.infer<typeof orderChangeOfferSchema>;
 
@@ -394,8 +417,10 @@ export const flightPublicSchema = z.object({
   duffel_segment_id: z.string(),
   origin_iata_code: z.string(),
   origin_name: z.string().nullable(),
+  origin_terminal: z.string().nullable(),
   destination_iata_code: z.string(),
   destination_name: z.string().nullable(),
+  destination_terminal: z.string().nullable(),
   departing_at: z.string(),
   arriving_at: z.string(),
   duration: z.string().nullable(),
@@ -405,6 +430,7 @@ export const flightPublicSchema = z.object({
   marketing_carrier_flight_number: z.string().nullable(),
   operating_carrier_iata_code: z.string().nullable(),
   operating_carrier_name: z.string().nullable(),
+  operating_carrier_flight_number: z.string().nullable(),
   aircraft_name: z.string().nullable(),
 });
 export type FlightPublic = z.infer<typeof flightPublicSchema>;
@@ -442,6 +468,8 @@ export const bookingPassengerPublicSchema = z.object({
   phone_number: z.string().nullable(),
   seat_designator: z.string().nullable(),
   cabin_class: cabinClassSchema.nullable(),
+  checked_bags: z.number().default(0),
+  carry_on_bags: z.number().default(0),
   tickets: z.array(ticketPublicSchema),
 });
 export type BookingPassengerPublic = z.infer<typeof bookingPassengerPublicSchema>;
@@ -453,10 +481,21 @@ export const bookingPublicSchema = z.object({
   status: bookingStatusSchema,
   total_amount: z.string(),
   total_currency: z.string(),
+  base_amount: z.string().nullable(),
+  base_currency: z.string().nullable(),
+  tax_amount: z.string().nullable(),
+  tax_currency: z.string().nullable(),
   owner_iata_code: z.string().nullable(),
   owner_name: z.string().nullable(),
+  refund_allowed: z.boolean().nullable(),
+  refund_penalty_amount: z.string().nullable(),
+  refund_penalty_currency: z.string().nullable(),
+  change_allowed: z.boolean().nullable(),
+  change_penalty_amount: z.string().nullable(),
+  change_penalty_currency: z.string().nullable(),
   created_at: z.string(),
   cancelled_at: z.string().nullable(),
+  airline_initiated_change_detected_at: z.string().nullable(),
   slices: z.array(bookingSlicePublicSchema),
   passengers: z.array(bookingPassengerPublicSchema),
 });

@@ -370,15 +370,9 @@ class Offer(BaseSchema):
     supported_passenger_identity_document_types: list[str] = []
     conditions: Conditions | None = None
     payment_requirements: PaymentRequirements | None = None
-    # Duffel sends this as an explicit `null` (not just an omitted key)
-    # when there's nothing to offer - a plain `= []` default only covers
-    # a missing key, not an explicit None, so it still needs coercing here.
+    # An explicit Duffel `null` (not just a missing key) is coerced to []
+    # by BaseSchema._coerce_none_collections - see its docstring.
     available_services: list[AvailableService] = []
-
-    @field_validator("available_services", mode="before")
-    @classmethod
-    def _default_available_services(cls, value: list | None) -> list:
-        return value or []
 
 
 class OfferRequest(BaseSchema):
