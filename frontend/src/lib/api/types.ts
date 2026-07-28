@@ -169,3 +169,13 @@ export interface OrderChangeSlices {
 export interface OrderChangeCreate {
   selected_order_change_offer: string;
 }
+
+/* ---------- support: POST /support/contact ---------- */
+
+export interface ContactRequest {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  booking_reference?: string;
+}

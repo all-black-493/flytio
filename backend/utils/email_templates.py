@@ -302,3 +302,44 @@ you travel.
         preheader=f"{booking.owner_name or 'The airline'} changed your itinerary {booking.booking_reference}.",
         inner_html=inner,
     )
+
+
+def support_request_email_html(
+    name: str,
+    email: str,
+    subject: str,
+    message: str,
+    booking_reference: str | None,
+) -> str:
+    """Internal notification to support@ for a new contact-form
+    submission (routers/support.py) - sent with reply_to set to the
+    customer's own address, so replying from a mail client reaches them
+    directly rather than support@ replying to itself."""
+    reference_line = (
+        f'<p style="margin:0 0 16px;">Booking reference: <strong>{_esc(booking_reference)}</strong></p>'
+        if booking_reference
+        else ""
+    )
+    inner = f"""
+<h2 style="margin:0 0 4px;font-size:20px;">New support request</h2>
+<p style="margin:0 0 20px;color:#55677c;">From {_esc(name)} &lt;{_esc(email)}&gt;</p>
+{reference_line}
+<p style="margin:0 0 4px;font-weight:bold;">{_esc(subject)}</p>
+<div style="white-space:pre-wrap;border-left:3px solid #d8e0e8;padding-left:12px;">{_esc(message)}</div>
+"""
+    return email_shell(preheader=f"New support request: {subject}", inner_html=inner)
+
+
+def support_autoreply_email_html(name: str, subject: str) -> str:
+    """Confirmation sent back to the customer after a support request -
+    reassures them it actually went through, since there's no ticketing
+    system/status page to check otherwise."""
+    inner = f"""
+<h2 style="margin:0 0 4px;font-size:20px;">We've got your message</h2>
+<p style="margin:0 0 20px;color:#55677c;">Hi {_esc(name)},</p>
+<p style="margin:0 0 16px;">
+Thanks for reaching out about "{_esc(subject)}" - our team will get back
+to you by email as soon as possible.
+</p>
+"""
+    return email_shell(preheader="We've received your message.", inner_html=inner)

@@ -198,12 +198,12 @@ export function ChangeFlightDialog({ booking }: { booking: BookingPublic }) {
                 </strong>
               </p>
               <a
-                href={`mailto:support@flyt.africa?subject=${encodeURIComponent(
+                href={`/contact?subject=${encodeURIComponent(
                   `Complete flight change for booking ${booking.booking_reference}`,
-                )}`}
+                )}&booking_reference=${encodeURIComponent(booking.booking_reference)}`}
                 className="text-signal underline"
               >
-                Email support to finish this change
+                Contact support to finish this change
               </a>
             </div>
           )}

@@ -12,6 +12,9 @@ export default function SiteFooter() {
           <span className="text-xl font-bold tracking-tight text-board-ink">flyt</span>
         </span>
         <nav className="flex items-center gap-4 font-mono text-xs tracking-widest text-board-muted">
+          <Link href="/contact" className="hover:text-board-ink">
+            CONTACT
+          </Link>
           <Link href="/terms" className="hover:text-board-ink">
             TERMS
           </Link>

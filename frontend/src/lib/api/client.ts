@@ -57,6 +57,7 @@ import {
 import type {
   BookingListQueryParams,
   CheckoutRequest,
+  ContactRequest,
   OfferListQueryParams,
   OfferPassengerUpdate,
   OfferPriceRequest,
@@ -466,6 +467,20 @@ export async function createOrderChange(
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return orderChangeResponseSchema.parse(await res.json());
+}
+
+/* ---------- support: POST /support/contact ---------- */
+
+/** No auth required - a customer who can't log in is exactly who most
+ * needs this. */
+export async function contactSupport(request: ContactRequest): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/support/contact`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
 }
 
 /** GET /health — used by the navbar's status ticker. No credentials/auth
