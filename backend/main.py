@@ -9,10 +9,11 @@ from backend.config import settings
 from backend.crud.db import get_session
 from backend.external_services.flight import duffel_flight_service
 from backend.external_services.payment import pesapal_payment_service
+from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
 from backend.utils.log_manager import get_app_logger
 
-from .routers import flights, payments, users, webhooks
+from .routers import flights, payments, stays, users, webhooks
 
 logger = get_app_logger(__name__)
 
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("flyt backend starting up")
     yield
     await duffel_flight_service.aclose()
+    await duffel_stay_service.aclose()
     await pesapal_payment_service.aclose()
     logger.info("flyt backend shutting down")
 
@@ -53,6 +55,7 @@ app.include_router(users.router)
 app.include_router(flights.router)
 app.include_router(payments.router)
 app.include_router(webhooks.router)
+app.include_router(stays.router)
 
 
 @app.get("/")
