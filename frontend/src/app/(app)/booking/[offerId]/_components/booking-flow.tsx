@@ -191,6 +191,7 @@ export function BookingFlow({ offerId }: { offerId: string }) {
       {step === "passengers" && (
         <PassengerForm
           passengers={offer.passengers}
+          identityDocumentRequired={offer.passenger_identity_documents_required}
           onBack={() => setStep("seats")}
           onSubmit={handlePassengerSubmit}
           isSubmitting={false}

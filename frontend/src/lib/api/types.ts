@@ -71,6 +71,13 @@ export interface PlaceSuggestionsQuery {
 
 /* ---------- booking: POST /booking/flight-orders ---------- */
 
+export interface IdentityDocument {
+  unique_identifier: string;
+  type: string;
+  issuing_country_code: string;
+  expires_on: string;
+}
+
 export interface OrderPassenger {
   id: string;
   title: string;
@@ -81,6 +88,9 @@ export interface OrderPassenger {
   email: string;
   phone_number: string;
   infant_passenger_id?: string | null;
+  /** Required when the offer's passenger_identity_documents_required is
+   * true - see Offer.passenger_identity_documents_required. */
+  identity_documents?: IdentityDocument[] | null;
   /** Seat picked in our own seat-map UI, for display only - the backend
    * strips this before sending the order to Duffel. */
   seat_designator?: string | null;

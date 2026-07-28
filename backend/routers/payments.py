@@ -81,6 +81,23 @@ async def _reconfirm_price_and_create_payment(
     duffel_amount = offer_data["total_amount"]
     currency = offer_data["total_currency"]
 
+    # Some itineraries won't be accepted by the airline (and Duffel will
+    # reject the order) without a passport on file for every passenger -
+    # catching it here gives a clear error before we ever charge the
+    # customer, rather than a failed booking after payment already landed.
+    if offer_data.get("passenger_identity_documents_required"):
+        missing = [
+            p.given_name or p.id for p in request.passengers if not p.identity_documents
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "This itinerary requires passport details for every "
+                    f"passenger. Missing for: {', '.join(missing)}"
+                ),
+            )
+
     # If any passenger picked a paid seat, its cost must be folded into
     # what Duffel is paid (and what the customer is charged) now - Duffel
     # rejects an order whose payments[].amount doesn't exactly match the
