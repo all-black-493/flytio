@@ -92,18 +92,133 @@ def _departure_date(booking: Booking) -> str:
     return _esc(first_flight.departing_at.strftime("%d %b %Y"))
 
 
+def _segment_html(flight) -> str:
+    """One flight (segment) row: carrier/flight number, route with actual
+    departure/arrival times (not just the date), and an "operated by" note
+    when it differs from the marketing carrier - Duffel's own guidance
+    (displaying-offer-and-order-conditions) is that operating-carrier
+    mismatches are common on codeshares and worth surfacing."""
+    carrier = flight.marketing_carrier_name or flight.marketing_carrier_iata_code or ""
+    flight_number = flight.marketing_carrier_flight_number or ""
+    operated_by = ""
+    if (
+        flight.operating_carrier_name
+        and flight.operating_carrier_name != flight.marketing_carrier_name
+    ):
+        operated_by = f'<p style="margin:4px 0 0;color:#55677c;font-size:12px;">Operated by {_esc(flight.operating_carrier_name)}</p>'
+    return f"""
+<tr>
+  <td style="padding:10px 0;border-top:1px solid #eef2f6;">
+    <p style="margin:0;font-weight:bold;">{_esc(carrier)} {_esc(flight_number)}</p>
+    <p style="margin:4px 0 0;color:#55677c;">
+      {_esc(flight.origin_iata_code)} {format_flight_time(flight.departing_at)}
+      &nbsp;→&nbsp;
+      {_esc(flight.destination_iata_code)} {format_flight_time(flight.arriving_at)}
+    </p>
+    {operated_by}
+  </td>
+</tr>
+"""
+
+
+def _slice_html(slice_) -> str:
+    rows = "".join(_segment_html(f) for f in slice_.flights)
+    return f"""
+<div style="margin-bottom:16px;">
+  <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.05em;color:#55677c;text-transform:uppercase;">
+    {_esc(slice_.origin_iata_code)} → {_esc(slice_.destination_iata_code)}
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    {rows}
+  </table>
+</div>
+"""
+
+
+def _passenger_html(passenger) -> str:
+    name = f"{passenger.given_name} {passenger.family_name}".strip()
+    cabin = (
+        passenger.cabin_class.value.replace("_", " ").title()
+        if passenger.cabin_class
+        else "—"
+    )
+    bags = []
+    if passenger.checked_bags:
+        bags.append(f"{passenger.checked_bags} checked")
+    if passenger.carry_on_bags:
+        bags.append(f"{passenger.carry_on_bags} carry-on")
+    baggage = ", ".join(bags) if bags else "—"
+    seat = passenger.seat_designator or "Assigned at check-in"
+    return f"""
+<tr>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;">{_esc(name)}</td>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;color:#55677c;">{_esc(cabin)}</td>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;color:#55677c;">{_esc(baggage)}</td>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;color:#55677c;">{_esc(seat)}</td>
+</tr>
+"""
+
+
+def _receipt_html(booking: Booking) -> str:
+    """Fare breakdown - base_amount/tax_amount are only populated on
+    bookings made since that split started being persisted (see
+    crud/bookings.py's _fare_breakdown); older bookings fall back to a
+    single total line rather than showing a broken/empty breakdown."""
+    if booking.base_amount is not None and booking.tax_amount is not None:
+        return f"""
+<tr><td style="padding:2px 0;">Fare</td><td style="padding:2px 0;text-align:right;">{_esc(booking.base_currency)} {_esc(booking.base_amount)}</td></tr>
+<tr><td style="padding:2px 0;">Fees &amp; taxes</td><td style="padding:2px 0;text-align:right;">{_esc(booking.tax_currency)} {_esc(booking.tax_amount)}</td></tr>
+<tr><td style="padding:8px 0 0;font-weight:bold;border-top:1px solid #d8e0e8;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:bold;border-top:1px solid #d8e0e8;">{_esc(booking.total_currency)} {_esc(booking.total_amount)}</td></tr>
+"""
+    return f'<tr><td style="padding:2px 0;font-weight:bold;">Total paid</td><td style="padding:2px 0;text-align:right;font-weight:bold;">{_esc(booking.total_currency)} {_esc(booking.total_amount)}</td></tr>'
+
+
+def _conditions_html(booking: Booking) -> str:
+    """Change/refund terms, mirroring what displaying-offer-and-order-
+    conditions recommends showing customers - omitted entirely (not shown
+    as a blank/"unknown" line) when Duffel didn't report a condition for
+    this order, since None means "not reported", not "not allowed"."""
+    lines = []
+    if booking.change_allowed is not None:
+        if booking.change_allowed:
+            penalty = (
+                f" (penalty: {_esc(booking.change_penalty_currency)} {_esc(booking.change_penalty_amount)})"
+                if booking.change_penalty_amount
+                else " (no penalty)"
+            )
+            lines.append(f"Changes are allowed{penalty}.")
+        else:
+            lines.append("Changes are not allowed on this fare.")
+    if booking.refund_allowed is not None:
+        if booking.refund_allowed:
+            penalty = (
+                f" (penalty: {_esc(booking.refund_penalty_currency)} {_esc(booking.refund_penalty_amount)})"
+                if booking.refund_penalty_amount
+                else " (no penalty)"
+            )
+            lines.append(f"Refunds are allowed{penalty}.")
+        else:
+            lines.append("This fare is non-refundable.")
+    if not lines:
+        return ""
+    return f'<p style="margin:16px 0 0;color:#55677c;font-size:12px;">{" ".join(lines)}</p>'
+
+
 def booking_confirmation_email_html(booking: Booking) -> str:
-    """Short enterprise-style confirmation: route/date/total summary plus
-    links to the full booking (account page) and the downloadable PDF
-    itinerary (backend/utils/itinerary_pdf.py) - the full flight/passenger/
-    ticket-number manifest lives in those two places now, not inline in
-    the email body."""
+    """A full manifest inline in the email body - flight-by-flight
+    itinerary, passengers with cabin/baggage/seat, and the fare breakdown
+    - per Duffel's handling-flight-booking-confirmation-emails guide
+    ("include the flight itinerary, payment details, and the booking
+    reference"), plus links to the account page and the downloadable PDF
+    for anyone who wants the full record offline."""
     booking_url = f"{settings.FRONTEND_URL}/account/bookings/{booking.id}"
     pdf_url = (
         f"{settings.BACKEND_PUBLIC_URL}"
         f"/booking/flight-orders/by-id/{booking.id}/itinerary.pdf"
     )
     passenger_count = len(booking.passengers)
+    slices_html = "".join(_slice_html(s) for s in booking.slices)
+    passenger_rows = "".join(_passenger_html(p) for p in booking.passengers)
 
     inner = f"""
 <h2 style="margin:0 0 4px;font-size:20px;">You're booked!</h2>
@@ -114,12 +229,31 @@ def booking_confirmation_email_html(booking: Booking) -> str:
     <td style="padding:16px 20px;">
       <p style="margin:0;font-size:16px;font-weight:bold;">{_route_summary(booking)}</p>
       <p style="margin:4px 0 0;color:#55677c;">{_departure_date(booking)} · {passenger_count} passenger{"s" if passenger_count != 1 else ""} · {_esc(booking.owner_name) or "—"}</p>
-      <p style="margin:12px 0 0;">Total paid: <strong>{_esc(booking.total_currency)} {_esc(booking.total_amount)}</strong></p>
     </td>
   </tr>
 </table>
 
-<table role="presentation" cellpadding="0" cellspacing="0">
+<h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Itinerary</h3>
+{slices_html}
+
+<h3 style="margin:24px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Passengers</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+  <tr style="color:#55677c;font-size:11px;text-transform:uppercase;">
+    <td style="padding:0 0 4px;">Name</td>
+    <td style="padding:0 0 4px;">Class</td>
+    <td style="padding:0 0 4px;">Baggage</td>
+    <td style="padding:0 0 4px;">Seat</td>
+  </tr>
+  {passenger_rows}
+</table>
+
+<h3 style="margin:24px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Your trip receipt</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+  {_receipt_html(booking)}
+</table>
+{_conditions_html(booking)}
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px;">
   <tr>
     <td style="background:#ff4f00;">
       <a href="{booking_url}" style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;text-decoration:none;">View booking</a>
@@ -127,7 +261,7 @@ def booking_confirmation_email_html(booking: Booking) -> str:
   </tr>
 </table>
 <p style="margin:16px 0 0;">
-  <a href="{pdf_url}" style="color:#ff4f00;">Download itinerary (PDF)</a> - includes your full flight and passenger details plus a QR code for quick lookup.
+  <a href="{pdf_url}" style="color:#ff4f00;">Download itinerary (PDF)</a> - includes a QR code for quick lookup.
 </p>
 """
     return email_shell(
