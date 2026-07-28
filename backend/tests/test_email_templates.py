@@ -97,6 +97,35 @@ def test_confirmation_email_includes_full_itinerary_and_receipt():
     assert "non-refundable" in html
 
 
+def test_confirmation_email_includes_city_and_airport_names_when_known():
+    """IATA codes alone don't mean anything to most bookers - when Duffel
+    reported city/airport names for a location, the email should show them
+    alongside the code, not just the bare code."""
+    booking = _booking()
+    booking.slices[0].origin_city_name = "New York"
+    booking.slices[0].destination_city_name = "London"
+    booking.slices[0].flights[0].origin_name = "John F. Kennedy International Airport"
+    booking.slices[0].flights[0].destination_name = "Heathrow Airport"
+
+    html = booking_confirmation_email_html(booking)
+
+    assert "New York (JFK)" in html
+    assert "London (LHR)" in html
+    assert "John F. Kennedy International Airport (JFK)" in html
+    assert "Heathrow Airport (LHR)" in html
+
+
+def test_confirmation_email_falls_back_to_bare_codes_without_names():
+    """No city/airport name reported for a location (older bookings, or
+    Duffel simply not returning one) must still render cleanly with just
+    the bare code - not a blank or a crash."""
+    html = booking_confirmation_email_html(_booking())
+
+    assert "(JFK)" not in html
+    assert "(LHR)" not in html
+    assert "JFK" in html and "LHR" in html
+
+
 def test_confirmation_email_falls_back_to_total_only_without_fare_breakdown():
     """A booking made before base_amount/tax_amount started being
     persisted (or a real order where Duffel didn't report them) must not

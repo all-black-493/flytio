@@ -76,15 +76,34 @@ def format_flight_time(dt) -> str:
     return dt.strftime("%a, %d %b %Y %H:%M")
 
 
+def _location_label(iata_code: str, name: str | None) -> str:
+    """ "Nairobi (NBO)" when we have a friendly city/airport name, else just
+    the bare code - a booker generally doesn't know what "NBO" or "DXB"
+    stand for, and the confirmation email is often the only place they'd
+    find out before travelling."""
+    if name:
+        return f"{_esc(name)} ({_esc(iata_code)})"
+    return _esc(iata_code)
+
+
 def _route_summary(booking: Booking) -> str:
-    """A one-line route, e.g. "NBO → DXB" one-way or "NBO → DXB → NBO"
-    round-trip, built from each slice's origin plus the final slice's
-    destination - avoids repeating the same airport as both one slice's
-    destination and the next slice's origin."""
-    codes = [booking.slices[0].origin_iata_code] + [
-        s.destination_iata_code for s in booking.slices
+    """A one-line route, e.g. "Nairobi (NBO) → Dubai (DXB)" one-way or with
+    the return leg appended for round-trips, built from each slice's
+    origin plus the final slice's destination - avoids repeating the same
+    airport as both one slice's destination and the next slice's origin.
+    Prefers the city name (more recognizable at a glance) over the
+    airport name."""
+    slices = booking.slices
+    stops = [
+        (
+            slices[0].origin_iata_code,
+            slices[0].origin_city_name or slices[0].origin_name,
+        )
+    ] + [
+        (s.destination_iata_code, s.destination_city_name or s.destination_name)
+        for s in slices
     ]
-    return " → ".join(_esc(c) for c in codes)
+    return " → ".join(_location_label(code, name) for code, name in stops)
 
 
 def _departure_date(booking: Booking) -> str:
@@ -100,6 +119,8 @@ def _segment_html(flight) -> str:
     mismatches are common on codeshares and worth surfacing."""
     carrier = flight.marketing_carrier_name or flight.marketing_carrier_iata_code or ""
     flight_number = flight.marketing_carrier_flight_number or ""
+    origin = _location_label(flight.origin_iata_code, flight.origin_name)
+    destination = _location_label(flight.destination_iata_code, flight.destination_name)
     operated_by = ""
     if (
         flight.operating_carrier_name
@@ -111,9 +132,9 @@ def _segment_html(flight) -> str:
   <td style="padding:10px 0;border-top:1px solid #eef2f6;">
     <p style="margin:0;font-weight:bold;">{_esc(carrier)} {_esc(flight_number)}</p>
     <p style="margin:4px 0 0;color:#55677c;">
-      {_esc(flight.origin_iata_code)} {format_flight_time(flight.departing_at)}
+      {origin} {format_flight_time(flight.departing_at)}
       &nbsp;→&nbsp;
-      {_esc(flight.destination_iata_code)} {format_flight_time(flight.arriving_at)}
+      {destination} {format_flight_time(flight.arriving_at)}
     </p>
     {operated_by}
   </td>
@@ -123,10 +144,17 @@ def _segment_html(flight) -> str:
 
 def _slice_html(slice_) -> str:
     rows = "".join(_segment_html(f) for f in slice_.flights)
+    origin = _location_label(
+        slice_.origin_iata_code, slice_.origin_city_name or slice_.origin_name
+    )
+    destination = _location_label(
+        slice_.destination_iata_code,
+        slice_.destination_city_name or slice_.destination_name,
+    )
     return f"""
 <div style="margin-bottom:16px;">
   <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.05em;color:#55677c;text-transform:uppercase;">
-    {_esc(slice_.origin_iata_code)} → {_esc(slice_.destination_iata_code)}
+    {origin} → {destination}
   </p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
     {rows}
