@@ -153,6 +153,17 @@ class DuffelFlightService:
             f"/air/order_cancellations/{order_cancellation_id}/actions/confirm",
         )
 
+    async def create_webhook(self, url: str, events: list[str]) -> dict:
+        """Registers a webhook endpoint with Duffel - the returned `secret`
+        is shown exactly once and must be saved as DUFFEL_WEBHOOK_SECRET;
+        see backend/scripts/register_duffel_webhook.py, the one-off script
+        that calls this."""
+        return await self._request(
+            "POST",
+            "/air/webhooks",
+            json_body={"data": {"url": url, "events": events}},
+        )
+
     async def search_places(self, params: dict) -> dict:
         """Search airports and cities via Duffel's places suggestions
         endpoint, in either text-query or lat/lng/rad mode."""

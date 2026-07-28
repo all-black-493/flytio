@@ -88,6 +88,7 @@ class BookingPublic(SQLModel):
     change_penalty_currency: str | None = None
     created_at: datetime
     cancelled_at: datetime | None = None
+    airline_initiated_change_detected_at: datetime | None = None
     slices: list[BookingSlicePublic] = []
     passengers: list[BookingPassengerPublic] = []
 

@@ -134,3 +134,37 @@ def booking_confirmation_email_html(booking: Booking) -> str:
         preheader=f"Your booking {booking.booking_reference} is confirmed.",
         inner_html=inner,
     )
+
+
+def airline_change_email_html(booking: Booking) -> str:
+    """Sent when the Duffel webhook receiver (routers/webhooks.py) detects
+    an order.airline_initiated_change_detected event - the airline itself
+    changed something about this booking (schedule, cancellation, etc).
+    Duffel's v2 webhook payload doesn't include what changed, only that it
+    did, so this points the customer at their booking rather than
+    describing the change itself."""
+    booking_url = f"{settings.FRONTEND_URL}/account/bookings/{booking.id}"
+
+    inner = f"""
+<h2 style="margin:0 0 4px;font-size:20px;">Your flight details may have changed</h2>
+<p style="margin:0 0 20px;color:#55677c;">Booking reference <strong style="color:#0b1526;">{_esc(booking.booking_reference)}</strong></p>
+
+<p style="margin:0 0 20px;">
+{_esc(booking.owner_name) or "The airline"} has made a change to your itinerary -
+this could be a schedule change, a flight number change, or a
+cancellation. Please review your booking for the latest details before
+you travel.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0">
+  <tr>
+    <td style="background:#ff4f00;">
+      <a href="{booking_url}" style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;text-decoration:none;">Review my booking</a>
+    </td>
+  </tr>
+</table>
+"""
+    return email_shell(
+        preheader=f"{booking.owner_name or 'The airline'} changed your itinerary {booking.booking_reference}.",
+        inner_html=inner,
+    )

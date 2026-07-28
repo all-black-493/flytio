@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     # Duffel (flights + payments)
     DUFFEL_API_TOKEN: str
+    # Verifies X-Duffel-Signature on POST /webhooks/duffel - the value
+    # Duffel prints ONCE when a webhook endpoint is registered (see
+    # backend/scripts/register_duffel_webhook.py). Left blank in an
+    # environment with no webhook registered yet; the receiver rejects
+    # every request while unset rather than accepting unverifiable ones.
+    DUFFEL_WEBHOOK_SECRET: str = ""
 
     # CORS - comma-separated origins allowed to hit the API with credentials
     CORS_ORIGINS: str = ""

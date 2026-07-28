@@ -80,6 +80,11 @@ class Booking(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     cancelled_at: datetime | None = None
+    # Set by the Duffel webhook receiver (routers/webhooks.py) on an
+    # order.airline_initiated_change_detected event - the only signal this
+    # app has that a flight changed after booking, since Duffel doesn't
+    # push anything else about an existing order.
+    airline_initiated_change_detected_at: datetime | None = None
 
     user: "UserInDB" = Relationship(back_populates="bookings")
     slices: list["BookingSlice"] = Relationship(
