@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from backend.crud.bookings import (
     count_all_bookings,
@@ -15,13 +15,28 @@ from backend.crud.bookings import (
 )
 from backend.crud.db import get_session
 from backend.crud.payments import get_revenue_by_currency
+from backend.crud.rbac import (
+    add_group_permissions,
+    add_user_groups,
+    create_group,
+    get_group,
+    get_group_by_name,
+    get_group_permission_codenames,
+    get_groups_by_ids,
+    get_permissions_by_codenames,
+    list_groups,
+    list_permissions,
+    remove_group_permission,
+)
 from backend.crud.users import (
     count_active_users,
     count_users,
     delete_user_account,
+    get_users_by_ids,
     list_users,
+    set_user_staff,
 )
-from backend.models.rbac import Group, GroupPermission, Permission, UserGroup
+from backend.models.rbac import Group
 from backend.models.users import UserInDB
 from backend.schemas.admin import (
     AdminBookingListResponse,
@@ -57,51 +72,44 @@ router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_staff)])
 
 
 def _group_read(session: Session, group: Group) -> GroupRead:
-    codenames = session.exec(
-        select(Permission.codename)
-        .join(GroupPermission, GroupPermission.permission_id == Permission.id)
-        .where(GroupPermission.group_id == group.id)
-    ).all()
-    return GroupRead(id=group.id, name=group.name, permissions=list(codenames))
+    codenames = get_group_permission_codenames(session, group.id)
+    return GroupRead(id=group.id, name=group.name, permissions=codenames)
 
 
 @router.get("/permissions", response_model=list[PermissionRead])
-async def list_permissions(
+async def list_all_permissions(
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
 ):
-    return session.exec(select(Permission)).all()
+    return list_permissions(session)
 
 
 @router.get("/groups", response_model=list[GroupRead])
-async def list_groups(
+async def list_all_groups(
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
 ):
-    groups = session.exec(select(Group)).all()
+    groups = list_groups(session)
     return [_group_read(session, group) for group in groups]
 
 
 @router.post("/groups", response_model=GroupRead)
-async def create_group(
+async def create_new_group(
     request: GroupCreate,
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
 ):
-    if session.exec(select(Group).where(Group.name == request.name)).first():
+    if get_group_by_name(session, request.name) is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A group with this name already exists.",
         )
-    group = Group(name=request.name)
-    session.add(group)
-    session.commit()
-    session.refresh(group)
+    group = create_group(session, request.name)
     return _group_read(session, group)
 
 
 def _get_group_or_404(session: Session, group_id: int) -> Group:
-    group = session.get(Group, group_id)
+    group = get_group(session, group_id)
     if group is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
@@ -117,9 +125,7 @@ async def assign_group_permissions(
     session: Session = Depends(get_session),
 ):
     group = _get_group_or_404(session, group_id)
-    permissions = session.exec(
-        select(Permission).where(Permission.codename.in_(request.codenames))
-    ).all()
+    permissions = get_permissions_by_codenames(session, request.codenames)
     found_codenames = {p.codename for p in permissions}
     missing = set(request.codenames) - found_codenames
     if missing:
@@ -128,37 +134,19 @@ async def assign_group_permissions(
             detail=f"Unknown permission codename(s): {', '.join(sorted(missing))}",
         )
 
-    already_granted = set(
-        session.exec(
-            select(Permission.codename)
-            .join(GroupPermission, GroupPermission.permission_id == Permission.id)
-            .where(GroupPermission.group_id == group_id)
-        ).all()
-    )
-    for permission in permissions:
-        if permission.codename in already_granted:
-            continue
-        session.add(GroupPermission(group_id=group_id, permission_id=permission.id))
-    session.commit()
+    add_group_permissions(session, group_id, permissions)
     return _group_read(session, group)
 
 
 @router.delete("/groups/{group_id}/permissions/{codename}", response_model=GroupRead)
-async def revoke_group_permission(
+async def revoke_group_permission_by_codename(
     group_id: int,
     codename: str,
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
 ):
     group = _get_group_or_404(session, group_id)
-    permission = session.exec(
-        select(Permission).where(Permission.codename == codename)
-    ).first()
-    if permission is not None:
-        link = session.get(GroupPermission, (group_id, permission.id))
-        if link is not None:
-            session.delete(link)
-            session.commit()
+    remove_group_permission(session, group_id, codename)
     return _group_read(session, group)
 
 
@@ -169,13 +157,9 @@ async def assign_user_groups(
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
 ):
-    user = session.get(UserInDB, user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
+    user = _get_user_or_404(session, user_id)
 
-    groups = session.exec(select(Group).where(Group.id.in_(request.group_ids))).all()
+    groups = get_groups_by_ids(session, request.group_ids)
     found_ids = {g.id for g in groups}
     missing = set(request.group_ids) - found_ids
     if missing:
@@ -184,16 +168,7 @@ async def assign_user_groups(
             detail=f"Unknown group id(s): {', '.join(str(i) for i in sorted(missing))}",
         )
 
-    already_member = set(
-        session.exec(
-            select(UserGroup.group_id).where(UserGroup.user_id == user.id)
-        ).all()
-    )
-    for group in groups:
-        if group.id in already_member:
-            continue
-        session.add(UserGroup(user_id=user.id, group_id=group.id))
-    session.commit()
+    add_user_groups(session, user.id, groups)
     return {"message": f"{user.email} added to {len(groups)} group(s)."}
 
 
@@ -213,10 +188,7 @@ async def list_all_bookings(
 
     user_ids = {b.user_id for b in bookings}
     email_by_user_id = {
-        user.id: user.email
-        for user in session.exec(
-            select(UserInDB).where(UserInDB.id.in_(user_ids))
-        ).all()
+        user.id: user.email for user in get_users_by_ids(session, user_ids)
     }
     data = [
         AdminBookingRead(
@@ -327,7 +299,7 @@ async def get_user_bookings_admin(
 
 
 @router.post("/users/{user_id}/staff", response_model=AdminUserRead)
-async def set_user_staff(
+async def update_user_staff_status(
     user_id: uuid.UUID,
     request: SetStaffRequest,
     _: UserInDB = Depends(require_superuser),
@@ -337,10 +309,7 @@ async def set_user_staff(
     bootstrapping-sensitive action group/permission management already
     reserves for superusers - see utils/rbac.py's require_superuser."""
     user = _get_user_or_404(session, user_id)
-    user.is_staff = request.is_staff
-    session.add(user)
-    session.commit()
-    session.refresh(user)
+    user = set_user_staff(session, user, request.is_staff)
     return user
 
 

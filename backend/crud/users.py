@@ -11,6 +11,10 @@ def get_user_by_email(session: Session, email: str):
     return session.exec(select(UserInDB).where(UserInDB.email == email)).first()
 
 
+def get_users_by_ids(session: Session, user_ids: set[uuid.UUID]) -> list[UserInDB]:
+    return list(session.exec(select(UserInDB).where(UserInDB.id.in_(user_ids))).all())
+
+
 def _filtered_users_query(*, search: str | None = None):
     """Shared filter-building base for list_users/count_users, same
     pairing convention as crud/bookings.py's
@@ -58,6 +62,14 @@ def update_user_password(
 ) -> UserInDB:
     user.password = hash_password(new_password)
     user.password_changed_at = datetime.utcnow()
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def set_user_staff(session: Session, user: UserInDB, is_staff: bool) -> UserInDB:
+    user.is_staff = is_staff
     session.add(user)
     session.commit()
     session.refresh(user)
