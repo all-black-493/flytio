@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     PESAPAL_ENV: str = "sandbox"
     PESAPAL_IPN_ID: str = ""
 
+    # Air travel concierge (pydantic-ai + OpenAI) - OPENAI_API_KEY is
+    # deliberately optional with an empty default, unlike DUFFEL_API_TOKEN/
+    # RESEND_API_KEY: the concierge is a genuinely optional feature that
+    # can be absent in a given environment, and the app must still start
+    # without it (see external_services/concierge.py, which leaves
+    # concierge_agent as None when this is unset - routers/concierge.py
+    # 503s rather than the app crashing at import time).
+    OPENAI_API_KEY: str = ""
+    CONCIERGE_MODEL: str = "openai:gpt-5.2"
+
     # Public URLs - FRONTEND_URL builds links handed to users (password
     # reset, booking confirmation, Pesapal's redirect back into the app);
     # BACKEND_PUBLIC_URL builds URLs handed to external services that need

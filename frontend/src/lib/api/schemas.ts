@@ -528,6 +528,28 @@ export const currencyTotalSchema = z.object({
 });
 export type CurrencyTotal = z.infer<typeof currencyTotalSchema>;
 
+/* ---------- concierge: mirrors backend/schemas/concierge.py's FlightCard.
+ * Arrives via the AI SDK's tool-output stream (ConciergeWidget.tsx), not
+ * client.ts's usual fetch - still parsed through zod before rendering,
+ * same "don't trust a network boundary" discipline as everywhere else. ---------- */
+
+export const conciergeFlightCardSchema = z.object({
+  offer_id: z.string(),
+  origin_iata_code: z.string(),
+  origin_city_name: z.string().nullable(),
+  destination_iata_code: z.string(),
+  destination_city_name: z.string().nullable(),
+  departing_at: z.string(),
+  arriving_at: z.string(),
+  duration: z.string().nullable(),
+  stops: z.number(),
+  airline_name: z.string().nullable(),
+  airline_logo_url: z.string().nullable(),
+  total_amount: z.string(),
+  total_currency: z.string(),
+});
+export type ConciergeFlightCard = z.infer<typeof conciergeFlightCardSchema>;
+
 export const adminDashboardSummarySchema = z.object({
   total_bookings: z.number(),
   bookings_today: z.number(),
