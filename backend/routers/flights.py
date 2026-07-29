@@ -1,9 +1,13 @@
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import Session
 
 from backend.crud import flights as flights_crud
+from backend.crud.bookings import get_popular_routes
+from backend.crud.db import get_session
 from backend.external_services.flight import DuffelAPIError
+from backend.schemas.bookings import PopularRoute
 from backend.schemas.duffel_flights import (
     FlightSearchAndListQueryParams,
     FlightSearchResponse,
@@ -21,6 +25,10 @@ from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
 from backend.utils.log_manager import get_app_logger
 from backend.utils.offer_filtering import build_flight_search_response
+
+# A single booking must never look "popular" to a customer - much higher
+# bar than the staff dashboard's (routers/admin.py, min_bookings=1).
+PUBLIC_POPULAR_ROUTE_MIN_BOOKINGS = 5
 
 logger = get_app_logger(__name__)
 
@@ -181,3 +189,29 @@ async def search_places(params: Annotated[PlaceSuggestionsQuery, Query()]):
         raise duffel_http_exception(e)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/flights/popular-destinations", response_model=list[PopularRoute])
+async def popular_destinations(
+    limit: Annotated[int, Query(ge=1, le=20)] = 8,
+    session: Session = Depends(get_session),
+):
+    """Public, no auth - aggregated from real BookingSlice data (our own
+    DB, not Duffel), with a real-signal threshold
+    (PUBLIC_POPULAR_ROUTE_MIN_BOOKINGS) so this app's early, thin booking
+    volume never surfaces a single booking as a fabricated 'popular
+    destination'. An empty list is a completely normal response - the
+    frontend hides the whole section rather than showing an empty box."""
+    rows = get_popular_routes(
+        session, limit=limit, min_bookings=PUBLIC_POPULAR_ROUTE_MIN_BOOKINGS
+    )
+    return [
+        PopularRoute(
+            origin_iata_code=origin_code,
+            origin_city_name=origin_city,
+            destination_iata_code=destination_code,
+            destination_city_name=destination_city,
+            booking_count=count,
+        )
+        for origin_code, origin_city, destination_code, destination_city, count in rows
+    ]

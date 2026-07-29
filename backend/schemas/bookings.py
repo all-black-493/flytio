@@ -109,3 +109,17 @@ class BookingListQueryParams(SQLModel):
 class BookingListResponse(SQLModel):
     data: list[BookingPublic]
     meta: PaginationMeta
+
+
+class PopularRoute(SQLModel):
+    """Aggregated from BookingSlice (crud/bookings.py's
+    get_popular_routes) - shared by the staff dashboard
+    (routers/admin.py) and the public destinations endpoint
+    (routers/flights.py), which differ only in their min_bookings
+    threshold, not in shape."""
+
+    origin_iata_code: str
+    origin_city_name: str | None = None
+    destination_iata_code: str
+    destination_city_name: str | None = None
+    booking_count: int

@@ -17,6 +17,10 @@
  */
 
 import {
+  adminBookingListResponseSchema,
+  adminDashboardSummarySchema,
+  adminUserListResponseSchema,
+  adminUserReadSchema,
   bookingListResponseSchema,
   bookingPublicSchema,
   cardCheckoutResponseSchema,
@@ -32,9 +36,14 @@ import {
   orderResponseSchema,
   paymentStatusResponseSchema,
   placeSuggestionsResponseSchema,
+  popularRouteListSchema,
   seatMapResponseSchema,
   tokenSchema,
   userReadSchema,
+  type AdminBookingListResponse,
+  type AdminDashboardSummary,
+  type AdminUserListResponse,
+  type AdminUserRead,
   type BookingListResponse,
   type BookingPublic,
   type CardCheckoutResponse,
@@ -50,11 +59,13 @@ import {
   type OrderResponse,
   type PaymentStatusResponse,
   type PlaceSuggestionsResponse,
+  type PopularRoute,
   type SeatMapResponse,
   type Token,
   type UserRead,
 } from "./schemas";
 import type {
+  AdminListQueryParams,
   BookingListQueryParams,
   CheckoutRequest,
   ContactRequest,
@@ -282,6 +293,16 @@ export async function searchPlaces(
   return placeSuggestionsResponseSchema.parse(await res.json());
 }
 
+/** GET /flights/popular-destinations — public, no auth. Empty array is a
+ * normal response (the route hasn't cleared the real-bookings threshold
+ * yet), not an error. */
+export async function getPopularDestinations(limit?: number): Promise<PopularRoute[]> {
+  const params = limit !== undefined ? `?limit=${limit}` : "";
+  const res = await fetch(`${API_URL}/flights/popular-destinations${params}`);
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return popularRouteListSchema.parse(await res.json());
+}
+
 /* ---------- booking: mirrors backend/routers/flights.py (auth required) ---------- */
 
 /** POST /booking/flight-orders — book a priced offer. */
@@ -467,6 +488,109 @@ export async function createOrderChange(
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return orderChangeResponseSchema.parse(await res.json());
+}
+
+/* ---------- admin: mirrors backend/routers/admin.py — every call here
+ * requires is_staff (and, for some, is_superuser) on the backend; the
+ * frontend's own gating (staff nav link, /admin layout redirect) is a UX
+ * convenience, not the real enforcement. ---------- */
+
+/** GET /api/admin/dashboard/summary */
+export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary> {
+  const res = await fetch(`${API_URL}/api/admin/dashboard/summary`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminDashboardSummarySchema.parse(await res.json());
+}
+
+/** GET /api/admin/dashboard/popular-routes */
+export async function getAdminPopularRoutes(limit?: number): Promise<PopularRoute[]> {
+  const params = limit !== undefined ? `?limit=${limit}` : "";
+  const res = await fetch(`${API_URL}/api/admin/dashboard/popular-routes${params}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return popularRouteListSchema.parse(await res.json());
+}
+
+/** GET /api/admin/bookings — every booking in the system, not just the
+ * caller's own (see listBookings above for the customer-scoped version). */
+export async function listAdminBookings(
+  params: AdminListQueryParams = {},
+): Promise<AdminBookingListResponse> {
+  const search = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)]),
+  );
+  const res = await fetch(`${API_URL}/api/admin/bookings?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingListResponseSchema.parse(await res.json());
+}
+
+/** GET /api/admin/users */
+export async function listAdminUsers(
+  params: AdminListQueryParams = {},
+): Promise<AdminUserListResponse> {
+  const search = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)]),
+  );
+  const res = await fetch(`${API_URL}/api/admin/users?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserListResponseSchema.parse(await res.json());
+}
+
+/** GET /api/admin/users/{userId}/bookings */
+export async function getAdminUserBookings(
+  userId: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<BookingListResponse> {
+  const search = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)]),
+  );
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/bookings?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return bookingListResponseSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/staff — superuser-only on the backend. */
+export async function setUserStaff(userId: string, isStaff: boolean): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/staff`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ is_staff: isStaff }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/deactivate — soft-delete, same
+ * mechanism as the self-service DELETE /api/me. */
+export async function deactivateUser(userId: string): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/deactivate`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
 }
 
 /* ---------- support: POST /support/contact ---------- */

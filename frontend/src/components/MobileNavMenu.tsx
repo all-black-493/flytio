@@ -20,7 +20,7 @@ const NAV_LINKS = [
 const linkClass =
   "rounded-lg px-3 py-3 font-mono text-sm tracking-wide hover:bg-muted";
 
-export function MobileNavMenu({ authed }: { authed: boolean }) {
+export function MobileNavMenu({ authed, staff = false }: { authed: boolean; staff?: boolean }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
 
@@ -60,6 +60,11 @@ export function MobileNavMenu({ authed }: { authed: boolean }) {
             </div>
             {authed ? (
               <div className="flex flex-col gap-1">
+                {staff && (
+                  <Link href="/admin" onClick={close} className={`${linkClass} text-center`}>
+                    Admin
+                  </Link>
+                )}
                 <Link href="/account" onClick={close} className={`${linkClass} text-center`}>
                   Account
                 </Link>

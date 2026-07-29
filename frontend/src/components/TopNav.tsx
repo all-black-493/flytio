@@ -6,7 +6,19 @@ import { MobileNavMenu } from "@/components/MobileNavMenu";
 import { StatusTicker } from "@/components/StatusTicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { getCurrentUser } from "@/lib/api/client";
 import { isAuthenticated } from "@/lib/auth/session";
+
+/** Best-effort - fails closed (hides the admin link) on any error, e.g.
+ * the backend being briefly unreachable. isAuthenticated() alone (cookie
+ * presence) can't tell staff apart from regular customers. */
+async function checkIsStaff(): Promise<boolean> {
+  try {
+    return (await getCurrentUser()).is_staff;
+  } catch {
+    return false;
+  }
+}
 
 const NAV_LINKS = [
   { label: "search", href: "/search" },
@@ -19,6 +31,7 @@ const linkClass = "font-mono text-[11px] tracking-[0.15em] text-board-muted hove
 
 export default async function TopNav() {
   const authed = await isAuthenticated();
+  const staff = authed && (await checkIsStaff());
 
   return (
     <header className="sticky top-0 z-30 border-b border-board-line bg-board text-board-ink">
@@ -46,6 +59,11 @@ export default async function TopNav() {
 
           {authed ? (
             <>
+              {staff && (
+                <Link href="/admin" className={linkClass}>
+                  admin
+                </Link>
+              )}
               <Link href="/account" className={linkClass}>
                 account
               </Link>
@@ -69,7 +87,7 @@ export default async function TopNav() {
         )}
 
         <div className="ml-auto flex items-center gap-1 pl-4 md:hidden">
-          <MobileNavMenu authed={authed} />
+          <MobileNavMenu authed={authed} staff={staff} />
         </div>
       </div>
     </header>

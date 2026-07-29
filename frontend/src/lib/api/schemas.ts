@@ -30,6 +30,8 @@ export type PlaceType = z.infer<typeof placeTypeSchema>;
 export const userReadSchema = z.object({
   id: z.string(),
   email: z.string(),
+  is_staff: z.boolean(),
+  is_superuser: z.boolean(),
 });
 export type UserRead = z.infer<typeof userReadSchema>;
 
@@ -506,6 +508,63 @@ export const bookingListResponseSchema = z.object({
   meta: paginationMetaSchema,
 });
 export type BookingListResponse = z.infer<typeof bookingListResponseSchema>;
+
+/* ---------- admin: mirrors backend/schemas/admin.py, backend/schemas/bookings.py's PopularRoute ---------- */
+
+export const popularRouteSchema = z.object({
+  origin_iata_code: z.string(),
+  origin_city_name: z.string().nullable(),
+  destination_iata_code: z.string(),
+  destination_city_name: z.string().nullable(),
+  booking_count: z.number(),
+});
+export type PopularRoute = z.infer<typeof popularRouteSchema>;
+
+export const popularRouteListSchema = z.array(popularRouteSchema);
+
+export const currencyTotalSchema = z.object({
+  currency: z.string(),
+  total_amount: z.string(),
+});
+export type CurrencyTotal = z.infer<typeof currencyTotalSchema>;
+
+export const adminDashboardSummarySchema = z.object({
+  total_bookings: z.number(),
+  bookings_today: z.number(),
+  bookings_this_week: z.number(),
+  total_users: z.number(),
+  active_users: z.number(),
+  revenue: z.array(currencyTotalSchema),
+});
+export type AdminDashboardSummary = z.infer<typeof adminDashboardSummarySchema>;
+
+export const adminUserReadSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  is_staff: z.boolean(),
+  is_superuser: z.boolean(),
+  created_at: z.string(),
+  deleted_at: z.string().nullable(),
+});
+export type AdminUserRead = z.infer<typeof adminUserReadSchema>;
+
+export const adminUserListResponseSchema = z.object({
+  data: z.array(adminUserReadSchema),
+  meta: paginationMetaSchema,
+});
+export type AdminUserListResponse = z.infer<typeof adminUserListResponseSchema>;
+
+export const adminBookingReadSchema = bookingPublicSchema.extend({
+  user_id: z.string(),
+  user_email: z.string(),
+});
+export type AdminBookingRead = z.infer<typeof adminBookingReadSchema>;
+
+export const adminBookingListResponseSchema = z.object({
+  data: z.array(adminBookingReadSchema),
+  meta: paginationMetaSchema,
+});
+export type AdminBookingListResponse = z.infer<typeof adminBookingListResponseSchema>;
 
 /* ---------- payment: POST /payments/checkout, GET /payments/{id}/status ---------- */
 

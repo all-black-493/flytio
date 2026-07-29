@@ -10,3 +10,5 @@ class UserCreate(BaseModel):
 class UserRead(BaseModel):
     id: uuid.UUID
     email: EmailStr
+    is_staff: bool
+    is_superuser: bool

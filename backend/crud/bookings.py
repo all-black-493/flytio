@@ -12,6 +12,7 @@ from backend.models.bookings import (
     PassengerType,
 )
 from backend.models.flights import Flight
+from backend.models.users import UserInDB
 from backend.schemas.duffel_orders import Order, OrderCreate
 
 
@@ -368,21 +369,79 @@ def count_user_bookings(
     return session.exec(count_query).one()
 
 
+def _filtered_all_bookings_query(*, search: str | None = None):
+    """Shared filter-building base for get_all_bookings/count_all_bookings
+    - search matches booking_reference OR the owning user's email
+    (case-insensitive substring), same pairing convention as
+    _filtered_user_bookings_query above."""
+    query = select(Booking)
+    if search:
+        pattern = search.lower()
+        query = query.join(UserInDB, UserInDB.id == Booking.user_id).where(
+            func.lower(Booking.booking_reference).contains(pattern)
+            | func.lower(UserInDB.email).contains(pattern)
+        )
+    return query
+
+
 def get_all_bookings(
-    session: Session, *, limit: int = 50, offset: int = 0
+    session: Session, *, search: str | None = None, limit: int = 50, offset: int = 0
 ) -> list[Booking]:
     """Every booking in the system, unfiltered by owner - the staff/admin
     counterpart to get_user_bookings, backing routers/admin.py's
     GET /api/admin/bookings (gated by utils/rbac.py's require_permission
     ("view_booking"))."""
     query = (
-        select(Booking).order_by(Booking.created_at.desc()).offset(offset).limit(limit)
+        _filtered_all_bookings_query(search=search)
+        .order_by(Booking.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return list(session.exec(query).all())
 
 
-def count_all_bookings(session: Session) -> int:
-    return session.exec(select(func.count()).select_from(Booking)).one()
+def count_all_bookings(session: Session, *, search: str | None = None) -> int:
+    query = _filtered_all_bookings_query(search=search)
+    count_query = select(func.count()).select_from(query.subquery())
+    return session.exec(count_query).one()
+
+
+def count_bookings_since(session: Session, since: datetime) -> int:
+    return session.exec(
+        select(func.count()).select_from(Booking).where(Booking.created_at >= since)
+    ).one()
+
+
+def get_popular_routes(
+    session: Session, *, limit: int = 10, min_bookings: int = 1
+) -> list[tuple[str, str | None, str, str | None, int]]:
+    """(origin_iata_code, origin_city_name, destination_iata_code,
+    destination_city_name, booking_count) for the most-booked routes,
+    grouped over every BookingSlice (a round trip's outbound and return
+    legs are different (origin, destination) pairs, so both are counted
+    - no double-counting). `min_bookings` is the real/public split: staff
+    (routers/admin.py) see real signal from 1 booking up; the public
+    endpoint (routers/flights.py) uses a much higher bar so a single
+    booking never looks like a 'popular destination' to a customer."""
+    query = (
+        select(
+            BookingSlice.origin_iata_code,
+            BookingSlice.origin_city_name,
+            BookingSlice.destination_iata_code,
+            BookingSlice.destination_city_name,
+            func.count().label("booking_count"),
+        )
+        .group_by(
+            BookingSlice.origin_iata_code,
+            BookingSlice.origin_city_name,
+            BookingSlice.destination_iata_code,
+            BookingSlice.destination_city_name,
+        )
+        .having(func.count() >= min_bookings)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    return list(session.exec(query).all())
 
 
 def mark_booking_cancelled(session: Session, booking: Booking) -> Booking:

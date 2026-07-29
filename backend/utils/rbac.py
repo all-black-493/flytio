@@ -125,6 +125,25 @@ def require_permission(perm: str):
     return dependency
 
 
+def require_permissions(perms: list[str]):
+    """Plural, AND-semantics version of require_permission - for an
+    endpoint whose data spans more than one managed model (e.g. the
+    dashboard summary needs both view_booking and view_payment)."""
+
+    def dependency(
+        user: UserInDB = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ) -> UserInDB:
+        if not has_perms(session, user, perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required permission(s): {', '.join(perms)}",
+            )
+        return user
+
+    return dependency
+
+
 def require_superuser(
     user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:

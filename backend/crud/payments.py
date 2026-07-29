@@ -82,6 +82,27 @@ def get_payment(session: Session, payment_id: uuid.UUID) -> Payment | None:
     return session.exec(select(Payment).where(Payment.id == payment_id)).first()
 
 
+def get_revenue_by_currency(session: Session) -> dict[str, str]:
+    """Actual collected revenue (Payment.amount - what the customer was
+    really charged, not Booking.total_amount) for every COMPLETED
+    payment, grouped by currency - deliberately never summed across
+    currencies, since this app already mixes USD/KES/etc and a blind
+    total would be meaningless. Computed in Python rather than a SQL SUM:
+    `amount` is stored as a decimal string (same convention as
+    Booking.total_amount), and a SQL-level SUM would need a CAST that
+    behaves differently on SQLite (tests) vs Postgres (prod) for no real
+    benefit at this scale."""
+    rows = session.exec(
+        select(Payment.amount, Payment.currency).where(
+            Payment.status == PaymentStatus.COMPLETED
+        )
+    ).all()
+    totals: dict[str, float] = {}
+    for amount, currency in rows:
+        totals[currency] = totals.get(currency, 0.0) + float(amount)
+    return {currency: f"{total:.2f}" for currency, total in totals.items()}
+
+
 def get_payment_by_pesapal_tracking_id(
     session: Session, order_tracking_id: str
 ) -> Payment | None:

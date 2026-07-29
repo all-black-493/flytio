@@ -148,6 +148,14 @@ export interface BookingListQueryParams {
   offset?: number;
 }
 
+/* ---------- admin: mirrors backend/routers/admin.py ---------- */
+
+export interface AdminListQueryParams {
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 /* ---------- order changes: POST .../change-requests, .../changes ---------- */
 
 export interface OrderChangeSliceRemove {

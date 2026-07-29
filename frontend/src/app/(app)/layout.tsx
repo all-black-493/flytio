@@ -1,3 +1,4 @@
+import { ConciergeWidget } from "@/components/concierge/ConciergeWidget";
 import TopNav from "@/components/TopNav";
 
 export default function AppLayout({
@@ -7,6 +8,7 @@ export default function AppLayout({
     <div className="flex min-h-full flex-col bg-background">
       <TopNav />
       {children}
+      <ConciergeWidget />
     </div>
   );
 }
