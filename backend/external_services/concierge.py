@@ -12,6 +12,8 @@ from datetime import date
 
 from pydantic import ValidationError
 from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from backend.config import settings
 from backend.crud.flights import search_flights_cached
@@ -37,6 +39,11 @@ flight numbers, times, or prices. The tool's results are shown to the
 traveler as their own visual cards, so keep your own reply short: a
 sentence or two of context, not a restatement of every detail already
 on the cards.
+
+Reply in plain text only - no markdown (no **bold**, no #headers, no
+bullet/numbered lists, no backticks). The chat UI renders your reply as
+plain text, not markdown, so formatting characters would show up
+literally instead of being styled.
 """
 
 
@@ -45,15 +52,25 @@ class ConciergeDeps:
     user: UserInDB
 
 
-concierge_agent: Agent[ConciergeDeps, str] | None = (
-    Agent(
+def _build_agent() -> Agent[ConciergeDeps, str] | None:
+    """Explicit model + provider construction, not the Agent("openai:...")
+    shorthand: that shorthand's OpenAIProvider reads the key from the
+    OPENAI_API_KEY *process environment variable*, not from `settings` -
+    pydantic-settings loads .env into this Settings object only, it never
+    exports those values into os.environ, so the shorthand path found
+    nothing even with a real key in .env. Passing api_key explicitly is
+    the only way this app's single-source-of-truth settings convention
+    (config.py's own docstring) actually reaches pydantic-ai."""
+    if not settings.OPENAI_API_KEY:
+        return None
+    model = OpenAIResponsesModel(
         settings.CONCIERGE_MODEL,
-        deps_type=ConciergeDeps,
-        instructions=CONCIERGE_INSTRUCTIONS,
+        provider=OpenAIProvider(api_key=settings.OPENAI_API_KEY),
     )
-    if settings.OPENAI_API_KEY
-    else None
-)
+    return Agent(model, deps_type=ConciergeDeps, instructions=CONCIERGE_INSTRUCTIONS)
+
+
+concierge_agent: Agent[ConciergeDeps, str] | None = _build_agent()
 
 
 def _offer_to_card(offer: Offer) -> FlightCard:

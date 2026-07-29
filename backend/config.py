@@ -78,7 +78,11 @@ class Settings(BaseSettings):
     # concierge_agent as None when this is unset - routers/concierge.py
     # 503s rather than the app crashing at import time).
     OPENAI_API_KEY: str = ""
-    CONCIERGE_MODEL: str = "openai:gpt-5.2"
+    # Bare OpenAI model name (no "openai:" provider prefix) - the model is
+    # constructed explicitly in external_services/concierge.py, not via
+    # pydantic-ai's Agent("openai:...") shorthand, so there's no prefix to
+    # parse out.
+    CONCIERGE_MODEL: str = "gpt-5.2"
 
     # Public URLs - FRONTEND_URL builds links handed to users (password
     # reset, booking confirmation, Pesapal's redirect back into the app);

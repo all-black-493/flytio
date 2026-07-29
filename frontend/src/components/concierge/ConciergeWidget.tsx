@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { useQuery } from "@tanstack/react-query";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, getToolName, isToolUIPart } from "ai";
 import Link from "next/link";
 import { Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -23,11 +23,16 @@ const EXAMPLE_PROMPTS = [
 /** flyt's air travel concierge - not a general chatbot, scoped to
  * finding real, bookable flights (see backend/external_services/
  * concierge.py's system instructions). Streams via the Vercel AI SDK
- * protocol (pydantic_ai.ui.vercel_ai.VercelAIAdapter on the backend);
- * a search_flights tool call streams back as a "dynamic-tool" message
- * part, rendered here as ConciergeFlightCard - that's the "actionable
- * card" mechanism, not prose. Mounted once, app-wide, in
- * app/(app)/layout.tsx. */
+ * protocol (pydantic_ai.ui.vercel_ai.VercelAIAdapter on the backend); a
+ * search_flights tool call streams back as a tool UI part - pydantic-ai
+ * never marks it as the SDK's special "dynamic-tool" (that's for tools
+ * registered via the JS-side dynamicTool() helper specifically, not
+ * server-defined tools in general), so it always arrives shaped as a
+ * static tool part instead. `isToolUIPart`/`getToolName` (from "ai")
+ * handle both shapes correctly, which is why they're used below rather
+ * than checking `part.type === "dynamic-tool"` directly. Rendered here
+ * as ConciergeFlightCard - that's the "actionable card" mechanism, not
+ * prose. Mounted once, app-wide, in app/(app)/layout.tsx. */
 export function ConciergeWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -120,7 +125,7 @@ export function ConciergeWidget() {
                           </p>
                         );
                       }
-                      if (part.type === "dynamic-tool" && part.toolName === "search_flights") {
+                      if (isToolUIPart(part) && getToolName(part) === "search_flights") {
                         if (part.state === "input-available" || part.state === "input-streaming") {
                           return (
                             <p key={index} className="font-mono text-[11px] text-muted-foreground">

@@ -1,10 +1,13 @@
 """Tests for the air travel concierge (external_services/concierge.py,
-routers/concierge.py). No real OPENAI_API_KEY is available in this test
-environment - by design (see config.py's OPENAI_API_KEY docstring),
-concierge_agent is None here, same as any environment that hasn't
-configured it, so the router's graceful-503 path is exactly what's
-exercised. The _offer_to_card mapping is tested directly since it needs
-no LLM at all.
+routers/concierge.py). Deliberately never reads the real ambient
+OPENAI_API_KEY - a developer's own backend/.env may or may not have a
+real key in it, and these tests must pass (and never make a real,
+billed OpenAI call) either way. `settings.OPENAI_API_KEY` is always
+monkeypatched explicitly to whichever state each test needs, and the
+"unconfigured" router path is exercised by patching
+external_services.concierge.concierge_agent directly rather than
+relying on that ambient state. The _offer_to_card mapping is tested
+directly since it needs no LLM at all.
 """
 
 import pytest
@@ -12,8 +15,10 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
+from backend.config import settings
 from backend.crud.db import get_session
-from backend.external_services.concierge import concierge_agent, _offer_to_card
+from backend.external_services import concierge as concierge_service
+from backend.external_services.concierge import _build_agent, _offer_to_card
 from backend.main import app
 from backend.models.users import UserInDB
 from backend.schemas.duffel_flights import Offer
@@ -113,10 +118,17 @@ def test_offer_to_card_counts_stops_from_segments():
     assert card.stops == 1
 
 
-def test_concierge_agent_is_none_without_api_key():
-    """Documents the graceful-degradation contract this test environment
-    (and any environment without OPENAI_API_KEY set) relies on."""
-    assert concierge_agent is None
+def test_build_agent_is_none_without_api_key(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    assert _build_agent() is None
+
+
+def test_build_agent_constructs_when_api_key_set(monkeypatch):
+    """Construction alone (unlike .run()/.run_stream()) makes no network
+    call, so this is safe to exercise directly without hitting OpenAI or
+    depending on whether this machine's real .env happens to have a key."""
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test-not-real")
+    assert _build_agent() is not None
 
 
 def test_chat_rejects_unauthenticated(db_client):
@@ -124,7 +136,8 @@ def test_chat_rejects_unauthenticated(db_client):
     assert response.status_code == 401
 
 
-def test_chat_returns_503_when_unconfigured(session, db_client):
+def test_chat_returns_503_when_unconfigured(session, db_client, monkeypatch):
+    monkeypatch.setattr(concierge_service, "concierge_agent", None)
     user = _make_user(session)
     token = create_access_token(data={"sub": user.email, "purpose": "access"})
 

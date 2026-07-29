@@ -3,7 +3,8 @@ from fastapi.responses import StreamingResponse
 from pydantic_ai.ui import SSE_CONTENT_TYPE
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 
-from backend.external_services.concierge import ConciergeDeps, concierge_agent
+from backend.external_services import concierge as concierge_service
+from backend.external_services.concierge import ConciergeDeps
 from backend.models.users import UserInDB
 from backend.utils.guard import guard_deco
 from backend.utils.security import get_current_user
@@ -33,7 +34,12 @@ async def chat(
     not client.ts's usual fetch-and-zod-parse pattern (see
     ConciergeWidget.tsx). Auth-required: the concierge is tied to a real
     traveler, not a public anonymous tool."""
-    if concierge_agent is None:
+    # Accessed via the module (not imported by name) so tests can
+    # monkeypatch backend.external_services.concierge.concierge_agent
+    # directly, and so this always reflects the module's current state
+    # rather than whatever it was at import time.
+    agent = concierge_service.concierge_agent
+    if agent is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The concierge isn't configured yet.",
@@ -42,7 +48,7 @@ async def chat(
     accept = request.headers.get("accept", SSE_CONTENT_TYPE)
     run_input = VercelAIAdapter.build_run_input(await request.body())
     adapter = VercelAIAdapter(
-        agent=concierge_agent,
+        agent=agent,
         run_input=run_input,
         accept=accept,
         sdk_version=AI_SDK_VERSION,
