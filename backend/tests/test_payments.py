@@ -681,6 +681,13 @@ def test_confirm_card_payment_completed(session, monkeypatch):
         duffel_flight_service, "create_flight_order", fake_create_flight_order
     )
 
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
     result = asyncio.run(confirm_card_payment(session, payment))
 
     assert result.status == PaymentStatus.COMPLETED
@@ -690,6 +697,19 @@ def test_confirm_card_payment_completed(session, monkeypatch):
 
     booking = get_booking(session, result.booking_id)
     assert booking.total_amount == "100.00"  # charged amount, not Duffel's raw fare
+
+    # Same _publish_booking_completion_events helper as the Pesapal path
+    # (see test_finalize_payment_publishes_booking_confirmed) - this just
+    # confirms confirm_card_payment actually calls it, after its own commit.
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.PAYMENT_EVENTS
+    assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
+    assert data == {
+        "payment_id": result.id,
+        "booking_id": result.booking_id,
+        "user_id": result.user_id,
+    }
 
 
 def test_confirm_card_payment_not_succeeded_marks_failed(session, monkeypatch):
@@ -705,11 +725,24 @@ def test_confirm_card_payment_not_succeeded_marks_failed(session, monkeypatch):
         duffel_flight_service, "confirm_payment_intent", fake_confirm_payment_intent
     )
 
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
     result = asyncio.run(confirm_card_payment(session, payment))
 
     assert result.status == PaymentStatus.FAILED
     assert result.booking_id is None
     assert "requires_payment_method" in result.failure_reason
+
+    # A declined card never reaches _complete_booking, so there's no
+    # booking outcome to publish - only DuffelAPIError inside
+    # _complete_booking itself produces BOOKING_FAILED (see
+    # test_finalize_payment_publishes_booking_failed).
+    assert published == []
 
 
 def test_confirm_card_payment_is_idempotent_once_completed(session, monkeypatch):
@@ -770,6 +803,13 @@ def test_create_admin_booking_completes_without_real_payment_collection(
         duffel_flight_service, "create_flight_order", fake_create_flight_order
     )
 
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
     result = asyncio.run(
         create_admin_booking(session, customer_user_id, _checkout_request())
     )
@@ -785,6 +825,16 @@ def test_create_admin_booking_completes_without_real_payment_collection(
     # Not the admin who created it - the customer it was created for.
     assert booking.user_id != admin_user_id
 
+    # create_admin_booking always calls _complete_booking (no provider
+    # confirmation to wait on first), so unlike the other two paths this
+    # publish is unconditional - see crud/payments.py's own docstring.
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.PAYMENT_EVENTS
+    assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
+    assert data["user_id"] == customer_user_id
+    assert data["booking_id"] == result.booking_id
+
 
 def test_create_admin_booking_booking_failed_when_duffel_errors(session, monkeypatch):
     async def fake_confirm_price(offer_id):
@@ -798,6 +848,13 @@ def test_create_admin_booking_booking_failed_when_duffel_errors(session, monkeyp
         duffel_flight_service, "create_flight_order", fake_create_flight_order
     )
 
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
     result = asyncio.run(
         create_admin_booking(session, uuid.uuid4(), _checkout_request())
     )
@@ -805,6 +862,13 @@ def test_create_admin_booking_booking_failed_when_duffel_errors(session, monkeyp
     assert result.status == PaymentStatus.BOOKING_FAILED
     assert result.booking_id is None
     assert "offer expired" in result.failure_reason
+
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.PAYMENT_EVENTS
+    assert event_type == KafkaEventTypes.BOOKING_FAILED
+    assert data["payment_id"] == result.id
+    assert "offer expired" in data["failure_reason"]
 
 
 def _checkout_request_with_discount(code: str) -> CheckoutRequest:
@@ -958,3 +1022,84 @@ def test_finalize_payment_redeems_discount_code_on_completion(session, monkeypat
     assert result.status == PaymentStatus.COMPLETED
     discount_after = get_discount_code_by_code(session, "REDEEMME")
     assert discount_after.times_redeemed == 1
+
+
+def test_finalize_payment_publishes_discount_redemption_failed(session, monkeypatch):
+    """A redemption-increment failure must never undo the booking itself
+    (see _complete_booking's own comment on this) - so both
+    BOOKING_CONFIRMED and DISCOUNT_REDEMPTION_FAILED are expected here,
+    not one instead of the other."""
+    admin = create_user(session, email="pricing-admin4@example.com", password="hashed")
+    create_discount_code(
+        session,
+        code="BREAKME",
+        discount_percentage=5,
+        max_redemptions=None,
+        expires_at=None,
+        created_by=admin.id,
+    )
+
+    async def fake_confirm_price(offer_id):
+        return _fake_priced_offer()
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+
+    payment = asyncio.run(
+        reconfirm_price_and_create_payment(
+            session,
+            uuid.uuid4(),
+            _checkout_request_with_discount("BREAKME"),
+            PaymentProvider.PESAPAL,
+        )
+    )
+    payment.pesapal_order_tracking_id = "track_discount_fail"
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1, confirmation_code="conf_discount_fail"
+        )
+
+    async def fake_create_flight_order(order):
+        return _fake_duffel_order()
+
+    def fake_redeem_discount_code(session, code):
+        raise RuntimeError("times_redeemed update failed")
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+    monkeypatch.setattr(
+        payments_module, "redeem_discount_code", fake_redeem_discount_code
+    )
+
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
+    result = asyncio.run(finalize_payment(session, payment))
+
+    # The booking still succeeded despite the redemption bookkeeping
+    # failure - that's the whole point of catching it separately.
+    assert result.status == PaymentStatus.COMPLETED
+
+    assert len(published) == 2
+    event_types = {event_type for _, event_type, _ in published}
+    assert event_types == {
+        KafkaEventTypes.BOOKING_CONFIRMED,
+        KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED,
+    }
+    redemption_event = next(
+        data
+        for _, event_type, data in published
+        if event_type == KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED
+    )
+    assert redemption_event == {"payment_id": result.id, "discount_code": "BREAKME"}

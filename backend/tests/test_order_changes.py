@@ -10,11 +10,13 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
+import backend.routers.bookings as bookings_module
 from backend.crud.db import get_session
 from backend.external_services.flight import duffel_flight_service
 from backend.main import app
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.security import create_access_token
 
 engine = create_engine(
@@ -196,3 +198,56 @@ def test_confirm_order_change_resyncs_booking_slices(session, db_client, monkeyp
     assert booking.total_amount == "125.00"
     assert len(booking.slices) == 1
     assert booking.slices[0].destination_iata_code == "CDG"
+
+
+def test_confirm_order_change_publishes_event(session, db_client, monkeypatch):
+    booking, headers = _make_booking_and_auth(session)
+
+    async def fake_confirm_order_change(order_change_id, payment):
+        return {
+            "data": {
+                "id": order_change_id,
+                "order_id": "ord_test123",
+                "confirmed_at": "2026-07-28T00:00:00Z",
+                "new_total_amount": "125.00",
+                "new_total_currency": "USD",
+            }
+        }
+
+    async def fake_get_flight_order(order_id):
+        raise RuntimeError("Duffel unavailable")
+
+    monkeypatch.setattr(
+        duffel_flight_service, "confirm_order_change", fake_confirm_order_change
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "get_flight_order", fake_get_flight_order
+    )
+
+    published = []
+    monkeypatch.setattr(
+        bookings_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
+    response = db_client.post(
+        f"/booking/flight-orders/{booking.duffel_order_id}/changes/oce_test123/confirm",
+        json={"payment": {"type": "balance", "currency": "USD", "amount": "25.00"}},
+        headers=headers,
+    )
+
+    # The re-sync failing (get_flight_order raising above) must not stop
+    # the event from publishing - the change is already paid for and
+    # confirmed with Duffel by this point, same as the re-sync's own
+    # try/except in routers/bookings.py.
+    assert response.status_code == 200
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.BOOKING_EVENTS
+    assert event_type == KafkaEventTypes.BOOKING_CHANGE_CONFIRMED
+    assert data == {
+        "user_id": booking.user_id,
+        "booking_id": booking.id,
+        "booking_reference": booking.booking_reference,
+    }
