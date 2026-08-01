@@ -46,7 +46,7 @@ class PesapalPaymentService:
         self.consumer_secret = settings.PESAPAL_CONSUMER_SECRET
         self.ipn_id = settings.PESAPAL_IPN_ID
         self.base_url = PESAPAL_BASE_URLS.get(
-            settings.PESAPAL_ENV, PESAPAL_BASE_URLS["live"]
+            settings.PESAPAL_ENV, PESAPAL_BASE_URLS["sandbox"]
         )
         self._client: httpx.AsyncClient | None = None
 

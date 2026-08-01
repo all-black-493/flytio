@@ -137,6 +137,16 @@ export interface OrderCreate {
 export interface CheckoutRequest {
   selected_offers: [string];
   passengers: OrderPassenger[];
+  /** Validated and applied server-side - never trust a client-computed
+   * discounted amount for what's actually charged. */
+  discount_code?: string | null;
+}
+
+/* ---------- discounts: POST /discounts/preview ---------- */
+
+export interface DiscountPreviewRequest {
+  offer_id: string;
+  discount_code: string;
 }
 
 export interface BookingListQueryParams {
@@ -154,6 +164,30 @@ export interface AdminListQueryParams {
   search?: string;
   limit?: number;
   offset?: number;
+}
+
+/** POST /api/admin/bookings - CheckoutRequest plus which existing
+ * customer this booking belongs to. No payment fields - see
+ * backend/crud/payments.py's create_admin_booking for what
+ * "admin-marked-paid" means. */
+export interface AdminCreateBookingRequest extends CheckoutRequest {
+  user_id: string;
+}
+
+/* ---------- pricing: POST/DELETE /api/admin/pricing/... ---------- */
+
+export interface CreatePricingSaleRequest {
+  name: string;
+  markup_rate: number;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface CreateDiscountCodeRequest {
+  code: string;
+  discount_percentage: number;
+  max_redemptions?: number | null;
+  expires_at?: string | null;
 }
 
 /* ---------- order changes: POST .../change-requests, .../changes ---------- */

@@ -4,8 +4,37 @@ update_offer_passenger)."""
 
 import asyncio
 
+import pytest
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
+
+import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
+from backend.crud.db import get_session
 from backend.crud.flights import update_offer_passenger_loyalty
 from backend.external_services.flight import duffel_flight_service
+from backend.main import app
+from backend.utils.pricing import MARKUP_RATE
+
+engine = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+SQLModel.metadata.create_all(engine)
+
+
+def _override_get_session():
+    with Session(engine) as session:
+        yield session
+
+
+@pytest.fixture
+def db_client(api_client):
+    app.dependency_overrides[get_session] = _override_get_session
+    try:
+        yield api_client
+    finally:
+        app.dependency_overrides.pop(get_session, None)
 
 
 def _fake_priced_offer() -> dict:
@@ -45,6 +74,7 @@ def test_update_offer_passenger_loyalty_patches_then_repriced(monkeypatch):
                     {"airline_iata_code": "QF", "account_number": "12901014"}
                 ],
             },
+            MARKUP_RATE,
         )
     )
 
@@ -67,7 +97,7 @@ def test_update_offer_passenger_loyalty_patches_then_repriced(monkeypatch):
     assert result["data"]["total_amount"] == "90.95"
 
 
-def test_update_offer_passenger_endpoint(api_client, monkeypatch):
+def test_update_offer_passenger_endpoint(db_client, monkeypatch):
     async def fake_update_offer_passenger(offer_id, offer_passenger_id, update):
         assert offer_id == "off_test123"
         assert offer_passenger_id == "pas_test123"
@@ -81,7 +111,7 @@ def test_update_offer_passenger_endpoint(api_client, monkeypatch):
     )
     monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
 
-    response = api_client.patch(
+    response = db_client.patch(
         "/shopping/flight-offers/off_test123/passengers/pas_test123",
         json={
             "given_name": "Amelia",

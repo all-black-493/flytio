@@ -206,6 +206,7 @@ dependencies = [
     { name = "resend" },
     { name = "ruff" },
     { name = "sqlmodel" },
+    { name = "typer" },
 ]
 
 [package.metadata]
@@ -228,6 +229,7 @@ requires-dist = [
     { name = "resend", specifier = ">=2.16.0" },
     { name = "ruff", specifier = ">=0.15.22" },
     { name = "sqlmodel", specifier = ">=0.0.39" },
+    { name = "typer", specifier = ">=0.26.8" },
 ]
 
 [[package]]

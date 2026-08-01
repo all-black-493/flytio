@@ -123,3 +123,13 @@ class PopularRoute(SQLModel):
     destination_iata_code: str
     destination_city_name: str | None = None
     booking_count: int
+
+    # Unsplash photo for the destination city (crud/destinations.py,
+    # scripts/backfill_destination_images.py) - all three are None
+    # together whenever no photo has been cached yet, never partially
+    # populated. destination_image_attribution_name/_url must be rendered
+    # as a visible credit next to the image wherever it's shown, per
+    # Unsplash's API guidelines.
+    destination_image_url: str | None = None
+    destination_image_attribution_name: str | None = None
+    destination_image_attribution_url: str | None = None

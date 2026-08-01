@@ -9,9 +9,12 @@ from backend.crud.bookings import (
     create_booking_from_order,
     seat_designators_by_passenger,
 )
+from backend.crud.notifications import create_notification, notify_staff
+from backend.crud.pricing import redeem_discount_code, validate_discount_code
 from backend.crud.tickets import create_tickets_from_order
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
+from backend.models.notifications import NotificationType
 from backend.models.payments import Payment, PaymentProvider, PaymentStatus
 from backend.models.users import UserInDB
 from backend.schemas.duffel_orders import Order, OrderCreate, OrderPayment
@@ -20,7 +23,9 @@ from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pricing import (
+    apply_discount,
     extra_baggage_cost,
+    get_active_markup_rate,
     marked_up_amount,
     seat_services_cost,
 )
@@ -55,6 +60,7 @@ def create_payment(
     duffel_amount: str,
     currency: str,
     provider: PaymentProvider = PaymentProvider.PESAPAL,
+    discount_code: str | None = None,
 ) -> Payment:
     """Persist a checkout attempt before Duffel is ever contacted - see
     finalize_payment()/confirm_card_payment() for what happens once
@@ -62,7 +68,9 @@ def create_payment(
 
     `amount` (marked-up, charged to the customer) and `duffel_amount` (raw,
     what Duffel is actually paid) are deliberately separate - see the
-    Payment model's docstrings on each field."""
+    Payment model's docstrings on each field. `discount_code` (if any) is
+    already folded into `amount` by the caller - stored here only so
+    _complete_booking knows what to redeem once the booking succeeds."""
     payment = Payment(
         user_id=user_id,
         order_request_snapshot=checkout.model_dump_json(),
@@ -70,6 +78,7 @@ def create_payment(
         duffel_amount=duffel_amount,
         currency=currency,
         provider=provider,
+        discount_code=discount_code,
         merchant_reference=str(uuid.uuid4()),
     )
     session.add(payment)
@@ -195,7 +204,17 @@ async def reconfirm_price_and_create_payment(
             baggage_amount, _baggage_currency = baggage_cost
             duffel_amount = f"{float(duffel_amount) + float(baggage_amount):.2f}"
 
-    amount = marked_up_amount(duffel_amount)
+    markup_rate = get_active_markup_rate(session)
+    amount = marked_up_amount(duffel_amount, markup_rate)
+
+    # Validated (not redeemed) here - redemption only happens once
+    # _complete_booking actually succeeds, see create_payment's docstring
+    # and crud/pricing.py's redeem_discount_code.
+    if request.discount_code:
+        discount = validate_discount_code(session, request.discount_code)
+        amount = apply_discount(
+            amount, discount.discount_percentage, floor_amount=duffel_amount
+        )
 
     return create_payment(
         session,
@@ -205,6 +224,9 @@ async def reconfirm_price_and_create_payment(
         duffel_amount,
         currency,
         provider=provider,
+        discount_code=request.discount_code.strip().upper()
+        if request.discount_code
+        else None,
     )
 
 
@@ -289,6 +311,34 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
         payment.booking_id = booking.id
         payment.status = PaymentStatus.COMPLETED
 
+        if payment.discount_code:
+            try:
+                redeem_discount_code(session, payment.discount_code)
+            except Exception:
+                # The booking already succeeded - a failed redemption
+                # increment must never undo that. Worst case, this one
+                # use doesn't count against the code's max_redemptions.
+                logger.exception(
+                    "Failed to redeem discount code %s for payment %s",
+                    payment.discount_code,
+                    payment.id,
+                )
+                try:
+                    await notify_staff(
+                        session,
+                        type=NotificationType.DISCOUNT_REDEMPTION_FAILED,
+                        title=f"Discount code {payment.discount_code} redemption failed",
+                        body=f"Payment {payment.id} succeeded but incrementing "
+                        f"times_redeemed failed - the code's usage count may "
+                        f"undercount actual redemptions.",
+                        link_url="/admin/pricing",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to notify staff of discount redemption failure for payment %s",
+                        payment.id,
+                    )
+
         try:
             user = session.get(UserInDB, payment.user_id)
             if user:
@@ -305,6 +355,21 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
             logger.exception(
                 "Failed to send confirmation email for booking %s", booking.id
             )
+
+        try:
+            await create_notification(
+                session,
+                user_id=payment.user_id,
+                type=NotificationType.BOOKING_CONFIRMED,
+                title=f"Booking {booking.booking_reference} confirmed",
+                body="Your flight is booked and your e-ticket is on its way.",
+                link_url=f"/account/bookings/{booking.id}",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create booking-confirmed notification for booking %s",
+                booking.id,
+            )
     except DuffelAPIError as e:
         # The customer's money already landed with us at this point -
         # this is the "flag for manual refund" case, not an error to
@@ -317,6 +382,35 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
         )
         payment.status = PaymentStatus.BOOKING_FAILED
         payment.failure_reason = str(e)
+
+        try:
+            await create_notification(
+                session,
+                user_id=payment.user_id,
+                type=NotificationType.BOOKING_FAILED,
+                title="We couldn't complete your booking",
+                body="Your payment went through, but we hit a problem finalizing "
+                "your flight. Our team has been notified and will follow up shortly.",
+                link_url="/account",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to notify customer of booking failure for payment %s",
+                payment.id,
+            )
+
+        try:
+            await notify_staff(
+                session,
+                type=NotificationType.BOOKING_FAILED,
+                title=f"Booking failed after payment collected (payment {payment.id})",
+                body=str(e),
+                link_url="/admin/bookings",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to notify staff of booking failure for payment %s", payment.id
+            )
 
 
 async def finalize_payment(session: Session, payment: Payment) -> Payment:
@@ -449,6 +543,39 @@ async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
             f"Card payment not completed (status: {intent_data.get('status')})"
         )
 
+    payment.updated_at = datetime.utcnow()
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    return payment
+
+
+async def create_admin_booking(
+    session: Session, user_id: uuid.UUID, request: CheckoutRequest
+) -> Payment:
+    """Admin-marked-paid booking on a customer's behalf (routers/admin.py's
+    create_admin_booking_route) - no real payment collection (Pesapal/
+    Duffel Payments), the admin has already been paid outside flyt (cash,
+    bank transfer, invoice) and is just recording it.
+
+    Reuses the exact same pricing (reconfirm_price_and_create_payment) and
+    booking-completion (_complete_booking) logic every other payment path
+    does - the only difference is skipping straight to _complete_booking
+    instead of waiting for a provider to confirm money moved, since
+    there's nothing to confirm. flyt still pays Duffel its own balance for
+    the order, same as any other booking - see PaymentProvider.ADMIN's
+    docstring for why this doesn't skip that.
+
+    _complete_booking already handles its own DuffelAPIError internally
+    (leaves payment.booking_id unset, status BOOKING_FAILED) rather than
+    raising - the caller (routers/admin.py) checks booking_id to tell
+    success from failure, same as this function does not need to catch
+    anything from that call.
+    """
+    payment = await reconfirm_price_and_create_payment(
+        session, user_id, request, PaymentProvider.ADMIN
+    )
+    await _complete_booking(session, payment)
     payment.updated_at = datetime.utcnow()
     session.add(payment)
     session.commit()

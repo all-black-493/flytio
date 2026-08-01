@@ -4,6 +4,8 @@ from sqlmodel import Session
 from backend.config import settings
 from backend.crud.bookings import record_airline_initiated_change
 from backend.crud.db import get_session
+from backend.crud.notifications import create_notification
+from backend.models.notifications import NotificationType
 from backend.utils.duffel_webhooks import verify_duffel_signature
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import airline_change_email_html
@@ -86,6 +88,21 @@ async def duffel_webhook(request: Request, session: Session = Depends(get_sessio
         # notification email must not be mistaken for a failed webhook.
         logger.exception(
             "Failed to send airline-change notification for booking %s", booking.id
+        )
+
+    try:
+        if booking.user_id:
+            await create_notification(
+                session,
+                user_id=booking.user_id,
+                type=NotificationType.AIRLINE_CHANGE,
+                title=f"Booking {booking.booking_reference} may have changed",
+                body=f"{booking.owner_name or 'The airline'} made a change to your itinerary.",
+                link_url=f"/account/bookings/{booking.id}",
+            )
+    except Exception:
+        logger.exception(
+            "Failed to create airline-change notification for booking %s", booking.id
         )
 
     return Response(status_code=status.HTTP_200_OK)

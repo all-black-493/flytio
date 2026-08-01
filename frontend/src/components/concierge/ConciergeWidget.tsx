@@ -8,17 +8,87 @@ import { Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { meQuery } from "@/app/(app)/account/_lib/queries";
+import {
+  ConciergeBookingSummaryCard,
+  ConciergeCancellationQuoteCard,
+  ConciergeChangeOptionCard,
+} from "@/components/concierge/ConciergeBookingCards";
 import { ConciergeFlightCard } from "@/components/concierge/ConciergeFlightCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { API_URL } from "@/lib/api/client";
-import { conciergeFlightCardSchema } from "@/lib/api/schemas";
+import {
+  conciergeBookingSummarySchema,
+  conciergeCancellationQuoteSchema,
+  conciergeChangeOptionSchema,
+  conciergeFlightCardSchema,
+} from "@/lib/api/schemas";
 
 const EXAMPLE_PROMPTS = [
   "Find me the cheapest flight to Dubai next month",
   "What are my options from Nairobi to London next week?",
 ];
+
+/** One label per concierge tool, shown while it's running so the user
+ * isn't left staring at a blank gap during the call. */
+const TOOL_LOADING_LABELS: Record<string, string> = {
+  search_flights: "Searching flights…",
+  get_my_booking: "Looking up your booking…",
+  get_cancellation_quote: "Getting a cancellation quote…",
+  confirm_cancellation: "Cancelling…",
+  search_change_options: "Searching change options…",
+};
+
+const KNOWN_CONCIERGE_TOOLS = new Set(Object.keys(TOOL_LOADING_LABELS));
+
+/** Renders one tool's `output-available` payload as its card(s), or null
+ * if the shape doesn't parse - same don't-trust-the-network-boundary
+ * posture client.ts's zod parsing has everywhere else, just applied to
+ * the AI SDK's tool-output channel instead of a fetch response body. A
+ * `null` return is ambiguous between "known tool, bad shape" (an error,
+ * worth surfacing) and "tool this widget has no card for yet" (not an
+ * error - the model's own text reply still carries the content) -
+ * KNOWN_CONCIERGE_TOOLS at the call site disambiguates the two. */
+function renderToolOutput(toolName: string, output: unknown): React.ReactNode {
+  switch (toolName) {
+    case "search_flights": {
+      const parsed = conciergeFlightCardSchema.array().safeParse(output);
+      if (!parsed.success) return null;
+      return (
+        <div className="space-y-2">
+          {parsed.data.map((card) => (
+            <ConciergeFlightCard key={card.offer_id} offer={card} />
+          ))}
+        </div>
+      );
+    }
+    case "get_my_booking": {
+      const parsed = conciergeBookingSummarySchema.safeParse(output);
+      if (!parsed.success) return null;
+      return <ConciergeBookingSummaryCard booking={parsed.data} />;
+    }
+    case "get_cancellation_quote":
+    case "confirm_cancellation": {
+      const parsed = conciergeCancellationQuoteSchema.safeParse(output);
+      if (!parsed.success) return null;
+      return <ConciergeCancellationQuoteCard quote={parsed.data} />;
+    }
+    case "search_change_options": {
+      const parsed = conciergeChangeOptionSchema.array().safeParse(output);
+      if (!parsed.success) return null;
+      return (
+        <div className="space-y-2">
+          {parsed.data.map((option) => (
+            <ConciergeChangeOptionCard key={option.change_offer_id} option={option} />
+          ))}
+        </div>
+      );
+    }
+    default:
+      return null;
+  }
+}
 
 /** flyt's air travel concierge - not a general chatbot, scoped to
  * finding real, bookable flights (see backend/external_services/
@@ -101,9 +171,24 @@ export function ConciergeWidget() {
             <>
               <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
                 {messages.length === 0 && (
-                  <p className="text-muted-foreground">
-                    Ask about a route, e.g. &ldquo;{EXAMPLE_PROMPTS[0]}&rdquo;
-                  </p>
+                  <div className="space-y-2">
+                    <p className="text-muted-foreground">Ask about a route, or try:</p>
+                    <div className="flex flex-col items-start gap-1.5">
+                      {EXAMPLE_PROMPTS.map((prompt) => (
+                        <Button
+                          key={prompt}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={status !== "ready"}
+                          onClick={() => sendMessage({ text: prompt })}
+                          className="h-auto max-w-full shrink whitespace-normal text-left"
+                        >
+                          {prompt}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 )}
                 {messages.map((message) => (
                   <div
@@ -125,29 +210,25 @@ export function ConciergeWidget() {
                           </p>
                         );
                       }
-                      if (isToolUIPart(part) && getToolName(part) === "search_flights") {
+                      if (isToolUIPart(part)) {
+                        const toolName = getToolName(part);
                         if (part.state === "input-available" || part.state === "input-streaming") {
                           return (
                             <p key={index} className="font-mono text-[11px] text-muted-foreground">
-                              Searching flights…
+                              {TOOL_LOADING_LABELS[toolName] ?? "Working on it…"}
                             </p>
                           );
                         }
                         if (part.state === "output-available") {
-                          const parsed = conciergeFlightCardSchema.array().safeParse(part.output);
-                          if (!parsed.success) {
-                            return (
-                              <p key={index} className="text-xs text-destructive">
-                                Couldn&apos;t show these results.
-                              </p>
-                            );
+                          const rendered = renderToolOutput(toolName, part.output);
+                          if (rendered !== null) {
+                            return <div key={index}>{rendered}</div>;
                           }
+                          if (!KNOWN_CONCIERGE_TOOLS.has(toolName)) return null;
                           return (
-                            <div key={index} className="space-y-2">
-                              {parsed.data.map((card) => (
-                                <ConciergeFlightCard key={card.offer_id} offer={card} />
-                              ))}
-                            </div>
+                            <p key={index} className="text-xs text-destructive">
+                              Couldn&apos;t show this result.
+                            </p>
                           );
                         }
                         if (part.state === "output-error") {

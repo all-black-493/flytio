@@ -16,6 +16,7 @@ from backend.crud.payments import (
     get_payment_by_pesapal_tracking_id,
     reconfirm_price_and_create_payment,
 )
+from backend.crud.pricing import validate_discount_code
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
 from backend.models.payments import Payment, PaymentProvider
@@ -25,12 +26,19 @@ from backend.schemas.payments import (
     CardCheckoutResponse,
     CheckoutRequest,
     CheckoutResponse,
+    DiscountPreviewRequest,
+    DiscountPreviewResponse,
     PaymentStatusResponse,
 )
 from backend.schemas.pesapal import PesapalBillingAddress
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
 from backend.utils.log_manager import get_app_logger
+from backend.utils.pricing import (
+    apply_discount,
+    get_active_markup_rate,
+    marked_up_amount,
+)
 from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
@@ -60,6 +68,45 @@ def _get_owned_payment(
             status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found"
         )
     return payment
+
+
+@router.post("/discounts/preview", response_model=DiscountPreviewResponse)
+@guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
+async def preview_discount(
+    request: DiscountPreviewRequest,
+    _: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Non-persisting check so the customer sees whether a code works (and
+    roughly what it saves) before committing to checkout - see
+    DiscountPreviewRequest's docstring for why this previews the base
+    fare only, not the final total with seats/baggage folded in. The real
+    checkout call re-validates and applies the code for real."""
+    try:
+        priced = await duffel_flight_service.confirm_price(request.offer_id)
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+
+    offer_data = priced["data"]
+    duffel_amount = offer_data["total_amount"]
+    currency = offer_data["total_currency"]
+    markup_rate = get_active_markup_rate(session)
+    original_amount = marked_up_amount(duffel_amount, markup_rate)
+
+    try:
+        discount = validate_discount_code(session, request.discount_code)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    discounted_amount = apply_discount(
+        original_amount, discount.discount_percentage, floor_amount=duffel_amount
+    )
+    return DiscountPreviewResponse(
+        original_amount=original_amount,
+        discounted_amount=discounted_amount,
+        currency=currency,
+        discount_percentage=discount.discount_percentage,
+    )
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
@@ -110,6 +157,7 @@ async def checkout(
             billing_address=billing_address,
         )
     except (PesapalAPIError, ValueError) as e:
+        print("DEBUG PESAPAL ERROR: ", e)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Payment provider error: {e}",

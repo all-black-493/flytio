@@ -46,5 +46,20 @@ class UserInDB(SQLModel, table=True):
         "has_perm) and can manage groups/permissions themselves - same as "
         "Django's is_superuser.",
     )
+    banned_at: datetime | None = Field(
+        default=None,
+        description="Set by an admin (routers/admin.py's ban_user_route) "
+        "to block login - unlike deleted_at, this never touches email/"
+        "password, so it's fully reversible via unban_user_route and the "
+        "account stays identifiable. get_current_user/authenticate_user "
+        "both reject any account with this set, same as deleted_at.",
+    )
+    banned_reason: str | None = Field(default=None)
+    banned_by_user_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="userindb.id",
+        description="Which admin issued the ban - audit trail only, "
+        "shown on the user detail page.",
+    )
 
     bookings: list["Booking"] = Relationship(back_populates="user")

@@ -17,6 +17,16 @@ def test_contact_support_sends_relay_and_autoreply(api_client, monkeypatch):
         support_router, "send_html_email_async", fake_send_html_email_async
     )
 
+    # _notify_staff_of_support_request opens its own real DB session
+    # (background tasks can't reuse Depends(get_session), see its
+    # docstring) - not exercised here, same as the email send above.
+    async def fake_notify_staff(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        support_router, "_notify_staff_of_support_request", fake_notify_staff
+    )
+
     response = api_client.post(
         "/support/contact",
         json={

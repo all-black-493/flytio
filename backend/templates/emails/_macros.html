@@ -1,0 +1,99 @@
+{#
+Shared building blocks for booking_confirmation.html - one flight
+(segment) row, one itinerary slice, one passenger row, the fare receipt,
+and the change/refund conditions line. Kept as macros (not separate
+templates) since none of these are ever rendered as a standalone email on
+their own.
+#}
+
+{% macro location_label(iata_code, name) -%}
+  {%- if name -%}{{ name }} ({{ iata_code }}){%- else -%}{{ iata_code }}{%- endif -%}
+{%- endmacro %}
+
+{% macro segment_row(flight) %}
+<tr>
+  <td style="padding:10px 0;border-top:1px solid #eef2f6;">
+    <p style="margin:0;font-weight:bold;">{{ flight.marketing_carrier_name or flight.marketing_carrier_iata_code or "" }} {{ flight.marketing_carrier_flight_number or "" }}</p>
+    <p style="margin:4px 0 0;color:#55677c;">
+      {{ location_label(flight.origin_iata_code, flight.origin_name) }} {{ flight.departing_at.strftime("%a, %d %b %Y %H:%M") }}
+      &nbsp;→&nbsp;
+      {{ location_label(flight.destination_iata_code, flight.destination_name) }} {{ flight.arriving_at.strftime("%a, %d %b %Y %H:%M") }}
+    </p>
+    {%- if flight.operating_carrier_name and flight.operating_carrier_name != flight.marketing_carrier_name %}
+    <p style="margin:4px 0 0;color:#55677c;font-size:12px;">Operated by {{ flight.operating_carrier_name }}</p>
+    {%- endif %}
+  </td>
+</tr>
+{% endmacro %}
+
+{% macro slice_block(slice_) %}
+<div style="margin-bottom:16px;">
+  <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.05em;color:#55677c;text-transform:uppercase;">
+    {{ location_label(slice_.origin_iata_code, slice_.origin_city_name or slice_.origin_name) }} → {{ location_label(slice_.destination_iata_code, slice_.destination_city_name or slice_.destination_name) }}
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    {%- for flight in slice_.flights %}{{ segment_row(flight) }}{% endfor %}
+  </table>
+</div>
+{% endmacro %}
+
+{% macro passenger_row(passenger) %}
+  {%- set name = (passenger.given_name ~ " " ~ passenger.family_name) | trim -%}
+  {%- set cabin = passenger.cabin_class.value.replace("_", " ").title() if passenger.cabin_class else "—" -%}
+  {%- set baggage_parts = [] -%}
+  {%- if passenger.checked_bags %}{{ baggage_parts.append(passenger.checked_bags ~ " checked") or "" }}{% endif -%}
+  {%- if passenger.carry_on_bags %}{{ baggage_parts.append(passenger.carry_on_bags ~ " carry-on") or "" }}{% endif -%}
+  {%- set baggage = baggage_parts | join(", ") if baggage_parts else "—" -%}
+  {%- set seat = passenger.seat_designator or "Assigned at check-in" -%}
+<tr>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;">{{ name }}</td>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;color:#55677c;">{{ cabin }}</td>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;color:#55677c;">{{ baggage }}</td>
+  <td style="padding:8px 0;border-top:1px solid #eef2f6;color:#55677c;">{{ seat }}</td>
+</tr>
+{% endmacro %}
+
+{#
+base_amount/tax_amount are only populated on bookings made since that
+split started being persisted (see crud/bookings.py's _fare_breakdown);
+older bookings fall back to a single total line rather than showing a
+broken/empty breakdown.
+#}
+{% macro receipt(booking) %}
+{%- if booking.base_amount is not none and booking.tax_amount is not none %}
+<tr><td style="padding:2px 0;">Fare</td><td style="padding:2px 0;text-align:right;">{{ booking.base_currency }} {{ booking.base_amount }}</td></tr>
+<tr><td style="padding:2px 0;">Fees &amp; taxes</td><td style="padding:2px 0;text-align:right;">{{ booking.tax_currency }} {{ booking.tax_amount }}</td></tr>
+<tr><td style="padding:8px 0 0;font-weight:bold;border-top:1px solid #d8e0e8;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:bold;border-top:1px solid #d8e0e8;">{{ booking.total_currency }} {{ booking.total_amount }}</td></tr>
+{%- else %}
+<tr><td style="padding:2px 0;font-weight:bold;">Total paid</td><td style="padding:2px 0;text-align:right;font-weight:bold;">{{ booking.total_currency }} {{ booking.total_amount }}</td></tr>
+{%- endif %}
+{% endmacro %}
+
+{#
+Change/refund terms, mirroring what Duffel's displaying-offer-and-order-
+conditions guide recommends showing customers - omitted entirely (not
+shown as a blank/"unknown" line) when Duffel didn't report a condition
+for this order, since None means "not reported", not "not allowed".
+#}
+{% macro conditions(booking) %}
+  {%- set lines = [] -%}
+  {%- if booking.change_allowed is not none -%}
+    {%- if booking.change_allowed -%}
+      {%- set penalty = " (penalty: " ~ booking.change_penalty_currency ~ " " ~ booking.change_penalty_amount ~ ")" if booking.change_penalty_amount else " (no penalty)" -%}
+      {{ lines.append("Changes are allowed" ~ penalty ~ ".") or "" }}
+    {%- else -%}
+      {{ lines.append("Changes are not allowed on this fare.") or "" }}
+    {%- endif -%}
+  {%- endif -%}
+  {%- if booking.refund_allowed is not none -%}
+    {%- if booking.refund_allowed -%}
+      {%- set penalty = " (penalty: " ~ booking.refund_penalty_currency ~ " " ~ booking.refund_penalty_amount ~ ")" if booking.refund_penalty_amount else " (no penalty)" -%}
+      {{ lines.append("Refunds are allowed" ~ penalty ~ ".") or "" }}
+    {%- else -%}
+      {{ lines.append("This fare is non-refundable.") or "" }}
+    {%- endif -%}
+  {%- endif -%}
+  {%- if lines %}
+<p style="margin:16px 0 0;color:#55677c;font-size:12px;">{{ lines | join(" ") }}</p>
+  {%- endif -%}
+{% endmacro %}

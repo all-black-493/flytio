@@ -5,13 +5,49 @@ the difference is flyt's margin - this is the entire revenue mechanism,
 there is currently no other charge anywhere in the booking flow.
 """
 
+from datetime import datetime
+
+from sqlmodel import Session, select
+
+from backend.models.pricing import PricingSale
+
 MARKUP_RATE = 0.07  # 7%: covers Pesapal's processing fee (~3%) plus
 # margin, while staying close enough to raw NDC fares to not price flyt
-# out against metasearch sites showing unmarked-up prices.
+# out against metasearch sites showing unmarked-up prices. The default
+# whenever no PricingSale (below) is currently active.
 
 
-def marked_up_amount(raw_amount: str) -> str:
-    return f"{float(raw_amount) * (1 + MARKUP_RATE):.2f}"
+def get_active_markup_rate(session: Session) -> float:
+    """The rate every price/checkout call should use right now - an
+    active PricingSale's rate if one's running (crud/pricing.py's
+    create_pricing_sale guarantees at most one can ever be active at a
+    time), else the MARKUP_RATE default. Called fresh on every request
+    (search, price-confirm, checkout) rather than cached, so a sale
+    starting/ending exactly on schedule is never a request behind."""
+    now = datetime.utcnow()
+    sale = session.exec(
+        select(PricingSale).where(
+            PricingSale.starts_at <= now, PricingSale.ends_at >= now
+        )
+    ).first()
+    return sale.markup_rate if sale else MARKUP_RATE
+
+
+def marked_up_amount(raw_amount: str, markup_rate: float = MARKUP_RATE) -> str:
+    return f"{float(raw_amount) * (1 + markup_rate):.2f}"
+
+
+def apply_discount(
+    amount: str, discount_percentage: float, *, floor_amount: str
+) -> str:
+    """Applies a DiscountCode's percentage off an already-marked-up
+    `amount`, floored at `floor_amount` (the raw Duffel fare) so a
+    discount can never push what the customer pays below what flyt owes
+    Duffel for the ticket - see models/pricing.py's DiscountCode
+    docstring. A discount larger than the current markup just means flyt
+    earns nothing on that booking, not that flyt pays out of pocket."""
+    discounted = float(amount) * (1 - discount_percentage / 100)
+    return f"{max(discounted, float(floor_amount)):.2f}"
 
 
 def seat_services_cost(
@@ -96,7 +132,7 @@ def extra_baggage_cost(
     return f"{total:.2f}", currency
 
 
-def apply_markup_to_offer_dict(offer: dict) -> dict:
+def apply_markup_to_offer_dict(offer: dict, markup_rate: float = MARKUP_RATE) -> dict:
     """Marks up an Offer/OfferGroup member's total_amount in place, folding
     the added margin into tax_amount (not base_amount) so base + tax still
     sums to the new total - base_amount stays the airline's genuine fare,
@@ -106,7 +142,7 @@ def apply_markup_to_offer_dict(offer: dict) -> dict:
         return offer
 
     raw_total = float(offer["total_amount"])
-    new_total = raw_total * (1 + MARKUP_RATE)
+    new_total = raw_total * (1 + markup_rate)
     offer["total_amount"] = f"{new_total:.2f}"
 
     if offer.get("tax_amount") is not None:

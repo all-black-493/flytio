@@ -38,15 +38,16 @@ async def search_flights_cached(request: OfferRequestCreate) -> dict:
     return response
 
 
-async def confirm_price_with_markup(offer_id: str) -> dict:
+async def confirm_price_with_markup(offer_id: str, markup_rate: float) -> dict:
     """Re-fetches an offer's live price from Duffel (Duffel has no
     separate pricing endpoint - refetching the offer returns its
     up-to-date total_amount/total_currency) and applies flyt's markup
-    before returning it - the one place this happens, so the pricing
-    endpoint and checkout's price reconfirmation can never drift apart on
-    it."""
+    before returning it. `markup_rate` is the caller's job to resolve
+    (routers/flights.py's confirm_price calls utils/pricing.py's
+    get_active_markup_rate) - kept out of this function so it stays a
+    plain Duffel-facing helper with no DB access of its own."""
     response = await duffel_flight_service.confirm_price(offer_id)
-    response["data"] = apply_markup_to_offer_dict(response["data"])
+    response["data"] = apply_markup_to_offer_dict(response["data"], markup_rate)
     return response
 
 
@@ -77,15 +78,16 @@ async def search_places(params: PlaceSuggestionsQuery) -> dict:
 
 
 async def update_offer_passenger_loyalty(
-    offer_id: str, offer_passenger_id: str, update: dict
+    offer_id: str, offer_passenger_id: str, update: dict, markup_rate: float
 ) -> dict:
     """Attaches loyalty programme accounts to a specific passenger on an
     already-priced offer (PATCH /air/offers/{offer_id}/passengers/
     {offer_passenger_id}) and returns the updated offer, re-marked-up -
     Duffel may reveal a loyalty-discounted fare, only reflected by
     re-fetching after the update, which this does in one call for the
-    caller's convenience."""
+    caller's convenience. `markup_rate` is the caller's job to resolve,
+    same as confirm_price_with_markup itself."""
     await duffel_flight_service.update_offer_passenger(
         offer_id, offer_passenger_id, update
     )
-    return await confirm_price_with_markup(offer_id)
+    return await confirm_price_with_markup(offer_id, markup_rate)

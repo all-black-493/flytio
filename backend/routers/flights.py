@@ -25,6 +25,7 @@ from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
 from backend.utils.log_manager import get_app_logger
 from backend.utils.offer_filtering import build_flight_search_response
+from backend.utils.pricing import get_active_markup_rate
 
 # A single booking must never look "popular" to a customer - much higher
 # bar than the staff dashboard's (routers/admin.py, min_bookings=1).
@@ -45,12 +46,21 @@ SEARCH_IP_LIMIT = 30
 PRICING_IP_LIMIT = 30
 SHOPPING_WINDOW_SECONDS = 60
 
+# Places is debounced client-side (~250ms, see PlaceAutocomplete.tsx) but
+# unlike search/pricing, a cache hit here still requires a distinct exact
+# query string - every new character while typing a city name is a
+# cache-miss-by-construction, so this needs its own, higher budget rather
+# than reusing SEARCH_IP_LIMIT.
+PLACES_IP_LIMIT = 60
+PLACES_WINDOW_SECONDS = 60
+
 
 @router.post("/shopping/flight-offers", response_model=FlightSearchResponse)
 @guard_deco.rate_limit(requests=SEARCH_IP_LIMIT, window=SHOPPING_WINDOW_SECONDS)
 async def search_flights(
     request: OfferRequestCreate,
     params: Annotated[OfferListQueryParams, Query()],
+    session: Session = Depends(get_session),
 ):
     """
     Search for flights by creating a Duffel offer request.
@@ -64,7 +74,8 @@ async def search_flights(
     """
     try:
         response = await flights_crud.search_flights_cached(request)
-        return build_flight_search_response(response, params)
+        markup_rate = get_active_markup_rate(session)
+        return build_flight_search_response(response, params, markup_rate)
     except DuffelAPIError as e:
         raise duffel_http_exception(e)
     except ValueError as e:
@@ -81,6 +92,7 @@ async def search_flights(
 @guard_deco.rate_limit(requests=SEARCH_IP_LIMIT, window=SHOPPING_WINDOW_SECONDS)
 async def search_flights_2(
     params: Annotated[FlightSearchAndListQueryParams, Query()],
+    session: Session = Depends(get_session),
 ):
     """
     Simple flight search via query parameters.
@@ -98,7 +110,8 @@ async def search_flights_2(
     offer_request = params.to_offer_request()
     try:
         response = await flights_crud.search_flights_cached(offer_request)
-        return build_flight_search_response(response, params)
+        markup_rate = get_active_markup_rate(session)
+        return build_flight_search_response(response, params, markup_rate)
     except DuffelAPIError as e:
         raise duffel_http_exception(e)
     except ValueError as e:
@@ -107,7 +120,9 @@ async def search_flights_2(
 
 @router.post("/shopping/flight-offers/pricing", response_model=OfferResponse)
 @guard_deco.rate_limit(requests=PRICING_IP_LIMIT, window=SHOPPING_WINDOW_SECONDS)
-async def confirm_price(request: OfferPriceRequest):
+async def confirm_price(
+    request: OfferPriceRequest, session: Session = Depends(get_session)
+):
     """
     Confirm the live price of a selected offer.
 
@@ -116,7 +131,10 @@ async def confirm_price(request: OfferPriceRequest):
     services). Offers expire, so always confirm shortly before booking.
     """
     try:
-        return await flights_crud.confirm_price_with_markup(request.offer_id)
+        markup_rate = get_active_markup_rate(session)
+        return await flights_crud.confirm_price_with_markup(
+            request.offer_id, markup_rate
+        )
     except DuffelAPIError as e:
         raise duffel_http_exception(e)
     except ValueError as e:
@@ -136,6 +154,7 @@ async def update_offer_passenger(
     offer_id: str,
     offer_passenger_id: str,
     request: OfferPassengerUpdate,
+    session: Session = Depends(get_session),
 ):
     """
     Attach loyalty programme accounts to a passenger on an already-priced
@@ -146,10 +165,12 @@ async def update_offer_passenger(
     what the customer is actually charged.
     """
     try:
+        markup_rate = get_active_markup_rate(session)
         return await flights_crud.update_offer_passenger_loyalty(
             offer_id,
             offer_passenger_id,
             request.model_dump(mode="json", exclude_none=True),
+            markup_rate,
         )
     except DuffelAPIError as e:
         raise duffel_http_exception(e)
@@ -175,6 +196,7 @@ async def view_seat_map_get(offer_id: Annotated[str, Query()]):
 
 
 @router.get("/shopping/places", response_model=PlaceSuggestionsResponse)
+@guard_deco.rate_limit(requests=PLACES_IP_LIMIT, window=PLACES_WINDOW_SECONDS)
 async def search_places(params: Annotated[PlaceSuggestionsQuery, Query()]):
     """
     Search for airports and cities.
@@ -212,6 +234,13 @@ async def popular_destinations(
             destination_iata_code=destination_code,
             destination_city_name=destination_city,
             booking_count=count,
+            destination_image_url=image.image_url if image else None,
+            destination_image_attribution_name=image.photographer_name
+            if image
+            else None,
+            destination_image_attribution_url=image.photographer_profile_url
+            if image
+            else None,
         )
-        for origin_code, origin_city, destination_code, destination_city, count in rows
+        for origin_code, origin_city, destination_code, destination_city, count, image in rows
     ]

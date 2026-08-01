@@ -23,4 +23,5 @@ dependencies = [
     "resend>=2.16.0",
     "ruff>=0.15.22",
     "sqlmodel>=0.0.39",
+    "typer>=0.26.8",
 ]

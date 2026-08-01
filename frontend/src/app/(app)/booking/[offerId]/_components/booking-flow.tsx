@@ -1,11 +1,14 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { meQuery } from "@/app/(app)/account/_lib/queries";
+import { adminUserDetailQuery } from "@/app/(app)/admin/_lib/queries";
 import { BaggagePicker } from "@/app/(app)/booking/[offerId]/_components/baggage-picker";
+import { DiscountCodeField } from "@/app/(app)/booking/[offerId]/_components/discount-code-field";
 import { FlightSummary } from "@/app/(app)/booking/[offerId]/_components/flight-summary";
 import { PassengerForm, type PassengerDetails } from "@/app/(app)/booking/[offerId]/_components/passenger-form";
 import { SeatPicker, type SeatPick } from "@/app/(app)/booking/[offerId]/_components/seat-picker";
@@ -18,9 +21,10 @@ import {
   checkout,
   checkoutWithCard,
   confirmCardPayment,
+  createAdminBooking,
   updateOfferPassengerLoyalty,
 } from "@/lib/api/client";
-import type { Offer } from "@/lib/api/schemas";
+import type { DiscountPreviewResponse, Offer } from "@/lib/api/schemas";
 import type { LoyaltyProgrammeAccount, OrderPassenger } from "@/lib/api/types";
 
 type Step = "seats" | "passengers" | "payment";
@@ -28,6 +32,19 @@ type PaymentMethod = "pesapal" | "card";
 
 export function BookingFlow({ offerId }: { offerId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: me } = useQuery(meQuery());
+  // Only trusted when the viewer is actually staff - a non-staff visitor
+  // who somehow lands on this URL with the param present must still get
+  // the normal customer checkout flow. This is a UX convenience only;
+  // the real enforcement is the backend's require_permission("add_booking")
+  // on POST /api/admin/bookings, same posture as every other admin action
+  // in this app.
+  const bookForUserId = me?.is_staff ? searchParams.get("bookForUserId") : null;
+  const { data: bookForUser } = useQuery({
+    ...adminUserDetailQuery(bookForUserId ?? ""),
+    enabled: !!bookForUserId,
+  });
   const priceQuery = useQuery(offerPriceQuery(offerId));
   const seatQuery = useQuery(seatMapQuery(offerId));
 
@@ -45,6 +62,13 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   // original offer.
   const [repricedOffer, setRepricedOffer] = useState<Offer | null>(null);
   const [isApplyingLoyalty, setIsApplyingLoyalty] = useState(false);
+  // Not offered for admin-created bookings - those never collect real
+  // payment in the first place (see backend/schemas/payments.py's
+  // CheckoutRequest.discount_code docstring).
+  const [appliedDiscount, setAppliedDiscount] = useState<{
+    code: string;
+    preview: DiscountPreviewResponse;
+  } | null>(null);
 
   const offer = repricedOffer ?? priceQuery.data?.data;
   const seatMap = seatQuery.data?.data[0];
@@ -85,6 +109,19 @@ export function BookingFlow({ offerId }: { offerId: string }) {
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Checkout failed. Please try again.");
+    },
+  });
+
+  const adminBookingMutation = useMutation({
+    mutationFn: createAdminBooking,
+    onSuccess: (booking) => {
+      toast.success(`Booked ${booking.booking_reference} for ${booking.user_email}.`);
+      router.push(`/admin/bookings/${booking.id}`);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't create this booking. Please try again.",
+      );
     },
   });
 
@@ -202,7 +239,20 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   function payWithPesapal() {
     if (!offer || !passengers) return;
     setPaymentMethod("pesapal");
-    checkoutMutation.mutate({ selected_offers: [offer.id], passengers });
+    checkoutMutation.mutate({
+      selected_offers: [offer.id],
+      passengers,
+      discount_code: appliedDiscount?.code,
+    });
+  }
+
+  function markAsPaidForAdmin() {
+    if (!offer || !passengers || !bookForUserId) return;
+    adminBookingMutation.mutate({
+      user_id: bookForUserId,
+      selected_offers: [offer.id],
+      passengers,
+    });
   }
 
   // Not called from anywhere right now - the "Pay by card" tile below is
@@ -213,11 +263,23 @@ export function BookingFlow({ offerId }: { offerId: string }) {
   function payWithCard() {
     if (!offer || !passengers) return;
     setPaymentMethod("card");
-    checkoutCardMutation.mutate({ selected_offers: [offer.id], passengers });
+    checkoutCardMutation.mutate({
+      selected_offers: [offer.id],
+      passengers,
+      discount_code: appliedDiscount?.code,
+    });
   }
 
   return (
     <div className="space-y-6">
+      {bookForUserId && (
+        <div className="rounded-lg border border-signal/40 bg-signal/5 px-4 py-2 text-sm">
+          Booking on behalf of{" "}
+          <span className="font-semibold">{bookForUser?.email ?? bookForUserId}</span> - this
+          will be recorded as paid without collecting real payment.
+        </div>
+      )}
+
       <FlightSummary offer={offer} />
 
       {step === "seats" && (
@@ -275,8 +337,29 @@ export function BookingFlow({ offerId }: { offerId: string }) {
         />
       )}
 
-      {step === "payment" && (
+      {step === "payment" && bookForUserId && (
+        <Button
+          size="lg"
+          className="w-full font-semibold"
+          disabled={adminBookingMutation.isPending}
+          onClick={markAsPaidForAdmin}
+        >
+          {adminBookingMutation.isPending
+            ? "Creating booking…"
+            : `Mark as paid & create booking · ${offer.total_currency} ${offer.total_amount}`}
+        </Button>
+      )}
+
+      {step === "payment" && !bookForUserId && (
         <div className="space-y-4">
+          {!paymentMethod && (
+            <DiscountCodeField
+              offerId={offer.id}
+              appliedDiscount={appliedDiscount?.preview ?? null}
+              onApply={(code, preview) => setAppliedDiscount({ code, preview })}
+              onRemove={() => setAppliedDiscount(null)}
+            />
+          )}
           {!paymentMethod && (
             <div className="grid gap-3 sm:grid-cols-2">
               <Card

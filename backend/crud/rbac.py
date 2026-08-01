@@ -95,3 +95,10 @@ def add_user_groups(session: Session, user_id: uuid.UUID, groups: list[Group]) -
             continue
         session.add(UserGroup(user_id=user_id, group_id=group.id))
     session.commit()
+
+
+def remove_user_group(session: Session, user_id: uuid.UUID, group_id: int) -> None:
+    link = session.get(UserGroup, (user_id, group_id))
+    if link is not None:
+        session.delete(link)
+        session.commit()

@@ -18,16 +18,24 @@
 
 import {
   adminBookingListResponseSchema,
+  adminBookingReadSchema,
   adminDashboardSummarySchema,
+  adminGroupReadSchema,
+  adminPermissionReadSchema,
+  adminUserDetailSchema,
   adminUserListResponseSchema,
   adminUserReadSchema,
   bookingListResponseSchema,
   bookingPublicSchema,
   cardCheckoutResponseSchema,
   checkoutResponseSchema,
+  discountCodeReadSchema,
+  discountPreviewResponseSchema,
   flightSearchResponseSchema,
   healthResponseSchema,
   messageResponseSchema,
+  notificationListResponseSchema,
+  notificationReadSchema,
   offerResponseSchema,
   orderCancellationResponseSchema,
   orderChangeOffersResponseSchema,
@@ -37,20 +45,30 @@ import {
   paymentStatusResponseSchema,
   placeSuggestionsResponseSchema,
   popularRouteListSchema,
+  pricingSaleReadSchema,
   seatMapResponseSchema,
   tokenSchema,
+  unreadCountResponseSchema,
   userReadSchema,
   type AdminBookingListResponse,
+  type AdminBookingRead,
   type AdminDashboardSummary,
+  type AdminGroupRead,
+  type AdminPermissionRead,
+  type AdminUserDetail,
   type AdminUserListResponse,
   type AdminUserRead,
   type BookingListResponse,
   type BookingPublic,
   type CardCheckoutResponse,
   type CheckoutResponse,
+  type DiscountCodeRead,
+  type DiscountPreviewResponse,
   type FlightSearchResponse,
   type HealthResponse,
   type MessageResponse,
+  type NotificationListResponse,
+  type NotificationRead,
   type OfferResponse,
   type OrderCancellationResponse,
   type OrderChangeOffersResponse,
@@ -60,15 +78,21 @@ import {
   type PaymentStatusResponse,
   type PlaceSuggestionsResponse,
   type PopularRoute,
+  type PricingSaleRead,
   type SeatMapResponse,
   type Token,
+  type UnreadCountResponse,
   type UserRead,
 } from "./schemas";
 import type {
+  AdminCreateBookingRequest,
   AdminListQueryParams,
   BookingListQueryParams,
   CheckoutRequest,
   ContactRequest,
+  CreateDiscountCodeRequest,
+  CreatePricingSaleRequest,
+  DiscountPreviewRequest,
   OfferListQueryParams,
   OfferPassengerUpdate,
   OfferPriceRequest,
@@ -332,6 +356,23 @@ export async function checkout(request: CheckoutRequest): Promise<CheckoutRespon
   return checkoutResponseSchema.parse(await res.json());
 }
 
+/** POST /discounts/preview — non-persisting check of whether a discount
+ * code is valid and roughly what it saves, shown before checkout. The
+ * real checkout() call re-validates and applies the code against the
+ * final total, which is what's authoritative. */
+export async function previewDiscount(
+  request: DiscountPreviewRequest,
+): Promise<DiscountPreviewResponse> {
+  const res = await fetch(`${API_URL}/payments/discounts/preview`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountPreviewResponseSchema.parse(await res.json());
+}
+
 /** GET /payments/{paymentId}/status — polled after the Pesapal redirect. */
 export async function getPaymentStatus(paymentId: string): Promise<PaymentStatusResponse> {
   const res = await fetch(`${API_URL}/payments/${paymentId}/status`, {
@@ -591,6 +632,335 @@ export async function deactivateUser(userId: string): Promise<AdminUserRead> {
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return adminUserReadSchema.parse(await res.json());
+}
+
+/** GET /api/admin/users/{userId} — profile + group membership, for the
+ * user detail page. Not the same shape listAdminUsers rows use, see
+ * adminUserDetailSchema. */
+export async function getAdminUserDetail(userId: string): Promise<AdminUserDetail> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserDetailSchema.parse(await res.json());
+}
+
+/** GET /api/admin/bookings/{bookingId} — one booking, with the owning
+ * user's id/email attached (same shape as a listAdminBookings row). */
+export async function getAdminBookingDetail(bookingId: string): Promise<AdminBookingRead> {
+  const res = await fetch(`${API_URL}/api/admin/bookings/${bookingId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/bookings — admin-marked-paid booking on behalf of an
+ * existing customer, no real payment collection. See
+ * backend/crud/payments.py's create_admin_booking. */
+export async function createAdminBooking(
+  request: AdminCreateBookingRequest,
+): Promise<AdminBookingRead> {
+  const res = await fetch(`${API_URL}/api/admin/bookings`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/ban — reversible (see unbanUser),
+ * unlike deactivateUser: never scrubs the account's email. */
+export async function banUser(userId: string, reason: string): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/ban`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/unban */
+export async function unbanUser(userId: string): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/unban`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/bookings/{bookingId}/backfill-tickets — manually
+ * re-checks Duffel for e-tickets on a booking that's still ticket-less
+ * after the automatic booking-time retry window. Safe to call more than
+ * once - a no-op once the booking has tickets. */
+export async function backfillBookingTickets(bookingId: string): Promise<AdminBookingRead> {
+  const res = await fetch(`${API_URL}/api/admin/bookings/${bookingId}/backfill-tickets`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/bookings/{bookingId}/resend-confirmation */
+export async function resendBookingConfirmation(
+  bookingId: string,
+): Promise<MessageResponse> {
+  const res = await fetch(
+    `${API_URL}/api/admin/bookings/${bookingId}/resend-confirmation`,
+    { method: "POST", credentials: "include", headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/* ---------- pricing: mirrors backend/routers/admin.py's sale/discount-code
+ * routes - permission-gated (view/add/change/delete_pricing) on the
+ * backend, same MANAGED_MODELS grid as everything else in utils/rbac.py. ---------- */
+
+/** GET /api/admin/pricing/sales */
+export async function listAdminPricingSales(): Promise<PricingSaleRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/sales`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return pricingSaleReadSchema.array().parse(await res.json());
+}
+
+/** POST /api/admin/pricing/sales — schedules a markup-rate override that
+ * applies automatically to every customer during its window. */
+export async function createAdminPricingSale(
+  request: CreatePricingSaleRequest,
+): Promise<PricingSaleRead> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/sales`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return pricingSaleReadSchema.parse(await res.json());
+}
+
+/** DELETE /api/admin/pricing/sales/{saleId} */
+export async function deleteAdminPricingSale(saleId: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/sales/${saleId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** GET /api/admin/pricing/discount-codes */
+export async function listAdminDiscountCodes(): Promise<DiscountCodeRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/discount-codes`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountCodeReadSchema.array().parse(await res.json());
+}
+
+/** POST /api/admin/pricing/discount-codes */
+export async function createAdminDiscountCode(
+  request: CreateDiscountCodeRequest,
+): Promise<DiscountCodeRead> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/discount-codes`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountCodeReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/pricing/discount-codes/{discountCodeId}/active —
+ * toggles a code on/off without deleting its redemption history. */
+export async function setAdminDiscountCodeActive(
+  discountCodeId: string,
+  isActive: boolean,
+): Promise<DiscountCodeRead> {
+  const res = await fetch(
+    `${API_URL}/api/admin/pricing/discount-codes/${discountCodeId}/active`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify({ is_active: isActive }),
+    },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountCodeReadSchema.parse(await res.json());
+}
+
+/* ---------- RBAC: mirrors backend/routers/admin.py's group/permission
+ * routes - superuser-only on the backend, see adminGroupReadSchema's
+ * docstring. ---------- */
+
+/** GET /api/admin/permissions — the full, fixed set (utils/rbac.py's
+ * MANAGED_MODELS x ACTIONS grid), for the group-permission editor. */
+export async function listAdminPermissions(): Promise<AdminPermissionRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/permissions`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminPermissionReadSchema.array().parse(await res.json());
+}
+
+/** GET /api/admin/groups */
+export async function listAdminGroups(): Promise<AdminGroupRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/groups`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.array().parse(await res.json());
+}
+
+/** POST /api/admin/groups */
+export async function createAdminGroup(name: string): Promise<AdminGroupRead> {
+  const res = await fetch(`${API_URL}/api/admin/groups`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/groups/{groupId}/permissions — idempotent, adds any
+ * codename not already granted (see backend/crud/rbac.py's
+ * add_group_permissions). Returns the group's full updated permission
+ * set, not just what was newly added. */
+export async function assignGroupPermissions(
+  groupId: number,
+  codenames: string[],
+): Promise<AdminGroupRead> {
+  const res = await fetch(`${API_URL}/api/admin/groups/${groupId}/permissions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ codenames }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.parse(await res.json());
+}
+
+/** DELETE /api/admin/groups/{groupId}/permissions/{codename} */
+export async function revokeGroupPermission(
+  groupId: number,
+  codename: string,
+): Promise<AdminGroupRead> {
+  const res = await fetch(
+    `${API_URL}/api/admin/groups/${groupId}/permissions/${codename}`,
+    { method: "DELETE", credentials: "include", headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/groups — idempotent, same shape as
+ * add_group_permissions above. */
+export async function assignUserGroups(
+  userId: string,
+  groupIds: number[],
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/groups`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ group_ids: groupIds }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** DELETE /api/admin/users/{userId}/groups/{groupId} */
+export async function removeUserGroup(
+  userId: string,
+  groupId: number,
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/groups/${groupId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/* ---------- notifications: mirrors backend/routers/notifications.py -
+ * bell icon, works identically for a customer or staff/admin account.
+ * GET /notifications/stream (SSE) isn't wrapped here - it's consumed
+ * directly via the browser's native EventSource in
+ * components/notifications/NotificationBell.tsx, not through fetch. ---------- */
+
+/** GET /notifications — most recent first, backs the bell panel's
+ * initial load/refresh (the SSE stream only covers what arrives while
+ * connected). */
+export async function listNotifications(
+  params: { limit?: number; offset?: number } = {},
+): Promise<NotificationListResponse> {
+  const search = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)]),
+  );
+  const res = await fetch(`${API_URL}/notifications?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return notificationListResponseSchema.parse(await res.json());
+}
+
+/** GET /notifications/unread-count — cheap poll for the bell badge. */
+export async function getUnreadNotificationCount(): Promise<UnreadCountResponse> {
+  const res = await fetch(`${API_URL}/notifications/unread-count`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return unreadCountResponseSchema.parse(await res.json());
+}
+
+/** POST /notifications/{id}/read */
+export async function markNotificationRead(
+  notificationId: string,
+): Promise<NotificationRead> {
+  const res = await fetch(`${API_URL}/notifications/${notificationId}/read`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return notificationReadSchema.parse(await res.json());
+}
+
+/** POST /notifications/read-all */
+export async function markAllNotificationsRead(): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/notifications/read-all`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
 }
 
 /* ---------- support: POST /support/contact ---------- */

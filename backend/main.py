@@ -12,6 +12,7 @@ from backend.external_services.payment import pesapal_payment_service
 from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
 from backend.utils.log_manager import get_app_logger
+from backend.routers import notifications
 
 from .routers import (
     admin,
@@ -70,6 +71,7 @@ app.include_router(stays.router)
 app.include_router(support.router)
 app.include_router(admin.router)
 app.include_router(concierge.router)
+app.include_router(notifications.router)
 
 
 @app.get("/")

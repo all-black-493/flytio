@@ -517,6 +517,13 @@ export const popularRouteSchema = z.object({
   destination_iata_code: z.string(),
   destination_city_name: z.string().nullable(),
   booking_count: z.number(),
+  // Unsplash photo - all three null together whenever
+  // scripts/backfill_destination_images.py hasn't cached one yet.
+  // destination_image_attribution_name/_url must be rendered as a
+  // visible credit next to the image, per Unsplash's API guidelines.
+  destination_image_url: z.string().nullable(),
+  destination_image_attribution_name: z.string().nullable(),
+  destination_image_attribution_url: z.string().nullable(),
 });
 export type PopularRoute = z.infer<typeof popularRouteSchema>;
 
@@ -550,6 +557,39 @@ export const conciergeFlightCardSchema = z.object({
 });
 export type ConciergeFlightCard = z.infer<typeof conciergeFlightCardSchema>;
 
+/** Mirrors backend/schemas/concierge.py's BookingSummary/CancellationQuote/
+ * ChangeOption - output of the concierge's booking-management tools
+ * (get_my_booking, get_cancellation_quote, confirm_cancellation,
+ * search_change_options). */
+export const conciergeBookingSummarySchema = z.object({
+  booking_reference: z.string(),
+  status: bookingStatusSchema,
+  origin_iata_code: z.string(),
+  destination_iata_code: z.string(),
+  departing_at: z.string(),
+  total_amount: z.string(),
+  total_currency: z.string(),
+});
+export type ConciergeBookingSummary = z.infer<typeof conciergeBookingSummarySchema>;
+
+export const conciergeCancellationQuoteSchema = z.object({
+  cancellation_id: z.string(),
+  refund_amount: z.string().nullable(),
+  refund_currency: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  confirmed: z.boolean(),
+});
+export type ConciergeCancellationQuote = z.infer<typeof conciergeCancellationQuoteSchema>;
+
+export const conciergeChangeOptionSchema = z.object({
+  change_offer_id: z.string(),
+  change_total_amount: z.string().nullable(),
+  change_total_currency: z.string().nullable(),
+  penalty_total_amount: z.string().nullable(),
+  penalty_total_currency: z.string().nullable(),
+});
+export type ConciergeChangeOption = z.infer<typeof conciergeChangeOptionSchema>;
+
 export const adminDashboardSummarySchema = z.object({
   total_bookings: z.number(),
   bookings_today: z.number(),
@@ -567,6 +607,8 @@ export const adminUserReadSchema = z.object({
   is_superuser: z.boolean(),
   created_at: z.string(),
   deleted_at: z.string().nullable(),
+  banned_at: z.string().nullable(),
+  banned_reason: z.string().nullable(),
 });
 export type AdminUserRead = z.infer<typeof adminUserReadSchema>;
 
@@ -575,6 +617,15 @@ export const adminUserListResponseSchema = z.object({
   meta: paginationMetaSchema,
 });
 export type AdminUserListResponse = z.infer<typeof adminUserListResponseSchema>;
+
+/** GET /api/admin/users/{userId} only - group_ids/banned_by_email would
+ * mean an extra query per row if they were on adminUserReadSchema
+ * instead (see backend/schemas/admin.py's AdminUserDetail docstring). */
+export const adminUserDetailSchema = adminUserReadSchema.extend({
+  group_ids: z.array(z.number()),
+  banned_by_email: z.string().nullable(),
+});
+export type AdminUserDetail = z.infer<typeof adminUserDetailSchema>;
 
 export const adminBookingReadSchema = bookingPublicSchema.extend({
   user_id: z.string(),
@@ -587,6 +638,52 @@ export const adminBookingListResponseSchema = z.object({
   meta: paginationMetaSchema,
 });
 export type AdminBookingListResponse = z.infer<typeof adminBookingListResponseSchema>;
+
+/* ---------- RBAC: mirrors backend/schemas/rbac.py - groups/permissions
+ * management, superuser-only on the backend (utils/rbac.py's
+ * require_superuser) ---------- */
+
+export const adminPermissionReadSchema = z.object({
+  codename: z.string(),
+  name: z.string(),
+  content_type: z.string(),
+});
+export type AdminPermissionRead = z.infer<typeof adminPermissionReadSchema>;
+
+export const adminGroupReadSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  permissions: z.array(z.string()),
+});
+export type AdminGroupRead = z.infer<typeof adminGroupReadSchema>;
+
+/* ---------- pricing: mirrors backend/schemas/admin.py's PricingSaleRead/
+ * DiscountCodeRead - staff-only sale/markup override + discount-code
+ * management (backend/crud/pricing.py). ---------- */
+
+export const pricingSaleReadSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  markup_rate: z.number(),
+  starts_at: z.string(),
+  ends_at: z.string(),
+  created_by_user_id: z.string(),
+  created_at: z.string(),
+});
+export type PricingSaleRead = z.infer<typeof pricingSaleReadSchema>;
+
+export const discountCodeReadSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  discount_percentage: z.number(),
+  max_redemptions: z.number().nullable(),
+  times_redeemed: z.number(),
+  expires_at: z.string().nullable(),
+  is_active: z.boolean(),
+  created_by_user_id: z.string(),
+  created_at: z.string(),
+});
+export type DiscountCodeRead = z.infer<typeof discountCodeReadSchema>;
 
 /* ---------- payment: POST /payments/checkout, GET /payments/{id}/status ---------- */
 
@@ -619,3 +716,52 @@ export const paymentStatusResponseSchema = z.object({
   booking: bookingPublicSchema.nullable(),
 });
 export type PaymentStatusResponse = z.infer<typeof paymentStatusResponseSchema>;
+
+/** POST /discounts/preview — a lightweight, non-persisting check so the
+ * customer sees whether a code works (and roughly what it saves) before
+ * committing to checkout; the real checkout call is authoritative. */
+export const discountPreviewResponseSchema = z.object({
+  original_amount: z.string(),
+  discounted_amount: z.string(),
+  currency: z.string(),
+  discount_percentage: z.number(),
+});
+export type DiscountPreviewResponse = z.infer<typeof discountPreviewResponseSchema>;
+
+/* ---------- notifications: mirrors backend/schemas/notifications.py -
+ * bell icon, GET /notifications/stream (SSE) + REST list/mark-read.
+ * Works identically for a customer or staff/admin account - which type
+ * of event a given user receives is decided server-side (backend/crud/
+ * notifications.py), not by this schema. ---------- */
+
+export const notificationTypeSchema = z.enum([
+  "booking_confirmed",
+  "booking_failed",
+  "airline_change",
+  "cancellation_confirmed",
+  "change_confirmed",
+  "support_request",
+  "discount_redemption_failed",
+]);
+export type NotificationType = z.infer<typeof notificationTypeSchema>;
+
+export const notificationReadSchema = z.object({
+  id: z.string(),
+  type: notificationTypeSchema,
+  title: z.string(),
+  body: z.string().nullable(),
+  link_url: z.string().nullable(),
+  read_at: z.string().nullable(),
+  created_at: z.string(),
+});
+export type NotificationRead = z.infer<typeof notificationReadSchema>;
+
+export const notificationListResponseSchema = z.object({
+  data: z.array(notificationReadSchema),
+  meta: paginationMetaSchema,
+  unread_count: z.number(),
+});
+export type NotificationListResponse = z.infer<typeof notificationListResponseSchema>;
+
+export const unreadCountResponseSchema = z.object({ unread_count: z.number() });
+export type UnreadCountResponse = z.infer<typeof unreadCountResponseSchema>;

@@ -10,11 +10,20 @@ from backend.crud.bookings import (
     count_bookings_since,
     count_user_bookings,
     get_all_bookings,
+    get_booking,
     get_popular_routes,
     get_user_bookings,
 )
 from backend.crud.db import get_session
-from backend.crud.payments import get_revenue_by_currency
+from backend.crud.payments import create_admin_booking, get_revenue_by_currency
+from backend.crud.pricing import (
+    create_discount_code,
+    create_pricing_sale,
+    delete_pricing_sale,
+    list_discount_codes,
+    list_pricing_sales,
+    set_discount_code_active,
+)
 from backend.crud.rbac import (
     add_group_permissions,
     add_user_groups,
@@ -24,27 +33,42 @@ from backend.crud.rbac import (
     get_group_permission_codenames,
     get_groups_by_ids,
     get_permissions_by_codenames,
+    get_user_group_ids,
     list_groups,
     list_permissions,
     remove_group_permission,
+    remove_user_group,
 )
+from backend.crud.tickets import backfill_tickets_from_duffel
 from backend.crud.users import (
+    ban_user,
     count_active_users,
     count_users,
     delete_user_account,
     get_users_by_ids,
     list_users,
     set_user_staff,
+    unban_user,
 )
+from backend.external_services.flight import DuffelAPIError
+from backend.models.pricing import DiscountCode
 from backend.models.rbac import Group
 from backend.models.users import UserInDB
 from backend.schemas.admin import (
     AdminBookingListResponse,
     AdminBookingRead,
+    AdminCreateBookingRequest,
     AdminDashboardSummary,
+    AdminUserDetail,
     AdminUserListResponse,
     AdminUserRead,
+    BanUserRequest,
+    CreateDiscountCodeRequest,
+    CreatePricingSaleRequest,
     CurrencyTotal,
+    DiscountCodeRead,
+    PricingSaleRead,
+    SetDiscountCodeActiveRequest,
     SetStaffRequest,
 )
 from backend.schemas.bookings import BookingListResponse, BookingPublic, PopularRoute
@@ -56,12 +80,18 @@ from backend.schemas.rbac import (
     GroupRead,
     PermissionRead,
 )
+from backend.utils.duffel_errors import duffel_http_exception
+from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
+from backend.utils.email_templates import booking_confirmation_email_html
+from backend.utils.log_manager import get_app_logger
 from backend.utils.rbac import (
     require_permission,
     require_permissions,
     require_staff,
     require_superuser,
 )
+
+logger = get_app_logger(__name__)
 
 # Every route here requires is_staff (require_staff, applied router-wide);
 # group/permission management additionally requires is_superuser
@@ -172,6 +202,18 @@ async def assign_user_groups(
     return {"message": f"{user.email} added to {len(groups)} group(s)."}
 
 
+@router.delete("/users/{user_id}/groups/{group_id}")
+async def remove_user_group_route(
+    user_id: uuid.UUID,
+    group_id: int,
+    _: UserInDB = Depends(require_superuser),
+    session: Session = Depends(get_session),
+):
+    user = _get_user_or_404(session, user_id)
+    remove_user_group(session, user.id, group_id)
+    return {"message": f"{user.email} removed from group."}
+
+
 @router.get("/bookings", response_model=AdminBookingListResponse)
 async def list_all_bookings(
     search: str | None = None,
@@ -204,6 +246,123 @@ async def list_all_bookings(
             limit=limit, offset=offset, total=total, has_more=offset + limit < total
         ),
     )
+
+
+@router.post("/bookings", response_model=AdminBookingRead)
+async def create_admin_booking_route(
+    request: AdminCreateBookingRequest,
+    _: UserInDB = Depends(require_permission("add_booking")),
+    session: Session = Depends(get_session),
+):
+    """Admin-marked-paid booking on behalf of an existing customer - no
+    real payment collection, see crud/payments.py's create_admin_booking
+    for what "marked-paid" means and why. The customer must already have
+    a flyt account; there's no guest-booking concept here."""
+    user = _get_user_or_404(session, request.user_id)
+    try:
+        payment = await create_admin_booking(session, user.id, request)
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    if payment.booking_id is None:
+        # The admin's own money isn't at risk here (nothing was collected
+        # through flyt), but flyt's Duffel balance may have been charged
+        # before the failure - same "needs manual follow-up" situation
+        # crud/payments.py's _complete_booking already logs.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=payment.failure_reason or "Booking failed after being marked paid.",
+        )
+
+    booking = get_booking(session, payment.booking_id)
+    return AdminBookingRead(
+        **BookingPublic.model_validate(booking).model_dump(),
+        user_id=booking.user_id,
+        user_email=user.email,
+    )
+
+
+def _get_admin_booking_or_404(session: Session, booking_id: uuid.UUID):
+    booking = get_booking(session, booking_id)
+    if booking is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    return booking
+
+
+def _admin_booking_read(session: Session, booking) -> AdminBookingRead:
+    owner = session.get(UserInDB, booking.user_id)
+    return AdminBookingRead(
+        **BookingPublic.model_validate(booking).model_dump(),
+        user_id=booking.user_id,
+        user_email=owner.email if owner else "",
+    )
+
+
+@router.get("/bookings/{booking_id}", response_model=AdminBookingRead)
+async def get_booking_detail(
+    booking_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("view_booking")),
+    session: Session = Depends(get_session),
+):
+    booking = _get_admin_booking_or_404(session, booking_id)
+    return _admin_booking_read(session, booking)
+
+
+@router.post("/bookings/{booking_id}/backfill-tickets", response_model=AdminBookingRead)
+async def backfill_booking_tickets(
+    booking_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("add_ticket")),
+    session: Session = Depends(get_session),
+):
+    """Manually re-checks Duffel for e-tickets on a booking that's still
+    ticket-less after _complete_booking's own short retry window
+    (crud/payments.py) - closes that gap on demand. Safe to call more
+    than once: no-ops if the booking already has tickets (see
+    crud/tickets.py's backfill_tickets_from_duffel)."""
+    booking = _get_admin_booking_or_404(session, booking_id)
+    try:
+        await backfill_tickets_from_duffel(session, booking)
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+    session.refresh(booking)
+    return _admin_booking_read(session, booking)
+
+
+@router.post("/bookings/{booking_id}/resend-confirmation")
+async def resend_booking_confirmation(
+    booking_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("change_booking")),
+    session: Session = Depends(get_session),
+):
+    """Re-sends the booking-confirmation email - for a customer who says
+    they never got it, or who wants it resent after a manual ticket
+    backfill above."""
+    booking = _get_admin_booking_or_404(session, booking_id)
+    owner = session.get(UserInDB, booking.user_id)
+    if owner is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking owner not found"
+        )
+    try:
+        await send_html_email_async(
+            f"You're booked! Reference {booking.booking_reference}",
+            [owner.email],
+            booking_confirmation_email_html(booking),
+            from_address=SENDER_BOOKINGS,
+        )
+    except Exception as e:
+        logger.exception(
+            "Failed to resend confirmation email for booking %s", booking.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Couldn't send the email - please try again.",
+        ) from e
+    return {"message": f"Confirmation email resent to {owner.email}."}
 
 
 @router.get("/dashboard/summary", response_model=AdminDashboardSummary)
@@ -247,8 +406,15 @@ async def dashboard_popular_routes(
             destination_iata_code=destination_code,
             destination_city_name=destination_city,
             booking_count=count,
+            destination_image_url=image.image_url if image else None,
+            destination_image_attribution_name=image.photographer_name
+            if image
+            else None,
+            destination_image_attribution_url=image.photographer_profile_url
+            if image
+            else None,
         )
-        for origin_code, origin_city, destination_code, destination_city, count in rows
+        for origin_code, origin_city, destination_code, destination_city, count, image in rows
     ]
 
 
@@ -334,3 +500,140 @@ async def deactivate_user(
         )
     user = _get_user_or_404(session, user_id)
     return delete_user_account(session, user)
+
+
+@router.get("/users/{user_id}", response_model=AdminUserDetail)
+async def get_user_detail(
+    user_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("view_user")),
+    session: Session = Depends(get_session),
+):
+    user = _get_user_or_404(session, user_id)
+    banned_by_email = None
+    if user.banned_by_user_id is not None:
+        banner = session.get(UserInDB, user.banned_by_user_id)
+        banned_by_email = banner.email if banner else None
+    return AdminUserDetail(
+        **AdminUserRead.model_validate(user).model_dump(),
+        group_ids=get_user_group_ids(session, user.id),
+        banned_by_email=banned_by_email,
+    )
+
+
+@router.post("/users/{user_id}/ban", response_model=AdminUserRead)
+async def ban_user_route(
+    user_id: uuid.UUID,
+    request: BanUserRequest,
+    current_user: UserInDB = Depends(require_permission("delete_user")),
+    session: Session = Depends(get_session),
+):
+    """Reuses delete_user's permission (same as deactivate_user) - a ban
+    is the same class of moderation action, and utils/rbac.py's fixed
+    {add,change,delete,view}-per-model permission grid has no room for a
+    one-off 'ban' verb. Unlike deactivate_user this is reversible (see
+    crud/users.py's ban_user/unban_user) so there's no destructive
+    self-lockout risk in letting an admin ban their own account, but
+    blocking it anyway avoids a confusing self-ban with no obvious way
+    back short of another admin unbanning you."""
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="You can't ban yourself."
+        )
+    user = _get_user_or_404(session, user_id)
+    return ban_user(session, user, request.reason, current_user)
+
+
+@router.post("/users/{user_id}/unban", response_model=AdminUserRead)
+async def unban_user_route(
+    user_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("delete_user")),
+    session: Session = Depends(get_session),
+):
+    user = _get_user_or_404(session, user_id)
+    return unban_user(session, user)
+
+
+@router.get("/pricing/sales", response_model=list[PricingSaleRead])
+async def list_pricing_sales_route(
+    _: UserInDB = Depends(require_permission("view_pricing")),
+    session: Session = Depends(get_session),
+):
+    return list_pricing_sales(session)
+
+
+@router.post("/pricing/sales", response_model=PricingSaleRead)
+async def create_pricing_sale_route(
+    request: CreatePricingSaleRequest,
+    current_user: UserInDB = Depends(require_permission("add_pricing")),
+    session: Session = Depends(get_session),
+):
+    try:
+        return create_pricing_sale(
+            session,
+            name=request.name,
+            markup_rate=request.markup_rate,
+            starts_at=request.starts_at,
+            ends_at=request.ends_at,
+            created_by=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/pricing/sales/{sale_id}")
+async def delete_pricing_sale_route(
+    sale_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("delete_pricing")),
+    session: Session = Depends(get_session),
+):
+    delete_pricing_sale(session, sale_id)
+    return {"message": "Sale deleted."}
+
+
+@router.get("/pricing/discount-codes", response_model=list[DiscountCodeRead])
+async def list_discount_codes_route(
+    _: UserInDB = Depends(require_permission("view_pricing")),
+    session: Session = Depends(get_session),
+):
+    return list_discount_codes(session)
+
+
+@router.post("/pricing/discount-codes", response_model=DiscountCodeRead)
+async def create_discount_code_route(
+    request: CreateDiscountCodeRequest,
+    current_user: UserInDB = Depends(require_permission("add_pricing")),
+    session: Session = Depends(get_session),
+):
+    try:
+        return create_discount_code(
+            session,
+            code=request.code,
+            discount_percentage=request.discount_percentage,
+            max_redemptions=request.max_redemptions,
+            expires_at=request.expires_at,
+            created_by=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+def _get_discount_code_or_404(session: Session, discount_code_id: uuid.UUID):
+    discount = session.get(DiscountCode, discount_code_id)
+    if discount is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Discount code not found"
+        )
+    return discount
+
+
+@router.post(
+    "/pricing/discount-codes/{discount_code_id}/active", response_model=DiscountCodeRead
+)
+async def set_discount_code_active_route(
+    discount_code_id: uuid.UUID,
+    request: SetDiscountCodeActiveRequest,
+    _: UserInDB = Depends(require_permission("change_pricing")),
+    session: Session = Depends(get_session),
+):
+    discount = _get_discount_code_or_404(session, discount_code_id)
+    return set_discount_code_active(session, discount, request.is_active)

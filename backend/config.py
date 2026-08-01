@@ -84,6 +84,17 @@ class Settings(BaseSettings):
     # parse out.
     CONCIERGE_MODEL: str = "gpt-5.2"
 
+    # Destination photos (popular-destinations cards) - Unsplash. Same
+    # optional/empty-default convention as OPENAI_API_KEY: a missing key
+    # just means scripts/backfill_destination_images.py has nothing to do
+    # and cards render without a photo, not a startup failure. Only the
+    # Access Key is needed (public actions - search, download-tracking -
+    # authenticate via "Client-ID <access key>", see
+    # external_services/unsplash.py); the App ID and Secret Key issued
+    # alongside it are for Unsplash's OAuth user-login flow, which this
+    # app never does, so they're deliberately not modeled here.
+    UNSPLASH_ACCESS_KEY: str = ""
+
     # Public URLs - FRONTEND_URL builds links handed to users (password
     # reset, booking confirmation, Pesapal's redirect back into the app);
     # BACKEND_PUBLIC_URL builds URLs handed to external services that need

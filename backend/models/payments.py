@@ -18,10 +18,18 @@ class PaymentProvider(str, enum.Enum):
     Payments is a card-only alternative that tops up our Duffel Balance
     directly (see external_services/flight.py's create_payment_intent).
     Both converge on the same balance-funded order creation - see
-    crud/payments.py's _complete_booking."""
+    crud/payments.py's _complete_booking.
+
+    ADMIN is not a real collection rail at all - no customer money moves
+    through flyt for it. It marks a booking an admin recorded as already
+    paid outside the app (cash, bank transfer, invoice) - see
+    crud/payments.py's create_admin_booking. flyt still pays Duffel its
+    own balance for the order either way; this only describes how the
+    *customer* paid *flyt*."""
 
     PESAPAL = "pesapal"
     DUFFEL = "duffel"
+    ADMIN = "admin"
 
 
 class Payment(SQLModel, table=True):
@@ -67,6 +75,15 @@ class Payment(SQLModel, table=True):
         "so this must never be confused with `amount` above.",
     )
     currency: str
+    discount_code: str | None = Field(
+        default=None,
+        description="The DiscountCode.code applied to `amount`, if any "
+        "(already folded in when this Payment was created - see "
+        "crud/pricing.py's apply_discount). Redeemed (DiscountCode."
+        "times_redeemed incremented) only once _complete_booking actually "
+        "succeeds, not at checkout-start, so an abandoned checkout never "
+        "burns a limited code's redemption count.",
+    )
 
     merchant_reference: str = Field(
         nullable=False, unique=True, index=True, description="Sent to Pesapal as `id`"

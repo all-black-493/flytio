@@ -10,6 +10,7 @@ from sqlmodel import Field, SQLModel
 
 from backend.schemas.bookings import BookingPublic
 from backend.schemas.common import PaginationMeta
+from backend.schemas.payments import CheckoutRequest
 
 
 class CurrencyTotal(SQLModel):
@@ -41,11 +42,27 @@ class AdminUserRead(SQLModel):
     is_superuser: bool
     created_at: datetime
     deleted_at: datetime | None = None
+    banned_at: datetime | None = None
+    banned_reason: str | None = None
+
+
+class AdminUserDetail(AdminUserRead):
+    """Extends the list row with fields only worth fetching for one user
+    at a time (routers/admin.py's get_user_detail) - group_ids in
+    particular would mean an extra query per row if it were on
+    AdminUserRead instead."""
+
+    group_ids: list[int]
+    banned_by_email: str | None = None
 
 
 class AdminUserListResponse(SQLModel):
     data: list[AdminUserRead]
     meta: PaginationMeta
+
+
+class BanUserRequest(SQLModel):
+    reason: str = Field(min_length=1)
 
 
 class AdminBookingRead(BookingPublic):
@@ -62,5 +79,54 @@ class AdminBookingListResponse(SQLModel):
     meta: PaginationMeta
 
 
+class AdminCreateBookingRequest(CheckoutRequest):
+    """CheckoutRequest plus which existing customer this booking belongs
+    to - the customer must already have a flyt account, there's no
+    guest-booking concept in this schema (see
+    crud/payments.py's create_admin_booking)."""
+
+    user_id: uuid.UUID
+
+
 class SetStaffRequest(SQLModel):
     is_staff: bool
+
+
+class PricingSaleRead(SQLModel):
+    id: uuid.UUID
+    name: str
+    markup_rate: float
+    starts_at: datetime
+    ends_at: datetime
+    created_by_user_id: uuid.UUID
+    created_at: datetime
+
+
+class CreatePricingSaleRequest(SQLModel):
+    name: str = Field(min_length=1)
+    markup_rate: float = Field(ge=0, le=1, description="e.g. 0.03 for 3%")
+    starts_at: datetime
+    ends_at: datetime
+
+
+class DiscountCodeRead(SQLModel):
+    id: uuid.UUID
+    code: str
+    discount_percentage: float
+    max_redemptions: int | None
+    times_redeemed: int
+    expires_at: datetime | None
+    is_active: bool
+    created_by_user_id: uuid.UUID
+    created_at: datetime
+
+
+class CreateDiscountCodeRequest(SQLModel):
+    code: str = Field(min_length=1)
+    discount_percentage: float = Field(gt=0, le=100)
+    max_redemptions: int | None = Field(default=None, ge=1)
+    expires_at: datetime | None = None
+
+
+class SetDiscountCodeActiveRequest(SQLModel):
+    is_active: bool

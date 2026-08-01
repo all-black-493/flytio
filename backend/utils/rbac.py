@@ -17,7 +17,7 @@ from backend.utils.security import get_current_user
 # derived from an app registry (this is a single-app backend, unlike
 # Django) - adding a new manageable model means adding it here, then
 # re-running scripts/seed_permissions.py.
-MANAGED_MODELS = ["booking", "payment", "ticket", "user"]
+MANAGED_MODELS = ["booking", "payment", "pricing", "ticket", "user"]
 ACTIONS = ["add", "change", "delete", "view"]
 
 

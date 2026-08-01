@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LogoutButton } from "@/components/auth/logout-button";
 import Logo from "@/components/Logo";
 import { MobileNavMenu } from "@/components/MobileNavMenu";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { StatusTicker } from "@/components/StatusTicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,7 @@ export default async function TopNav() {
               <Link href="/account" className={linkClass}>
                 account
               </Link>
+              <NotificationBell triggerClassName="text-board-muted hover:text-board-ink" />
               <LogoutButton />
             </>
           ) : (

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { LogoutButton } from "@/components/auth/logout-button";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { StatusTicker } from "@/components/StatusTicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,14 @@ export function MobileNavMenu({ authed, staff = false }: { authed: boolean; staf
               </span>
               <ThemeToggle />
             </div>
+            {authed && (
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
+                  NOTIFICATIONS
+                </span>
+                <NotificationBell />
+              </div>
+            )}
             {authed ? (
               <div className="flex flex-col gap-1">
                 {staff && (

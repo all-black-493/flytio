@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeftRight, MapPin, PlaneTakeoff } from "lucide-react";
 
@@ -45,6 +45,11 @@ export function SearchBar({
   defaultCabinClass = "economy",
 }: SearchBarProps) {
   const router = useRouter();
+  // Carried through so an admin booking on a customer's behalf
+  // (/admin/bookings/new) doesn't lose that context on re-search - this
+  // component is also rendered plainly on the homepage, where the param
+  // is simply absent and this is a no-op.
+  const bookForUserId = useSearchParams().get("bookForUserId");
   const [origin, setOrigin] = useState(defaultOrigin);
   const [destination, setDestination] = useState(defaultDestination);
   const [tripType, setTripType] = useState<TripType>(
@@ -63,7 +68,8 @@ export function SearchBar({
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    router.push(searchHrefFromForm(new FormData(event.currentTarget), origin, destination));
+    const href = searchHrefFromForm(new FormData(event.currentTarget), origin, destination);
+    router.push(bookForUserId ? `${href}&bookForUserId=${bookForUserId}` : href);
   }
 
   return (

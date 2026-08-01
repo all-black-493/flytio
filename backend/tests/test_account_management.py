@@ -1,6 +1,8 @@
 """Unit tests for self-service password change and account deletion
 (crud/users.py's update_user_password/delete_user_account, and the
-deleted_at rejection in utils/security.py).
+deleted_at rejection in utils/security.py), plus the admin-initiated
+ban/unban (crud/users.py's ban_user/unban_user, and the banned_at
+rejection alongside deleted_at's in the same two security.py checks).
 
 The one property that actually matters for delete_user_account: booking
 and payment history must survive completely untouched - see
@@ -17,7 +19,13 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.crud.payments import create_payment
-from backend.crud.users import create_user, delete_user_account, get_user_by_email
+from backend.crud.users import (
+    ban_user,
+    create_user,
+    delete_user_account,
+    get_user_by_email,
+    unban_user,
+)
 from backend.models.bookings import Booking, BookingStatus
 from backend.schemas.duffel_orders import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
@@ -128,6 +136,55 @@ def test_deleted_account_token_rejected_by_get_current_user(session: Session):
     with pytest.raises(HTTPException) as exc_info:
         get_current_user(token=token, session=session)
     assert exc_info.value.status_code == 401
+
+
+def test_banned_account_cannot_authenticate(session: Session):
+    user = create_user(session, email="jane@example.com", password="hunter2hunter2")
+    admin = create_user(session, email="admin@example.com", password="adminpass1")
+
+    ban_user(session, user, "spam", admin)
+
+    assert authenticate_user(session, "jane@example.com", "hunter2hunter2") is False
+
+
+def test_banned_account_token_rejected_by_get_current_user(session: Session):
+    user = create_user(session, email="jane@example.com", password="hunter2hunter2")
+    admin = create_user(session, email="admin@example.com", password="adminpass1")
+    token = create_access_token(data={"sub": user.email, "purpose": "access"})
+
+    ban_user(session, user, "spam", admin)
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_user(token=token, session=session)
+    assert exc_info.value.status_code == 401
+
+
+def test_ban_does_not_scrub_email_unlike_delete(session: Session):
+    user = create_user(session, email="jane@example.com", password="hunter2hunter2")
+    admin = create_user(session, email="admin@example.com", password="adminpass1")
+
+    banned = ban_user(session, user, "spam", admin)
+
+    assert banned.email == "jane@example.com"
+    assert banned.banned_reason == "spam"
+    assert banned.banned_by_user_id == admin.id
+    assert get_user_by_email(session, "jane@example.com") is not None
+
+
+def test_unban_restores_authentication(session: Session):
+    user = create_user(session, email="jane@example.com", password="hunter2hunter2")
+    admin = create_user(session, email="admin@example.com", password="adminpass1")
+    ban_user(session, user, "spam", admin)
+
+    unbanned = unban_user(session, user)
+
+    assert unbanned.banned_at is None
+    assert unbanned.banned_reason is None
+    assert unbanned.banned_by_user_id is None
+    # A fresh login needs a fresh password verification, not just the
+    # banned_at gate cleared - unban_user doesn't touch the password, so
+    # the original one still works.
+    assert authenticate_user(session, "jane@example.com", "hunter2hunter2") is not False
 
 
 def test_deleted_email_is_free_for_reuse(session: Session):

@@ -15,7 +15,15 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.crud.bookings import get_booking
-from backend.crud.payments import confirm_card_payment, create_payment, finalize_payment
+from backend.crud.pricing import create_discount_code, get_discount_code_by_code
+from backend.crud.users import create_user
+from backend.crud.payments import (
+    confirm_card_payment,
+    create_admin_booking,
+    create_payment,
+    finalize_payment,
+    reconfirm_price_and_create_payment,
+)
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
 from backend.models.bookings import BookingStatus, CabinClass
@@ -648,3 +656,229 @@ def test_confirm_card_payment_is_idempotent_once_completed(session, monkeypatch)
 
     assert result.status == PaymentStatus.COMPLETED
     assert calls == []  # never re-confirmed - the no-op guard short-circuited
+
+
+def _fake_priced_offer() -> dict:
+    """Matches _fake_duffel_order's total_amount/currency ("93.46"/"USD")
+    so create_admin_booking's two Duffel calls (price re-confirm, then
+    order creation) agree on what the raw fare actually is."""
+    return {
+        "data": {
+            "total_amount": "93.46",
+            "total_currency": "USD",
+            "passenger_identity_documents_required": False,
+            "available_services": [],
+        }
+    }
+
+
+def test_create_admin_booking_completes_without_real_payment_collection(
+    session, monkeypatch
+):
+    """The point of this whole function: no Pesapal/Duffel Payments call
+    anywhere in this path - just a price re-confirm and straight to
+    _complete_booking, same as every other provider once its own money-
+    confirmation step has passed."""
+    admin_user_id = uuid.uuid4()
+    customer_user_id = uuid.uuid4()
+
+    async def fake_confirm_price(offer_id):
+        assert offer_id == "off_test123"
+        return _fake_priced_offer()
+
+    async def fake_create_flight_order(order):
+        return _fake_duffel_order()
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+
+    result = asyncio.run(
+        create_admin_booking(session, customer_user_id, _checkout_request())
+    )
+
+    assert result.status == PaymentStatus.COMPLETED
+    assert result.provider == PaymentProvider.ADMIN
+    assert result.user_id == customer_user_id
+    assert result.booking_id is not None
+
+    booking = get_booking(session, result.booking_id)
+    assert booking.user_id == customer_user_id
+    assert booking.status == BookingStatus.CONFIRMED
+    # Not the admin who created it - the customer it was created for.
+    assert booking.user_id != admin_user_id
+
+
+def test_create_admin_booking_booking_failed_when_duffel_errors(session, monkeypatch):
+    async def fake_confirm_price(offer_id):
+        return _fake_priced_offer()
+
+    async def fake_create_flight_order(order):
+        raise DuffelAPIError(422, [{"message": "offer expired"}])
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+
+    result = asyncio.run(
+        create_admin_booking(session, uuid.uuid4(), _checkout_request())
+    )
+
+    assert result.status == PaymentStatus.BOOKING_FAILED
+    assert result.booking_id is None
+    assert "offer expired" in result.failure_reason
+
+
+def _checkout_request_with_discount(code: str) -> CheckoutRequest:
+    request = _checkout_request()
+    request.discount_code = code
+    return request
+
+
+def test_reconfirm_price_and_create_payment_applies_valid_discount_code(
+    session, monkeypatch
+):
+    admin = create_user(session, email="pricing-admin2@example.com", password="hashed")
+    create_discount_code(
+        session,
+        code="SAVE3",
+        discount_percentage=3,
+        max_redemptions=None,
+        expires_at=None,
+        created_by=admin.id,
+    )
+
+    async def fake_confirm_price(offer_id):
+        return _fake_priced_offer()
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+
+    payment = asyncio.run(
+        reconfirm_price_and_create_payment(
+            session,
+            uuid.uuid4(),
+            _checkout_request_with_discount("save3"),
+            PaymentProvider.PESAPAL,
+        )
+    )
+
+    # 93.46 raw -> marked up to 100.00 (7% margin) -> 3% off -> 97.00
+    # (well above the 93.46 floor, so this exercises the normal,
+    # non-flooring path - see the floor test below for the other one)
+    assert payment.amount == "97.00"
+    assert payment.discount_code == "SAVE3"
+
+
+def test_reconfirm_price_and_create_payment_floors_discount_at_raw_fare(
+    session, monkeypatch
+):
+    """A 7% markup leaves very little room: any discount bigger than
+    ~6.5% off the marked-up total would otherwise push the charge below
+    what flyt owes Duffel - this confirms that floor is enforced at the
+    real checkout call site, not just in apply_discount's own unit test."""
+    admin = create_user(session, email="pricing-admin4@example.com", password="hashed")
+    create_discount_code(
+        session,
+        code="SAVE10",
+        discount_percentage=10,
+        max_redemptions=None,
+        expires_at=None,
+        created_by=admin.id,
+    )
+
+    async def fake_confirm_price(offer_id):
+        return _fake_priced_offer()
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+
+    payment = asyncio.run(
+        reconfirm_price_and_create_payment(
+            session,
+            uuid.uuid4(),
+            _checkout_request_with_discount("save10"),
+            PaymentProvider.PESAPAL,
+        )
+    )
+
+    # 100.00 * 0.9 = 90.00 would be below the 93.46 raw fare, so it's
+    # floored there instead - flyt earns nothing on this booking, but
+    # never charges less than it owes Duffel.
+    assert payment.amount == "93.46"
+
+
+def test_reconfirm_price_and_create_payment_rejects_invalid_discount_code(
+    session, monkeypatch
+):
+    async def fake_confirm_price(offer_id):
+        return _fake_priced_offer()
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+
+    with pytest.raises(ValueError, match="isn't a valid discount code"):
+        asyncio.run(
+            reconfirm_price_and_create_payment(
+                session,
+                uuid.uuid4(),
+                _checkout_request_with_discount("NOPE"),
+                PaymentProvider.PESAPAL,
+            )
+        )
+
+
+def test_finalize_payment_redeems_discount_code_on_completion(session, monkeypatch):
+    """The point of deferring redemption to _complete_booking: a code's
+    times_redeemed only increments once the booking actually completes,
+    not the moment checkout starts."""
+    admin = create_user(session, email="pricing-admin3@example.com", password="hashed")
+    create_discount_code(
+        session,
+        code="REDEEMME",
+        discount_percentage=5,
+        max_redemptions=None,
+        expires_at=None,
+        created_by=admin.id,
+    )
+
+    async def fake_confirm_price(offer_id):
+        return _fake_priced_offer()
+
+    monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
+
+    payment = asyncio.run(
+        reconfirm_price_and_create_payment(
+            session,
+            uuid.uuid4(),
+            _checkout_request_with_discount("REDEEMME"),
+            PaymentProvider.PESAPAL,
+        )
+    )
+    payment.pesapal_order_tracking_id = "track_discount"
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+
+    discount_before = get_discount_code_by_code(session, "REDEEMME")
+    assert discount_before.times_redeemed == 0
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1, confirmation_code="conf_discount"
+        )
+
+    async def fake_create_flight_order(order):
+        return _fake_duffel_order()
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+
+    result = asyncio.run(finalize_payment(session, payment))
+
+    assert result.status == PaymentStatus.COMPLETED
+    discount_after = get_discount_code_by_code(session, "REDEEMME")
+    assert discount_after.times_redeemed == 1

@@ -7,7 +7,11 @@ future addition, not built here.
 """
 
 from fastapi import APIRouter, BackgroundTasks
+from sqlmodel import Session
 
+from backend.crud.db import engine
+from backend.crud.notifications import notify_staff
+from backend.models.notifications import NotificationType
 from backend.schemas.support import ContactRequest
 from backend.utils.email import (
     SENDER_SUPPORT,
@@ -21,6 +25,26 @@ from backend.utils.email_templates import (
 from backend.utils.guard import guard_deco
 
 router = APIRouter(prefix="/support")
+
+
+async def _notify_staff_of_support_request(
+    subject: str, booking_reference: str | None
+) -> None:
+    """A background task can't reuse the request's Depends(get_session) -
+    FastAPI closes it before background tasks run (0.106.0+, confirmed
+    against FastAPI's own docs), so this opens its own short-lived
+    session instead of taking one as a parameter."""
+    with Session(engine) as session:
+        await notify_staff(
+            session,
+            type=NotificationType.SUPPORT_REQUEST,
+            title=f"New support request: {subject}",
+            body=f"Booking reference: {booking_reference}"
+            if booking_reference
+            else None,
+            link_url="/admin",
+        )
+
 
 # Unauthenticated - a customer who can't log in (payment issue, locked
 # out) is exactly who needs this most. IP-keyed rate limit against spam,
@@ -55,5 +79,8 @@ async def contact_support(request: ContactRequest, background_tasks: BackgroundT
         [request.email],
         support_autoreply_email_html(request.name, request.subject),
         from_address=SENDER_SUPPORT,
+    )
+    background_tasks.add_task(
+        _notify_staff_of_support_request, request.subject, request.booking_reference
     )
     return {"message": "Thanks - we'll get back to you by email shortly."}

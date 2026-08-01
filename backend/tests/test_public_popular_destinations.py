@@ -11,6 +11,7 @@ import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.crud.db import get_session
 from backend.main import app
 from backend.models.bookings import Booking, BookingSlice, BookingStatus
+from backend.models.destinations import DestinationImage
 from backend.models.users import UserInDB
 
 engine = create_engine(
@@ -101,3 +102,42 @@ def test_returns_routes_clearing_the_threshold(session, db_client):
     assert len(routes) == 1
     assert routes[0]["destination_iata_code"] == "DXB"
     assert routes[0]["booking_count"] == 5
+
+
+def test_route_has_no_image_fields_when_nothing_cached(session, db_client):
+    _make_route_bookings(session, "NBO", "DXB", count=5)
+
+    response = db_client.get("/flights/popular-destinations")
+    route = response.json()[0]
+
+    assert route["destination_image_url"] is None
+    assert route["destination_image_attribution_name"] is None
+    assert route["destination_image_attribution_url"] is None
+
+
+def test_route_includes_cached_destination_image(session, db_client):
+    _make_route_bookings(session, "NBO", "DXB", count=5)
+    session.add(
+        DestinationImage(
+            iata_code="DXB",
+            unsplash_photo_id="abc123",
+            image_url="https://images.unsplash.com/photo-abc123?w=1080",
+            thumb_url="https://images.unsplash.com/photo-abc123?w=400",
+            photographer_name="Jane Doe",
+            photographer_profile_url="https://unsplash.com/@janedoe?utm_source=flyt&utm_medium=referral",
+        )
+    )
+    session.commit()
+
+    response = db_client.get("/flights/popular-destinations")
+    route = response.json()[0]
+
+    assert (
+        route["destination_image_url"]
+        == "https://images.unsplash.com/photo-abc123?w=1080"
+    )
+    assert route["destination_image_attribution_name"] == "Jane Doe"
+    assert (
+        route["destination_image_attribution_url"]
+        == "https://unsplash.com/@janedoe?utm_source=flyt&utm_medium=referral"
+    )

@@ -11,6 +11,7 @@ from backend.models.bookings import (
     CabinClass,
     PassengerType,
 )
+from backend.models.destinations import DestinationImage
 from backend.models.flights import Flight
 from backend.models.users import UserInDB
 from backend.schemas.duffel_orders import Order, OrderCreate
@@ -294,6 +295,22 @@ def get_booking_by_duffel_order_id(
     ).first()
 
 
+def get_booking_by_reference(
+    session: Session, booking_reference: str, user_id: uuid.UUID
+) -> Booking | None:
+    """Ownership-scoped by user_id (unlike get_booking_by_duffel_order_id,
+    whose callers separately check ownership themselves) - built for the
+    concierge (external_services/concierge.py), which looks up a
+    traveler's booking straight from a reference code they typed in
+    chat, with no separate 404-vs-403 HTTP layer to do that check in."""
+    return session.exec(
+        select(Booking).where(
+            Booking.booking_reference == booking_reference,
+            Booking.user_id == user_id,
+        )
+    ).first()
+
+
 def get_booking(session: Session, booking_id: uuid.UUID) -> Booking | None:
     """Look up by our own primary key, not Duffel's order_id - used by the
     payment status endpoint, which only knows the booking via Payment.booking_id."""
@@ -414,15 +431,21 @@ def count_bookings_since(session: Session, since: datetime) -> int:
 
 def get_popular_routes(
     session: Session, *, limit: int = 10, min_bookings: int = 1
-) -> list[tuple[str, str | None, str, str | None, int]]:
+) -> list[tuple[str, str | None, str, str | None, int, DestinationImage | None]]:
     """(origin_iata_code, origin_city_name, destination_iata_code,
-    destination_city_name, booking_count) for the most-booked routes,
-    grouped over every BookingSlice (a round trip's outbound and return
-    legs are different (origin, destination) pairs, so both are counted
-    - no double-counting). `min_bookings` is the real/public split: staff
-    (routers/admin.py) see real signal from 1 booking up; the public
-    endpoint (routers/flights.py) uses a much higher bar so a single
-    booking never looks like a 'popular destination' to a customer."""
+    destination_city_name, booking_count, destination_image) for the
+    most-booked routes, grouped over every BookingSlice (a round trip's
+    outbound and return legs are different (origin, destination) pairs,
+    so both are counted - no double-counting). `min_bookings` is the
+    real/public split: staff (routers/admin.py) see real signal from 1
+    booking up; the public endpoint (routers/flights.py) uses a much
+    higher bar so a single booking never looks like a 'popular
+    destination' to a customer.
+
+    destination_image is a LEFT OUTER JOIN - None whenever
+    scripts/backfill_destination_images.py hasn't cached a photo for that
+    destination yet, which callers must treat as a normal, expected
+    state (no image), not an error."""
     query = (
         select(
             BookingSlice.origin_iata_code,
@@ -430,12 +453,19 @@ def get_popular_routes(
             BookingSlice.destination_iata_code,
             BookingSlice.destination_city_name,
             func.count().label("booking_count"),
+            DestinationImage,
+        )
+        .join(
+            DestinationImage,
+            DestinationImage.iata_code == BookingSlice.destination_iata_code,
+            isouter=True,
         )
         .group_by(
             BookingSlice.origin_iata_code,
             BookingSlice.origin_city_name,
             BookingSlice.destination_iata_code,
             BookingSlice.destination_city_name,
+            DestinationImage.iata_code,
         )
         .having(func.count() >= min_bookings)
         .order_by(func.count().desc())

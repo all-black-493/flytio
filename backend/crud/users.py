@@ -76,6 +76,33 @@ def set_user_staff(session: Session, user: UserInDB, is_staff: bool) -> UserInDB
     return user
 
 
+def ban_user(
+    session: Session, user: UserInDB, reason: str, banned_by: UserInDB
+) -> UserInDB:
+    """Blocks login and invalidates any active session (password_changed_at,
+    same mechanism a password reset uses) - but unlike delete_user_account,
+    never touches email/password, so it's fully reversible via unban_user
+    and the account stays identifiable to support/other admins."""
+    user.banned_at = datetime.utcnow()
+    user.banned_reason = reason
+    user.banned_by_user_id = banned_by.id
+    user.password_changed_at = datetime.utcnow()
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def unban_user(session: Session, user: UserInDB) -> UserInDB:
+    user.banned_at = None
+    user.banned_reason = None
+    user.banned_by_user_id = None
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
 def delete_user_account(session: Session, user: UserInDB) -> UserInDB:
     """Soft-deletes the account: scrubs identity (email/password) and
     marks it deleted, but never issues a real DELETE on this row -

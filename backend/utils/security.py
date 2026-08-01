@@ -90,6 +90,11 @@ def authenticate_user(session: Session, email: str, password: str):
     # miss - this guards the same outcome if that ever isn't true.
     if user.deleted_at is not None:
         return False
+    # Unlike deleted_at, a ban never scrubs the email, so this lookup
+    # would otherwise succeed normally - this is the only thing actually
+    # blocking a banned user's login.
+    if user.banned_at is not None:
+        return False
     return user
 
 
@@ -147,6 +152,8 @@ def get_current_user(token: str = Depends(get_token), session=Depends(get_sessio
         if user is None:
             raise credentials_exception
         if user.deleted_at is not None:
+            raise credentials_exception
+        if user.banned_at is not None:
             raise credentials_exception
 
         # A password reset invalidates any access token issued before it -

@@ -1,0 +1,45 @@
+{#
+Branded shell every transactional email extends (see the other files in
+this directory) - logo header, content block, plain footer. Table-based
+layout (not flexbox/grid) since that's what actually renders reliably
+across email clients. `preheader` is the short hidden preview text shown
+next to the subject line in inbox lists (Gmail, Outlook, etc.) before the
+email is opened. Autoescaping is on for this environment (see
+utils/email_templates.py), so every interpolated value below is escaped
+automatically - no manual escaping helper needed the way the old Python
+string-builders required. This is a Jinja comment block, not an HTML
+comment, specifically so any literal template-tag syntax mentioned here
+in prose is never itself parsed as a real tag.
+#}
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{{ preheader }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:32px 0;font-family:Helvetica,Arial,sans-serif;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #d8e0e8;">
+        <tr>
+          <td style="background:#0b1526;padding:20px 32px;">
+            <img src="{{ logo_url }}" alt="flyt" width="32" height="32" style="vertical-align:middle;border-radius:8px;" />
+            <span style="font-size:20px;font-weight:bold;color:#ffffff;vertical-align:middle;margin-left:10px;">flyt</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px;color:#0b1526;font-size:14px;line-height:1.6;">
+            {# email_shell() renders this file directly (not via
+            inheritance) for callers with already-built HTML, e.g.
+            utils/email.py's send_email_async - passing `content` as a
+            pre-escaped string and letting the default block body render
+            it. Every {% extends "_shell.html" %} template overrides this
+            block outright, so `content` is simply unused for those. #}
+            {% block content %}{{ content | safe }}{% endblock %}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 32px;border-top:1px solid #d8e0e8;color:#55677c;font-size:12px;">
+            <p style="margin:0;">Safe travels, from the flyt team.</p>
+            <p style="margin:8px 0 0;">This is an automated message - please don't reply directly to this email.</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

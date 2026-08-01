@@ -1,0 +1,21 @@
+{% extends "_shell.html" %}
+
+{% block content %}
+<h2 style="margin:0 0 4px;font-size:20px;">Your flight details may have changed</h2>
+<p style="margin:0 0 20px;color:#55677c;">Booking reference <strong style="color:#0b1526;">{{ booking.booking_reference }}</strong></p>
+
+<p style="margin:0 0 20px;">
+{{ booking.owner_name or "The airline" }} has made a change to your itinerary -
+this could be a schedule change, a flight number change, or a
+cancellation. Please review your booking for the latest details before
+you travel.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0">
+  <tr>
+    <td style="background:#ff4f00;">
+      <a href="{{ booking_url }}" style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;text-decoration:none;">Review my booking</a>
+    </td>
+  </tr>
+</table>
+{% endblock %}

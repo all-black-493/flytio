@@ -3,8 +3,11 @@ them - needed before alembic/env.py's autogenerate can see them, and by
 each test file's own create_all() against its isolated SQLite engine."""
 
 from backend.models.bookings import Booking, BookingPassenger, BookingSlice  # noqa: F401
+from backend.models.destinations import DestinationImage  # noqa: F401
 from backend.models.flights import Flight  # noqa: F401
+from backend.models.notifications import Notification  # noqa: F401
 from backend.models.payments import Payment  # noqa: F401
+from backend.models.pricing import DiscountCode, PricingSale  # noqa: F401
 from backend.models.rbac import (  # noqa: F401
     Group,
     GroupPermission,

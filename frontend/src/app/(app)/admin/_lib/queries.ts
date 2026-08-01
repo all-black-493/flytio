@@ -7,9 +7,16 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import {
+  getAdminBookingDetail,
   getAdminDashboardSummary,
   getAdminPopularRoutes,
+  getAdminUserBookings,
+  getAdminUserDetail,
   listAdminBookings,
+  listAdminDiscountCodes,
+  listAdminGroups,
+  listAdminPermissions,
+  listAdminPricingSales,
   listAdminUsers,
 } from "@/lib/api/client";
 
@@ -48,5 +55,58 @@ export function adminUsersQuery(search?: string) {
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+  });
+}
+
+export function adminBookingDetailQuery(bookingId: string) {
+  return queryOptions({
+    queryKey: ["admin", "bookings", "detail", bookingId] as const,
+    queryFn: () => getAdminBookingDetail(bookingId),
+  });
+}
+
+export function adminUserDetailQuery(userId: string) {
+  return queryOptions({
+    queryKey: ["admin", "users", "detail", userId] as const,
+    queryFn: () => getAdminUserDetail(userId),
+  });
+}
+
+export function adminUserBookingsQuery(userId: string) {
+  return infiniteQueryOptions({
+    queryKey: ["admin", "users", "detail", userId, "bookings"] as const,
+    queryFn: ({ pageParam }) =>
+      getAdminUserBookings(userId, { limit: ADMIN_PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+  });
+}
+
+export function adminGroupsQuery() {
+  return queryOptions({
+    queryKey: ["admin", "groups"] as const,
+    queryFn: listAdminGroups,
+  });
+}
+
+export function adminPermissionsQuery() {
+  return queryOptions({
+    queryKey: ["admin", "permissions"] as const,
+    queryFn: listAdminPermissions,
+  });
+}
+
+export function adminPricingSalesQuery() {
+  return queryOptions({
+    queryKey: ["admin", "pricing", "sales"] as const,
+    queryFn: listAdminPricingSales,
+  });
+}
+
+export function adminDiscountCodesQuery() {
+  return queryOptions({
+    queryKey: ["admin", "pricing", "discount-codes"] as const,
+    queryFn: listAdminDiscountCodes,
   });
 }

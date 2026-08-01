@@ -16,7 +16,9 @@ from backend.crud.bookings import (
     seat_designators_by_passenger,
 )
 from backend.crud.db import get_session
+from backend.crud.notifications import create_notification
 from backend.crud.tickets import get_ticket_by_number
+from backend.models.notifications import NotificationType
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
@@ -299,6 +301,19 @@ async def confirm_order_cancellation(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     mark_booking_cancelled(session, booking)
+    try:
+        await create_notification(
+            session,
+            user_id=current_user.id,
+            type=NotificationType.CANCELLATION_CONFIRMED,
+            title=f"Booking {booking.booking_reference} cancelled",
+            body="Your cancellation is confirmed and any refund is being processed.",
+            link_url=f"/account/bookings/{booking.id}",
+        )
+    except Exception:
+        # The cancellation is already confirmed with Duffel - a failed
+        # notification must not be mistaken for a failed cancellation.
+        logger.exception("Failed to notify booking %s cancellation", booking.id)
     return response
 
 
@@ -418,5 +433,17 @@ async def confirm_order_change(
             booking.id,
             order_change_id,
         )
+
+    try:
+        await create_notification(
+            session,
+            user_id=current_user.id,
+            type=NotificationType.CHANGE_CONFIRMED,
+            title=f"Booking {booking.booking_reference} updated",
+            body="Your flight change has been confirmed.",
+            link_url=f"/account/bookings/{booking.id}",
+        )
+    except Exception:
+        logger.exception("Failed to notify booking %s change confirmation", booking.id)
 
     return response
