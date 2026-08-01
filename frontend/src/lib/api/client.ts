@@ -989,7 +989,8 @@ export async function contactSupport(request: ContactRequest): Promise<MessageRe
 }
 
 /** GET /health — used by the navbar's status ticker. No credentials/auth
- * needed; a real DB round trip on the backend (see backend/main.py). */
+ * needed; a real per-service check (DB, Redis, Kafka) on the backend
+ * (see backend/routers/health.py). */
 export async function checkHealth(): Promise<HealthResponse> {
   const res = await fetch(`${API_URL}/health`);
   if (!res.ok) throw new Error(await errorDetail(res));

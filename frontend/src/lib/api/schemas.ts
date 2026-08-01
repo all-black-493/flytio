@@ -45,8 +45,25 @@ export type Token = z.infer<typeof tokenSchema>;
 export const messageResponseSchema = z.object({ message: z.string() });
 export type MessageResponse = z.infer<typeof messageResponseSchema>;
 
-/** GET /health — backed by a real DB round trip, see backend/main.py. */
-export const healthResponseSchema = z.object({ status: z.string() });
+/** GET /health — mirrors backend/schemas/health.py. "not_configured"
+ * (a service, e.g. Kafka, has no broker set in this environment) is
+ * distinct from "unhealthy" and deliberately doesn't count toward
+ * "degraded" - see that file's own comment on why. */
+export const serviceStatusSchema = z.enum(["healthy", "unhealthy", "not_configured"]);
+export const overallHealthStatusSchema = z.enum(["healthy", "degraded", "down"]);
+
+export const serviceHealthSchema = z.object({
+  status: serviceStatusSchema,
+  detail: z.string().nullable(),
+});
+
+export const healthResponseSchema = z.object({
+  status: overallHealthStatusSchema,
+  checked_at: z.string(),
+  services: z.record(z.string(), serviceHealthSchema),
+});
+export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
+export type OverallHealthStatus = z.infer<typeof overallHealthStatusSchema>;
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 /* ---------- shared offer/order building blocks ---------- */

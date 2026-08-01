@@ -1,12 +1,10 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from guard import SecurityMiddleware
-from sqlmodel import Session, text
 
 from backend.config import settings
-from backend.crud.db import get_session
 from backend.external_services.flight import duffel_flight_service
 from backend.external_services.payment import pesapal_payment_service
 from backend.external_services.stay import duffel_stay_service
@@ -20,6 +18,7 @@ from .routers import (
     bookings,
     concierge,
     flights,
+    health,
     payments,
     stays,
     support,
@@ -75,17 +74,9 @@ app.include_router(support.router)
 app.include_router(admin.router)
 app.include_router(concierge.router)
 app.include_router(notifications.router)
+app.include_router(health.router)
 
 
 @app.get("/")
 def hello():
     return {"message": "Flyt is live"}
-
-
-@app.get("/health")
-def health(session: Session = Depends(get_session)):
-    """Used by the frontend's navbar status ticker - a trivial DB round
-    trip so "online" reflects real DB connectivity, not just that the
-    FastAPI process is up."""
-    session.exec(text("SELECT 1"))
-    return {"status": "ok"}
