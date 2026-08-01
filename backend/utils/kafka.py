@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from confluent_kafka import Producer
+from confluent_kafka import Consumer, Producer
 
 from backend.config import settings
 from backend.utils.log_manager import get_app_logger
@@ -102,3 +102,51 @@ class KafkaProducer:
 
 
 kafka_producer = KafkaProducer()
+
+
+class KafkaConsumer:
+    """Singleton wrapper around confluent_kafka.Consumer - mirrors
+    KafkaProducer's start()/stop() shape above, so both halves of the
+    client are owned by this one module rather than each call site (here,
+    the one consumer process at backend/workers/kafka_consumer.py)
+    building its own. A single process only ever needs one underlying
+    Consumer regardless of how many times start() is called."""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(KafkaConsumer, cls).__new__(cls)
+            cls._instance.consumer = None
+            cls._instance.bootstrap_servers = settings.KAFKA_BOOTSTRAP_SERVERS
+
+        return cls._instance
+
+    def start(self, group_id: str) -> Consumer:
+        if self.consumer:
+            return self.consumer
+
+        conf = {
+            "bootstrap.servers": self.bootstrap_servers,
+            "group.id": group_id,
+            "auto.offset.reset": "earliest",
+            # Committed explicitly by the caller after a message's handler
+            # has run (success or logged failure), not on a timer - so a
+            # crash mid-handler re-delivers the message instead of
+            # silently skipping it.
+            "enable.auto.commit": False,
+        }
+        self.consumer = Consumer(conf)
+        logger.info(
+            f"Kafka consumer started on {self.bootstrap_servers} (group={group_id})"
+        )
+        return self.consumer
+
+    def stop(self):
+        if self.consumer:
+            self.consumer.close()
+            logger.info("Kafka consumer stopped")
+            self.consumer = None
+
+
+kafka_consumer = KafkaConsumer()

@@ -4,7 +4,10 @@ be a single, session-scoped TestClient rather than one per test file.
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
+from sqlmodel import SQLModel, create_engine
 
+import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.main import app
 
 
@@ -27,3 +30,20 @@ def api_client():
     """
     with TestClient(app, client=("127.0.0.1", 50000)) as client:
         yield client
+
+
+@pytest.fixture
+def sqlite_engine():
+    """A fresh in-memory SQLite engine with every table created - the
+    standard fixture for tests that need a real DB round trip (FK
+    constraints, session identity map) without depending on the app's
+    configured Postgres/Docker Compose being up. StaticPool keeps one
+    connection alive for the engine's lifetime, since a plain in-memory
+    SQLite DB otherwise vanishes between connections."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    return engine

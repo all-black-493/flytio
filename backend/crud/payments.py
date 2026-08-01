@@ -358,7 +358,7 @@ def _publish_booking_completion_events(
     _complete_booking's docstring for why)."""
     if payment.status == PaymentStatus.COMPLETED:
         kafka_producer.publish_event(
-            KafkaTopics.BOOKING_EVENTS,
+            KafkaTopics.PAYMENT_EVENTS,
             KafkaEventTypes.BOOKING_CONFIRMED,
             {
                 "payment_id": payment.id,
@@ -368,7 +368,7 @@ def _publish_booking_completion_events(
         )
     elif payment.status == PaymentStatus.BOOKING_FAILED:
         kafka_producer.publish_event(
-            KafkaTopics.BOOKING_EVENTS,
+            KafkaTopics.PAYMENT_EVENTS,
             KafkaEventTypes.BOOKING_FAILED,
             {
                 "payment_id": payment.id,
@@ -379,7 +379,7 @@ def _publish_booking_completion_events(
 
     if discount_redemption_failed:
         kafka_producer.publish_event(
-            KafkaTopics.BOOKING_EVENTS,
+            KafkaTopics.PAYMENT_EVENTS,
             KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED,
             {"payment_id": payment.id, "discount_code": payment.discount_code},
         )

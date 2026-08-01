@@ -256,7 +256,7 @@ def test_finalize_payment_publishes_booking_confirmed(session, monkeypatch):
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.BOOKING_EVENTS
+    assert topic == KafkaTopics.PAYMENT_EVENTS
     assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
     assert data == {
         "payment_id": result.id,
@@ -294,7 +294,7 @@ def test_finalize_payment_publishes_booking_failed(session, monkeypatch):
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.BOOKING_EVENTS
+    assert topic == KafkaTopics.PAYMENT_EVENTS
     assert event_type == KafkaEventTypes.BOOKING_FAILED
     assert data["payment_id"] == result.id
     assert data["user_id"] == result.user_id
