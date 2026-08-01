@@ -13,6 +13,7 @@ dependencies = [
     "fpdf2>=2.8.7",
     "httpx>=0.28.1",
     "passlib>=1.7.4",
+    "prometheus-fastapi-instrumentator>=8.1.0",
     "psycopg2-binary>=2.9.12",
     "pydantic-ai-slim[openai]>=2.19.0",
     "pydantic-settings>=2.14.2",

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from guard import SecurityMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from backend.config import settings
 from backend.external_services.flight import duffel_flight_service
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+Instrumentator().instrument(app).expose(app)
 
 # The frontend authenticates via an httpOnly cookie, so allow_credentials
 # must be True for the browser to send/receive it cross-origin. Origins must
