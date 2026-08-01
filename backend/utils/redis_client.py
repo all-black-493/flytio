@@ -14,6 +14,9 @@ from collections.abc import AsyncIterator
 from redis import asyncio as aioredis
 
 from backend.config import settings
+from backend.utils.log_manager import get_app_logger
+
+logger = get_app_logger(__name__)
 
 redis = aioredis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
 
@@ -31,8 +34,12 @@ def _user_channel(user_id: str) -> str:
 async def publish_notification(user_id: str, event: dict) -> None:
     """Publishes one notification event to a single user's channel.
     `event` must be JSON-serializable - see schemas/notifications.py for
-    the shape every producer should send."""
+    the shape every producer should send. Raises on a Redis failure
+    rather than swallowing it - the caller (crud/notifications.py's
+    create_notification) is the one in a position to decide that's
+    non-fatal (the row is already saved), not this low-level helper."""
     await redis.publish(_user_channel(user_id), json.dumps(event))
+    logger.debug("Published notification event to %s", _user_channel(user_id))
 
 
 async def notification_streamer(user_id: str) -> AsyncIterator[str]:
@@ -49,18 +56,34 @@ async def notification_streamer(user_id: str) -> AsyncIterator[str]:
     SSE comment frame (lines starting with ":" are ignored by SSE
     clients) purely to keep the connection alive through proxies/load
     balancers that drop an idle HTTP connection.
+
+    A broken Redis connection mid-stream is logged and ends the
+    generator cleanly (the client's EventSource reconnects on its own)
+    rather than letting an unhandled exception blow up silently inside
+    StreamingResponse, where there's no HTTP status left to change.
     """
+    channel = _user_channel(user_id)
     pubsub = redis.pubsub()
-    await pubsub.subscribe(_user_channel(user_id))
+    await pubsub.subscribe(channel)
+    logger.info("Subscribed to %s", channel)
     try:
         while True:
-            message = await pubsub.get_message(
-                ignore_subscribe_messages=True, timeout=25.0
-            )
+            try:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=25.0
+                )
+            except Exception:
+                logger.warning(
+                    "Notification stream for %s lost its Redis connection",
+                    channel,
+                    exc_info=True,
+                )
+                return
             if message is None:
                 yield ": keep-alive\n\n"
                 continue
             yield f"data: {message['data'].decode()}\n\n"
     finally:
-        await pubsub.unsubscribe(_user_channel(user_id))
+        await pubsub.unsubscribe(channel)
         await pubsub.aclose()
+        logger.info("Unsubscribed from %s", channel)

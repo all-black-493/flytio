@@ -1,8 +1,20 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
+from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
+
+
+def utcnow() -> datetime:
+    """`datetime.now(UTC)`, not the deprecated `datetime.utcnow()` (which
+    returns a naive datetime with no tzinfo at all, easy to silently
+    mix up with a local time). Paired with `created_at`/`read_at`'s
+    `sa_type=DateTime(timezone=True)` below, so this is timezone-aware
+    all the way through: stored as `timestamptz` in Postgres, read back
+    as an aware datetime, not just aware in Python before it hits the
+    DB."""
+    return datetime.now(UTC)
 
 
 class NotificationType(str, enum.Enum):
@@ -39,5 +51,7 @@ class Notification(SQLModel, table=True):
     # for a staff one. Left as a plain string rather than trying to model
     # every possible target as a structured reference.
     link_url: str | None = None
-    read_at: datetime | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    read_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_type=DateTime(timezone=True), index=True
+    )

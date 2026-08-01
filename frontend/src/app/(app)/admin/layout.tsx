@@ -41,11 +41,11 @@ export default async function AdminLayout({
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-mono text-[11px] tracking-[0.25em] text-muted-foreground">
           STAFF ADMIN
         </h1>
-        <nav className="flex items-center gap-2">
+        <nav className="flex flex-wrap items-center gap-2">
           {links.map((link) => (
             <Link
               key={link.href}

@@ -20,13 +20,14 @@ from backend.crud.notifications import (
     count_notifications,
     count_unread,
     create_notification,
+    delete_notification,
     list_notifications,
     mark_all_read,
     mark_read,
     notify_staff,
 )
 from backend.crud.users import create_user
-from backend.models.notifications import NotificationType
+from backend.models.notifications import NotificationType, utcnow
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
 SQLModel.metadata.create_all(engine)
@@ -157,3 +158,38 @@ def test_mark_all_read_clears_every_unread_notification(session):
 
     assert updated == 3
     assert count_unread(session, user.id) == 0
+
+
+def test_delete_notification_removes_it_and_is_scoped_to_owner(session):
+    owner = _user(session, "owner3@example.com")
+    other = _user(session, "other3@example.com")
+    notification = asyncio.run(
+        create_notification(
+            session,
+            user_id=owner.id,
+            type=NotificationType.BOOKING_CONFIRMED,
+            title="Mine",
+        )
+    )
+
+    # Someone else's user_id can't delete it - no-op, row still there.
+    assert delete_notification(session, other.id, notification.id) is False
+    assert count_notifications(session, owner.id) == 1
+
+    assert delete_notification(session, owner.id, notification.id) is True
+    assert count_notifications(session, owner.id) == 0
+
+    # Deleting again (already gone) is a clean no-op, not an error.
+    assert delete_notification(session, owner.id, notification.id) is False
+
+
+def test_utcnow_is_timezone_aware_utc():
+    """Guards the deprecated-datetime.utcnow() fix directly - crud/
+    notifications.py's use of this same helper is covered indirectly by
+    every test above (mark_read/mark_all_read both call it), but this
+    checks the property itself: tzinfo present and actually UTC (offset
+    zero), not just "some tzinfo or other"."""
+    now = utcnow()
+
+    assert now.tzinfo is not None
+    assert now.utcoffset().total_seconds() == 0

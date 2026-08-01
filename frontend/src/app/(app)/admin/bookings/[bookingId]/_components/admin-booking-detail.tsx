@@ -136,10 +136,10 @@ export function AdminBookingDetail({ bookingId }: { bookingId: string }) {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-2">
             <a
               href={`${API_URL}/booking/flight-orders/by-id/${booking.id}/itinerary.pdf`}
-              className={buttonVariants({ variant: "outline", className: "col-span-2" })}
+              className={buttonVariants({ variant: "outline" })}
             >
               <Download />
               Download itinerary (PDF)

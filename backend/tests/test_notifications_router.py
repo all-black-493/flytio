@@ -182,3 +182,48 @@ def test_mark_all_read_end_to_end(session, db_client):
     assert response.status_code == 200
     unread = db_client.get("/notifications/unread-count", headers=_auth_headers(user))
     assert unread.json() == {"unread_count": 0}
+
+
+def test_delete_notification_rejects_someone_elses_notification(session, db_client):
+    owner = _make_user(session, email="owner3@example.com")
+    other = _make_user(session, email="other3@example.com")
+    notification = asyncio.run(
+        create_notification(
+            session,
+            user_id=owner.id,
+            type=NotificationType.BOOKING_CONFIRMED,
+            title="Mine",
+        )
+    )
+
+    response = db_client.delete(
+        f"/notifications/{notification.id}", headers=_auth_headers(other)
+    )
+
+    assert response.status_code == 404
+
+
+def test_delete_notification_end_to_end(session, db_client):
+    user = _make_user(session)
+    notification = asyncio.run(
+        create_notification(
+            session,
+            user_id=user.id,
+            type=NotificationType.BOOKING_CONFIRMED,
+            title="Mine",
+        )
+    )
+
+    response = db_client.delete(
+        f"/notifications/{notification.id}", headers=_auth_headers(user)
+    )
+    assert response.status_code == 200
+
+    listing = db_client.get("/notifications", headers=_auth_headers(user))
+    assert listing.json()["data"] == []
+
+    # Deleting again 404s - it's already gone.
+    again = db_client.delete(
+        f"/notifications/{notification.id}", headers=_auth_headers(user)
+    )
+    assert again.status_code == 404

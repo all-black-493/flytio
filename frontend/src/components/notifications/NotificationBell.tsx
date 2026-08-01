@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -18,54 +18,93 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { markAllNotificationsRead, markNotificationRead } from "@/lib/api/client";
+import {
+  deleteNotification,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from "@/lib/api/client";
 import type { NotificationRead } from "@/lib/api/schemas";
 import { cn } from "@/lib/utils";
 
 function NotificationRow({ notification }: { notification: NotificationRead }) {
   const queryClient = useQueryClient();
-  const mutation = useMutation({
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: unreadNotificationCountQuery().queryKey });
+    queryClient.invalidateQueries({ queryKey: notificationsPanelQuery().queryKey });
+  };
+  const readMutation = useMutation({
     mutationFn: () => markNotificationRead(notification.id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: unreadNotificationCountQuery().queryKey });
-      queryClient.invalidateQueries({ queryKey: notificationsPanelQuery().queryKey });
-    },
+    onSuccess: invalidate,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteNotification(notification.id),
+    onSuccess: invalidate,
   });
 
-  const content = (
-    <div
-      className={`rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted ${
-        notification.read_at ? "" : "bg-signal/5"
-      }`}
-      onClick={() => {
-        if (!notification.read_at) mutation.mutate();
-      }}
-    >
-      <div className="flex items-start gap-2">
-        {!notification.read_at && (
-          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-signal" />
-        )}
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="text-sm font-medium">{notification.title}</p>
-          {notification.body && (
-            <p className="line-clamp-2 text-xs text-muted-foreground">{notification.body}</p>
-          )}
-          <p className="font-mono text-[10px] text-muted-foreground">
-            {new Date(notification.created_at).toLocaleString()}
-          </p>
-        </div>
-      </div>
+  const handleActivate = () => {
+    if (!notification.read_at) readMutation.mutate();
+  };
+
+  const body = (
+    <div className="min-w-0 flex-1 space-y-0.5">
+      <p className="text-sm font-medium">{notification.title}</p>
+      {notification.body && (
+        <p className="line-clamp-2 text-xs text-muted-foreground">{notification.body}</p>
+      )}
+      <p className="font-mono text-[10px] text-muted-foreground">
+        {new Date(notification.created_at).toLocaleString()}
+      </p>
     </div>
   );
 
-  return notification.link_url ? (
-    <Link href={notification.link_url} className="block">
-      {content}
-    </Link>
-  ) : (
-    <button type="button" className="block w-full" onClick={() => mutation.mutate()}>
-      {content}
-    </button>
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-1 rounded-lg transition-colors hover:bg-muted",
+        !notification.read_at && "bg-signal/5",
+      )}
+    >
+      {notification.link_url ? (
+        <Link
+          href={notification.link_url}
+          onClick={handleActivate}
+          className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2"
+        >
+          {!notification.read_at && (
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-signal" />
+          )}
+          {body}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={handleActivate}
+          className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2 text-left"
+        >
+          {!notification.read_at && (
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-signal" />
+          )}
+          {body}
+        </button>
+      )}
+      {/* Always visible (not hover-only) - a hover-revealed delete button
+       * would be unreachable on touch/mobile, which has no hover state. */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Delete notification"
+        disabled={deleteMutation.isPending}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          deleteMutation.mutate();
+        }}
+        className="mt-1 mr-1 shrink-0 text-muted-foreground hover:text-destructive"
+      >
+        <X className="size-3" />
+      </Button>
+    </div>
   );
 }
 
@@ -117,7 +156,7 @@ export function NotificationBell({ triggerClassName }: { triggerClassName?: stri
           </span>
         )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent align="end" className="w-[calc(100vw-2rem)] max-w-80 p-0">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="font-mono text-[11px] tracking-[0.15em] text-muted-foreground">
             NOTIFICATIONS

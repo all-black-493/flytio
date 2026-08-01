@@ -963,6 +963,17 @@ export async function markAllNotificationsRead(): Promise<MessageResponse> {
   return messageResponseSchema.parse(await res.json());
 }
 
+/** DELETE /notifications/{notificationId} */
+export async function deleteNotification(notificationId: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/notifications/${notificationId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
 /* ---------- support: POST /support/contact ---------- */
 
 /** No auth required - a customer who can't log in is exactly who most

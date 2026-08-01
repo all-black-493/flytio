@@ -6,13 +6,15 @@ without every call site having to remember both steps.
 """
 
 import uuid
-from datetime import datetime
 
 from sqlmodel import Session, func, select
 
-from backend.models.notifications import Notification, NotificationType
+from backend.models.notifications import Notification, NotificationType, utcnow
 from backend.models.users import UserInDB
+from backend.utils.log_manager import get_app_logger
 from backend.utils.redis_client import publish_notification
+
+logger = get_app_logger(__name__)
 
 
 def _notification_event(notification: Notification) -> dict:
@@ -43,14 +45,37 @@ async def create_notification(
     immediately (not batched with the caller's own transaction) so a
     notification survives even if something the caller does afterwards
     fails - matches this codebase's existing posture on side effects like
-    confirmation emails (see crud/payments.py's _complete_booking)."""
+    confirmation emails (see crud/payments.py's _complete_booking).
+
+    The live SSE push is best-effort: it's wrapped in its own try/except
+    rather than the caller's, since by the time we'd publish, the row is
+    already durably committed - a Redis hiccup should only cost the
+    real-time push (the client still picks the notification up on its
+    next GET /notifications or SSE reconnect), not make notification
+    creation itself look like it failed.
+    """
     notification = Notification(
         user_id=user_id, type=type, title=title, body=body, link_url=link_url
     )
     session.add(notification)
     session.commit()
     session.refresh(notification)
-    await publish_notification(str(user_id), _notification_event(notification))
+    logger.info(
+        "Created notification %s (%s) for user %s",
+        notification.id,
+        type.value,
+        user_id,
+    )
+    try:
+        await publish_notification(str(user_id), _notification_event(notification))
+    except Exception:
+        logger.warning(
+            "Failed to publish live push for notification %s (user %s) - "
+            "row is saved, only the real-time delivery was missed",
+            notification.id,
+            user_id,
+            exc_info=True,
+        )
     return notification
 
 
@@ -81,6 +106,9 @@ async def notify_staff(
                 link_url=link_url,
             )
         )
+    logger.info(
+        "Notified %d staff user(s) of %s: %s", len(notifications), type.value, title
+    )
     return notifications
 
 
@@ -118,12 +146,18 @@ def mark_read(
         )
     ).first()
     if notification is None:
+        logger.debug(
+            "mark_read: no notification %s for user %s", notification_id, user_id
+        )
         return None
     if notification.read_at is None:
-        notification.read_at = datetime.utcnow()
+        notification.read_at = utcnow()
         session.add(notification)
         session.commit()
         session.refresh(notification)
+        logger.debug(
+            "Marked notification %s read for user %s", notification_id, user_id
+        )
     return notification
 
 
@@ -133,9 +167,35 @@ def mark_all_read(session: Session, user_id: uuid.UUID) -> int:
             Notification.user_id == user_id, Notification.read_at.is_(None)
         )
     ).all()
-    now = datetime.utcnow()
+    now = utcnow()
     for notification in unread:
         notification.read_at = now
         session.add(notification)
     session.commit()
+    logger.info("Marked %d notification(s) read for user %s", len(unread), user_id)
     return len(unread)
+
+
+def delete_notification(
+    session: Session, user_id: uuid.UUID, notification_id: uuid.UUID
+) -> bool:
+    """Hard-deletes one notification, scoped to its owner - returns False
+    (not an exception) for an unknown id or one belonging to someone
+    else, so the router can turn that into a plain 404 either way without
+    distinguishing the two cases to the caller."""
+    notification = session.exec(
+        select(Notification).where(
+            Notification.id == notification_id, Notification.user_id == user_id
+        )
+    ).first()
+    if notification is None:
+        logger.debug(
+            "delete_notification: no notification %s for user %s",
+            notification_id,
+            user_id,
+        )
+        return False
+    session.delete(notification)
+    session.commit()
+    logger.info("Deleted notification %s for user %s", notification_id, user_id)
+    return True
