@@ -28,8 +28,10 @@ from backend.schemas.auth import (
     Token,
 )
 from backend.schemas.users import UserCreate, UserRead
-from backend.utils.email import SENDER_WELCOME, send_email_async
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.email import send_email_async
 from backend.utils.guard import guard_deco
+from backend.utils.kafka import kafka_producer
 from backend.utils.security import (
     authenticate_user,
     clear_auth_cookie,
@@ -94,7 +96,6 @@ def _password_changed_email(recipient: str) -> tuple[str, str]:
 )
 @guard_deco.rate_limit(requests=REGISTER_IP_LIMIT, window=REGISTER_WINDOW_SECONDS)
 async def register(
-    background_tasks: BackgroundTasks,
     user_in: UserCreate,
     session: Session = Depends(get_session),
 ):
@@ -105,12 +106,12 @@ async def register(
         )
     user = create_user(session, email=user_in.email, password=user_in.password)
 
-    subject = "Welcome to flyt!"
-    recipients = [user_in.email]
-    body_text = f"Hello {user_in.email},\n\nThank you for registering with us. We are excited to have you on board!"
-
-    background_tasks.add_task(
-        send_email_async, subject, recipients, body_text, from_address=SENDER_WELCOME
+    # Fire-and-forget: the welcome email is sent by a separate consumer
+    # (backend/workers/kafka_consumer.py), out of the request path.
+    kafka_producer.publish_event(
+        KafkaTopics.USER_EVENTS,
+        KafkaEventTypes.USER_REGISTERED,
+        {"user_id": user.id, "email": user.email},
     )
     return user
 

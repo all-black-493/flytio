@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.5",
+    "confluent-kafka>=2.15.0",
     "email-validator>=2.3.0",
     "fastapi-guard>=7.3.0",
     "fastapi[standard]>=0.139.0",

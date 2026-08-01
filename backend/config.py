@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     PESAPAL_ENV: str = "sandbox"
     PESAPAL_IPN_ID: str = ""
 
+    # Kafka (fire-and-forget event bus - see utils/kafka.py and
+    # workers/kafka_consumer.py) - empty default so the app still starts
+    # without a broker configured; the producer just logs and no-ops.
+    KAFKA_BOOTSTRAP_SERVERS: str = ""
+
     # Air travel concierge (pydantic-ai + OpenAI) - OPENAI_API_KEY is
     # deliberately optional with an empty default, unlike DUFFEL_API_TOKEN/
     # RESEND_API_KEY: the concierge is a genuinely optional feature that

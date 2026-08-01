@@ -13,6 +13,7 @@ from datetime import date
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
+import backend.crud.payments as payments_module
 import backend.models  # noqa: F401 - registers all tables on SQLModel.metadata
 from backend.crud.bookings import get_booking
 from backend.crud.pricing import create_discount_code, get_discount_code_by_code
@@ -32,6 +33,7 @@ from backend.models.tickets import Ticket
 from backend.schemas.duffel_orders import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 from backend.schemas.pesapal import PesapalTransactionStatusResponse
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
 SQLModel.metadata.create_all(engine)
@@ -223,6 +225,80 @@ def test_finalize_payment_completed(session, monkeypatch):
     assert passenger.checked_bags == 1
     assert passenger.carry_on_bags == 1
     assert passenger.cabin_class == CabinClass.ECONOMY
+
+
+def test_finalize_payment_publishes_booking_confirmed(session, monkeypatch):
+    payment = _pending_payment(session)
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1, confirmation_code="conf_1"
+        )
+
+    async def fake_create_flight_order(order):
+        return _fake_duffel_order()
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
+    result = asyncio.run(finalize_payment(session, payment))
+
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.BOOKING_EVENTS
+    assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
+    assert data == {
+        "payment_id": result.id,
+        "booking_id": result.booking_id,
+        "user_id": result.user_id,
+    }
+
+
+def test_finalize_payment_publishes_booking_failed(session, monkeypatch):
+    payment = _pending_payment(session)
+
+    async def fake_get_transaction_status(order_tracking_id):
+        return PesapalTransactionStatusResponse(
+            status_code=1, confirmation_code="conf_2"
+        )
+
+    async def fake_create_flight_order(order):
+        raise DuffelAPIError(422, [{"message": "offer expired"}])
+
+    monkeypatch.setattr(
+        pesapal_payment_service, "get_transaction_status", fake_get_transaction_status
+    )
+    monkeypatch.setattr(
+        duffel_flight_service, "create_flight_order", fake_create_flight_order
+    )
+
+    published = []
+    monkeypatch.setattr(
+        payments_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
+    result = asyncio.run(finalize_payment(session, payment))
+
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.BOOKING_EVENTS
+    assert event_type == KafkaEventTypes.BOOKING_FAILED
+    assert data["payment_id"] == result.id
+    assert data["user_id"] == result.user_id
+    assert "offer expired" in data["failure_reason"]
 
 
 def test_finalize_payment_retries_and_picks_up_tickets_issued_late(

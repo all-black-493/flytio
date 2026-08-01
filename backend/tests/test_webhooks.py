@@ -24,6 +24,7 @@ from backend.crud.db import get_session
 from backend.main import app
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.duffel_webhooks import verify_duffel_signature
 
 engine = create_engine(
@@ -112,18 +113,18 @@ def _make_booking(session: Session) -> Booking:
     return booking
 
 
-def test_duffel_webhook_records_change_and_notifies(session, client, monkeypatch):
+def test_duffel_webhook_records_change_and_publishes_event(
+    session, client, monkeypatch
+):
     booking = _make_booking(session)
     secret = "whsec_test"
     monkeypatch.setattr(settings, "DUFFEL_WEBHOOK_SECRET", secret)
 
-    sent = []
-
-    async def fake_send_html_email_async(subject, recipients, html_body, **kwargs):
-        sent.append((subject, recipients))
-
+    published = []
     monkeypatch.setattr(
-        webhooks_module, "send_html_email_async", fake_send_html_email_async
+        webhooks_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
     )
 
     body = json.dumps(
@@ -144,7 +145,12 @@ def test_duffel_webhook_records_change_and_notifies(session, client, monkeypatch
     assert response.status_code == 200
     session.refresh(booking)
     assert booking.airline_initiated_change_detected_at is not None
-    assert sent == [("Your flight ABC123 may have changed", ["traveler@example.com"])]
+
+    assert len(published) == 1
+    topic, event_type, data = published[0]
+    assert topic == KafkaTopics.BOOKING_EVENTS
+    assert event_type == KafkaEventTypes.AIRLINE_CHANGE_DETECTED
+    assert data == {"booking_id": booking.id, "user_id": booking.user_id}
 
 
 def test_duffel_webhook_rejects_bad_signature_without_touching_booking(

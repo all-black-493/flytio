@@ -16,9 +16,7 @@ from backend.crud.bookings import (
     seat_designators_by_passenger,
 )
 from backend.crud.db import get_session
-from backend.crud.notifications import create_notification
 from backend.crud.tickets import get_ticket_by_number
-from backend.models.notifications import NotificationType
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
@@ -40,8 +38,10 @@ from backend.schemas.duffel_orders import (
     OrderCreate,
     OrderResponse,
 )
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.itinerary_pdf import build_itinerary_pdf
+from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
 from backend.utils.security import get_current_user
 
@@ -300,20 +300,20 @@ async def confirm_order_cancellation(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    # mark_booking_cancelled commits before this runs, so it's safe to
+    # publish immediately - the consumer (backend/workers/
+    # kafka_consumer.py) never needs to look the booking up itself, since
+    # everything create_notification needs is already in the event.
     mark_booking_cancelled(session, booking)
-    try:
-        await create_notification(
-            session,
-            user_id=current_user.id,
-            type=NotificationType.CANCELLATION_CONFIRMED,
-            title=f"Booking {booking.booking_reference} cancelled",
-            body="Your cancellation is confirmed and any refund is being processed.",
-            link_url=f"/account/bookings/{booking.id}",
-        )
-    except Exception:
-        # The cancellation is already confirmed with Duffel - a failed
-        # notification must not be mistaken for a failed cancellation.
-        logger.exception("Failed to notify booking %s cancellation", booking.id)
+    kafka_producer.publish_event(
+        KafkaTopics.BOOKING_EVENTS,
+        KafkaEventTypes.BOOKING_CANCELLED,
+        {
+            "user_id": current_user.id,
+            "booking_id": booking.id,
+            "booking_reference": booking.booking_reference,
+        },
+    )
     return response
 
 
@@ -434,16 +434,18 @@ async def confirm_order_change(
             order_change_id,
         )
 
-    try:
-        await create_notification(
-            session,
-            user_id=current_user.id,
-            type=NotificationType.CHANGE_CONFIRMED,
-            title=f"Booking {booking.booking_reference} updated",
-            body="Your flight change has been confirmed.",
-            link_url=f"/account/bookings/{booking.id}",
-        )
-    except Exception:
-        logger.exception("Failed to notify booking %s change confirmation", booking.id)
+    # resync_booking_slices_from_order (when it succeeds) commits before
+    # this runs, and the event below doesn't need the resynced slices
+    # anyway (just the reference text), so this is safe to publish even
+    # when the resync above failed.
+    kafka_producer.publish_event(
+        KafkaTopics.BOOKING_EVENTS,
+        KafkaEventTypes.BOOKING_CHANGE_CONFIRMED,
+        {
+            "user_id": current_user.id,
+            "booking_id": booking.id,
+            "booking_reference": booking.booking_reference,
+        },
+    )
 
     return response

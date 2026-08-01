@@ -4,11 +4,9 @@ from sqlmodel import Session
 from backend.config import settings
 from backend.crud.bookings import record_airline_initiated_change
 from backend.crud.db import get_session
-from backend.crud.notifications import create_notification
-from backend.models.notifications import NotificationType
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.duffel_webhooks import verify_duffel_signature
-from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
-from backend.utils.email_templates import airline_change_email_html
+from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
@@ -68,41 +66,21 @@ async def duffel_webhook(request: Request, session: Session = Depends(get_sessio
 
     # Idempotent by construction - re-processing the same event (Duffel
     # retries on anything but a fast 2xx) just re-sets the same timestamp,
-    # no duplicate side effect beyond a possible duplicate email below.
+    # no duplicate side effect beyond a possible duplicate email via the
+    # published event below.
     booking = record_airline_initiated_change(session, order_id)
     if booking is None:
         logger.warning("Duffel webhook event for an unknown order: %s", order_id)
         return Response(status_code=status.HTTP_200_OK)
 
-    try:
-        user = booking.user
-        if user:
-            await send_html_email_async(
-                f"Your flight {booking.booking_reference} may have changed",
-                [user.email],
-                airline_change_email_html(booking),
-                from_address=SENDER_BOOKINGS,
-            )
-    except Exception:
-        # The change is already recorded on the booking - a failed
-        # notification email must not be mistaken for a failed webhook.
-        logger.exception(
-            "Failed to send airline-change notification for booking %s", booking.id
-        )
-
-    try:
-        if booking.user_id:
-            await create_notification(
-                session,
-                user_id=booking.user_id,
-                type=NotificationType.AIRLINE_CHANGE,
-                title=f"Booking {booking.booking_reference} may have changed",
-                body=f"{booking.owner_name or 'The airline'} made a change to your itinerary.",
-                link_url=f"/account/bookings/{booking.id}",
-            )
-    except Exception:
-        logger.exception(
-            "Failed to create airline-change notification for booking %s", booking.id
+    # record_airline_initiated_change commits before this runs, so the
+    # booking row is already visible to the consumer (backend/workers/
+    # kafka_consumer.py) by the time it acts on this event.
+    if booking.user_id:
+        kafka_producer.publish_event(
+            KafkaTopics.BOOKING_EVENTS,
+            KafkaEventTypes.AIRLINE_CHANGE_DETECTED,
+            {"booking_id": booking.id, "user_id": booking.user_id},
         )
 
     return Response(status_code=status.HTTP_200_OK)

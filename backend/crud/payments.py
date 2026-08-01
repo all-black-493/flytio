@@ -9,18 +9,15 @@ from backend.crud.bookings import (
     create_booking_from_order,
     seat_designators_by_passenger,
 )
-from backend.crud.notifications import create_notification, notify_staff
 from backend.crud.pricing import redeem_discount_code, validate_discount_code
 from backend.crud.tickets import create_tickets_from_order
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
-from backend.models.notifications import NotificationType
 from backend.models.payments import Payment, PaymentProvider, PaymentStatus
-from backend.models.users import UserInDB
 from backend.schemas.duffel_orders import Order, OrderCreate, OrderPayment
 from backend.schemas.payments import CheckoutRequest
-from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
-from backend.utils.email_templates import booking_confirmation_email_html
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pricing import (
     apply_discount,
@@ -230,14 +227,27 @@ async def reconfirm_price_and_create_payment(
     )
 
 
-async def _complete_booking(session: Session, payment: Payment) -> None:
+async def _complete_booking(session: Session, payment: Payment) -> bool:
     """Replays the snapshotted checkout to Duffel (paid from flyt's own
-    balance) to actually create the booking, ticket records, and send the
-    confirmation email. Shared by both payment providers - Pesapal
-    (finalize_payment, below) and Duffel Payments (confirm_card_payment) -
-    once each has independently confirmed the customer's money actually
-    landed. Mutates `payment` in place; the caller commits.
+    balance) to actually create the booking and ticket records. Shared by
+    all three payment paths - Pesapal (finalize_payment), Duffel Payments
+    (confirm_card_payment), and admin-recorded bookings
+    (create_admin_booking) - once each has independently confirmed the
+    customer's money actually landed (or, for the admin path, was
+    collected outside flyt). Mutates `payment` in place; the caller
+    commits.
+
+    Returns whether discount-code redemption failed (only meaningful when
+    `payment.discount_code` was set). Nothing here sends an email or
+    creates a notification directly - every caller does that afterwards,
+    via _publish_booking_completion_events, and only once its own
+    session.commit() has actually happened. The Kafka consumer that acts
+    on those events (backend/workers/kafka_consumer.py) runs in a
+    separate process with its own DB connection - publishing before
+    commit would let it query for a booking/payment row that doesn't
+    exist yet from its point of view.
     """
+    discount_redemption_failed = False
     try:
         checkout = CheckoutRequest.model_validate_json(payment.order_request_snapshot)
         order_request = OrderCreate(
@@ -323,53 +333,7 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
                     payment.discount_code,
                     payment.id,
                 )
-                try:
-                    await notify_staff(
-                        session,
-                        type=NotificationType.DISCOUNT_REDEMPTION_FAILED,
-                        title=f"Discount code {payment.discount_code} redemption failed",
-                        body=f"Payment {payment.id} succeeded but incrementing "
-                        f"times_redeemed failed - the code's usage count may "
-                        f"undercount actual redemptions.",
-                        link_url="/admin/pricing",
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to notify staff of discount redemption failure for payment %s",
-                        payment.id,
-                    )
-
-        try:
-            user = session.get(UserInDB, payment.user_id)
-            if user:
-                await send_html_email_async(
-                    f"You're booked! Reference {booking.booking_reference}",
-                    [user.email],
-                    booking_confirmation_email_html(booking),
-                    from_address=SENDER_BOOKINGS,
-                )
-        except Exception:
-            # The booking itself already succeeded - a failed
-            # notification email must not undo that or be mistaken for a
-            # booking failure.
-            logger.exception(
-                "Failed to send confirmation email for booking %s", booking.id
-            )
-
-        try:
-            await create_notification(
-                session,
-                user_id=payment.user_id,
-                type=NotificationType.BOOKING_CONFIRMED,
-                title=f"Booking {booking.booking_reference} confirmed",
-                body="Your flight is booked and your e-ticket is on its way.",
-                link_url=f"/account/bookings/{booking.id}",
-            )
-        except Exception:
-            logger.exception(
-                "Failed to create booking-confirmed notification for booking %s",
-                booking.id,
-            )
+                discount_redemption_failed = True
     except DuffelAPIError as e:
         # The customer's money already landed with us at this point -
         # this is the "flag for manual refund" case, not an error to
@@ -383,34 +347,42 @@ async def _complete_booking(session: Session, payment: Payment) -> None:
         payment.status = PaymentStatus.BOOKING_FAILED
         payment.failure_reason = str(e)
 
-        try:
-            await create_notification(
-                session,
-                user_id=payment.user_id,
-                type=NotificationType.BOOKING_FAILED,
-                title="We couldn't complete your booking",
-                body="Your payment went through, but we hit a problem finalizing "
-                "your flight. Our team has been notified and will follow up shortly.",
-                link_url="/account",
-            )
-        except Exception:
-            logger.exception(
-                "Failed to notify customer of booking failure for payment %s",
-                payment.id,
-            )
+    return discount_redemption_failed
 
-        try:
-            await notify_staff(
-                session,
-                type=NotificationType.BOOKING_FAILED,
-                title=f"Booking failed after payment collected (payment {payment.id})",
-                body=str(e),
-                link_url="/admin/bookings",
-            )
-        except Exception:
-            logger.exception(
-                "Failed to notify staff of booking failure for payment %s", payment.id
-            )
+
+def _publish_booking_completion_events(
+    payment: Payment, discount_redemption_failed: bool
+) -> None:
+    """Publishes whatever _complete_booking's outcome implies - call this
+    only after the caller's own session.commit(), never before (see
+    _complete_booking's docstring for why)."""
+    if payment.status == PaymentStatus.COMPLETED:
+        kafka_producer.publish_event(
+            KafkaTopics.BOOKING_EVENTS,
+            KafkaEventTypes.BOOKING_CONFIRMED,
+            {
+                "payment_id": payment.id,
+                "booking_id": payment.booking_id,
+                "user_id": payment.user_id,
+            },
+        )
+    elif payment.status == PaymentStatus.BOOKING_FAILED:
+        kafka_producer.publish_event(
+            KafkaTopics.BOOKING_EVENTS,
+            KafkaEventTypes.BOOKING_FAILED,
+            {
+                "payment_id": payment.id,
+                "user_id": payment.user_id,
+                "failure_reason": payment.failure_reason,
+            },
+        )
+
+    if discount_redemption_failed:
+        kafka_producer.publish_event(
+            KafkaTopics.BOOKING_EVENTS,
+            KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED,
+            {"payment_id": payment.id, "discount_code": payment.discount_code},
+        )
 
 
 async def finalize_payment(session: Session, payment: Payment) -> Payment:
@@ -466,8 +438,9 @@ async def finalize_payment(session: Session, payment: Payment) -> Payment:
     payment.payment_account = status.payment_account
     payment.payment_status_code = status.payment_status_code
 
+    discount_redemption_failed = None
     if status.status_code == _PESAPAL_COMPLETED:
-        await _complete_booking(session, payment)
+        discount_redemption_failed = await _complete_booking(session, payment)
     elif status.status_code in _PESAPAL_TERMINAL_FAILURE_CODES:
         payment.status = PaymentStatus.FAILED
         reason = status.payment_status_description or status.description or "Failed"
@@ -481,6 +454,12 @@ async def finalize_payment(session: Session, payment: Payment) -> Payment:
     session.add(payment)
     session.commit()
     session.refresh(payment)
+
+    # Only when _complete_booking actually ran - only then does
+    # payment.status mean anything _publish_booking_completion_events
+    # should act on, and only now (after commit) is it safe to.
+    if discount_redemption_failed is not None:
+        _publish_booking_completion_events(payment, discount_redemption_failed)
     return payment
 
 
@@ -530,8 +509,9 @@ async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
     # Confirming can 200 with a non-"succeeded" status (same lesson as
     # Pesapal's status_code - never assume a 2xx response means the money
     # actually moved).
+    discount_redemption_failed = None
     if intent_data.get("status") == "succeeded":
-        await _complete_booking(session, payment)
+        discount_redemption_failed = await _complete_booking(session, payment)
     else:
         logger.info(
             "Card payment %s not completed (status: %s)",
@@ -547,6 +527,9 @@ async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
     session.add(payment)
     session.commit()
     session.refresh(payment)
+
+    if discount_redemption_failed is not None:
+        _publish_booking_completion_events(payment, discount_redemption_failed)
     return payment
 
 
@@ -575,9 +558,10 @@ async def create_admin_booking(
     payment = await reconfirm_price_and_create_payment(
         session, user_id, request, PaymentProvider.ADMIN
     )
-    await _complete_booking(session, payment)
+    discount_redemption_failed = await _complete_booking(session, payment)
     payment.updated_at = datetime.utcnow()
     session.add(payment)
     session.commit()
     session.refresh(payment)
+    _publish_booking_completion_events(payment, discount_redemption_failed)
     return payment
