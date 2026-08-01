@@ -9,7 +9,7 @@ from backend.models.users import UserInDB
 from backend.utils.guard import guard_deco
 from backend.utils.security import get_current_user
 
-router = APIRouter(prefix="/concierge")
+router = APIRouter(prefix="/concierge", tags=["Concierge"])
 
 # LLM calls cost real money per request - conservative budget, same
 # rate-limiting mechanism (fastapi-guard, IP-keyed) as every other

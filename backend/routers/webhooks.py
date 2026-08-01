@@ -11,7 +11,7 @@ from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
 
-router = APIRouter(prefix="/webhooks")
+router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 
 # See backend/scripts/register_duffel_webhook.py - the only event type this
 # endpoint is actually registered for today. Anything else Duffel might

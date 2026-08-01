@@ -28,7 +28,7 @@ from backend.schemas.duffel_stays import (
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
 
-router = APIRouter(prefix="/stays")
+router = APIRouter(prefix="/stays", tags=["Stays"])
 
 STAYS_IP_LIMIT = 20
 STAYS_WINDOW_SECONDS = 60

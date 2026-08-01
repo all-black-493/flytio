@@ -16,7 +16,7 @@ from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
 
-router = APIRouter(prefix="/health")
+router = APIRouter(prefix="/health", tags=["Health"])
 
 
 def _check_database(session: Session) -> ServiceHealth:

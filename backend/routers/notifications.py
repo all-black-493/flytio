@@ -26,7 +26,7 @@ from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
 @router.get("/stream")

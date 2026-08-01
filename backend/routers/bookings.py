@@ -47,7 +47,7 @@ from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
 
-router = APIRouter(prefix="/booking")
+router = APIRouter(prefix="/booking", tags=["Bookings"])
 
 
 def _get_owned_booking(

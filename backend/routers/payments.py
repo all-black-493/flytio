@@ -43,7 +43,7 @@ from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
 
-router = APIRouter(prefix="/payments")
+router = APIRouter(prefix="/payments", tags=["Payments"])
 
 FRONTEND_URL = settings.FRONTEND_URL
 

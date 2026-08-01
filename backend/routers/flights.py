@@ -33,7 +33,7 @@ PUBLIC_POPULAR_ROUTE_MIN_BOOKINGS = 5
 
 logger = get_app_logger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["Flights"])
 
 # Per-IP only: both endpoints are unauthenticated. Search is cache-backed
 # (crud/flights.py's CACHE_TTL_SECONDS) but a cache miss still hits Duffel

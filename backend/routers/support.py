@@ -13,7 +13,7 @@ from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.guard import guard_deco
 from backend.utils.kafka import kafka_producer
 
-router = APIRouter(prefix="/support")
+router = APIRouter(prefix="/support", tags=["Support"])
 
 # Unauthenticated - a customer who can't log in (payment issue, locked
 # out) is exactly who needs this most. IP-keyed rate limit against spam,

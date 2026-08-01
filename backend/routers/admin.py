@@ -106,7 +106,7 @@ def _group_read(session: Session, group: Group) -> GroupRead:
     return GroupRead(id=group.id, name=group.name, permissions=codenames)
 
 
-@router.get("/permissions", response_model=list[PermissionRead])
+@router.get("/permissions", response_model=list[PermissionRead], tags=["Admin - RBAC"])
 async def list_all_permissions(
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
@@ -114,7 +114,7 @@ async def list_all_permissions(
     return list_permissions(session)
 
 
-@router.get("/groups", response_model=list[GroupRead])
+@router.get("/groups", response_model=list[GroupRead], tags=["Admin - RBAC"])
 async def list_all_groups(
     _: UserInDB = Depends(require_superuser),
     session: Session = Depends(get_session),
@@ -123,7 +123,7 @@ async def list_all_groups(
     return [_group_read(session, group) for group in groups]
 
 
-@router.post("/groups", response_model=GroupRead)
+@router.post("/groups", response_model=GroupRead, tags=["Admin - RBAC"])
 async def create_new_group(
     request: GroupCreate,
     _: UserInDB = Depends(require_superuser),
@@ -147,7 +147,9 @@ def _get_group_or_404(session: Session, group_id: int) -> Group:
     return group
 
 
-@router.post("/groups/{group_id}/permissions", response_model=GroupRead)
+@router.post(
+    "/groups/{group_id}/permissions", response_model=GroupRead, tags=["Admin - RBAC"]
+)
 async def assign_group_permissions(
     group_id: int,
     request: AssignPermissionsRequest,
@@ -168,7 +170,11 @@ async def assign_group_permissions(
     return _group_read(session, group)
 
 
-@router.delete("/groups/{group_id}/permissions/{codename}", response_model=GroupRead)
+@router.delete(
+    "/groups/{group_id}/permissions/{codename}",
+    response_model=GroupRead,
+    tags=["Admin - RBAC"],
+)
 async def revoke_group_permission_by_codename(
     group_id: int,
     codename: str,
@@ -180,7 +186,7 @@ async def revoke_group_permission_by_codename(
     return _group_read(session, group)
 
 
-@router.post("/users/{user_id}/groups")
+@router.post("/users/{user_id}/groups", tags=["Admin - RBAC"])
 async def assign_user_groups(
     user_id: uuid.UUID,
     request: AssignGroupsRequest,
@@ -202,7 +208,7 @@ async def assign_user_groups(
     return {"message": f"{user.email} added to {len(groups)} group(s)."}
 
 
-@router.delete("/users/{user_id}/groups/{group_id}")
+@router.delete("/users/{user_id}/groups/{group_id}", tags=["Admin - RBAC"])
 async def remove_user_group_route(
     user_id: uuid.UUID,
     group_id: int,
@@ -214,7 +220,9 @@ async def remove_user_group_route(
     return {"message": f"{user.email} removed from group."}
 
 
-@router.get("/bookings", response_model=AdminBookingListResponse)
+@router.get(
+    "/bookings", response_model=AdminBookingListResponse, tags=["Admin - Bookings"]
+)
 async def list_all_bookings(
     search: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -248,7 +256,7 @@ async def list_all_bookings(
     )
 
 
-@router.post("/bookings", response_model=AdminBookingRead)
+@router.post("/bookings", response_model=AdminBookingRead, tags=["Admin - Bookings"])
 async def create_admin_booking_route(
     request: AdminCreateBookingRequest,
     _: UserInDB = Depends(require_permission("add_booking")),
@@ -302,7 +310,9 @@ def _admin_booking_read(session: Session, booking) -> AdminBookingRead:
     )
 
 
-@router.get("/bookings/{booking_id}", response_model=AdminBookingRead)
+@router.get(
+    "/bookings/{booking_id}", response_model=AdminBookingRead, tags=["Admin - Bookings"]
+)
 async def get_booking_detail(
     booking_id: uuid.UUID,
     _: UserInDB = Depends(require_permission("view_booking")),
@@ -312,7 +322,11 @@ async def get_booking_detail(
     return _admin_booking_read(session, booking)
 
 
-@router.post("/bookings/{booking_id}/backfill-tickets", response_model=AdminBookingRead)
+@router.post(
+    "/bookings/{booking_id}/backfill-tickets",
+    response_model=AdminBookingRead,
+    tags=["Admin - Bookings"],
+)
 async def backfill_booking_tickets(
     booking_id: uuid.UUID,
     _: UserInDB = Depends(require_permission("add_ticket")),
@@ -332,7 +346,7 @@ async def backfill_booking_tickets(
     return _admin_booking_read(session, booking)
 
 
-@router.post("/bookings/{booking_id}/resend-confirmation")
+@router.post("/bookings/{booking_id}/resend-confirmation", tags=["Admin - Bookings"])
 async def resend_booking_confirmation(
     booking_id: uuid.UUID,
     _: UserInDB = Depends(require_permission("change_booking")),
@@ -365,7 +379,11 @@ async def resend_booking_confirmation(
     return {"message": f"Confirmation email resent to {owner.email}."}
 
 
-@router.get("/dashboard/summary", response_model=AdminDashboardSummary)
+@router.get(
+    "/dashboard/summary",
+    response_model=AdminDashboardSummary,
+    tags=["Admin - Dashboard"],
+)
 async def dashboard_summary(
     _: UserInDB = Depends(require_permissions(["view_booking", "view_payment"])),
     session: Session = Depends(get_session),
@@ -388,7 +406,11 @@ async def dashboard_summary(
     )
 
 
-@router.get("/dashboard/popular-routes", response_model=list[PopularRoute])
+@router.get(
+    "/dashboard/popular-routes",
+    response_model=list[PopularRoute],
+    tags=["Admin - Dashboard"],
+)
 async def dashboard_popular_routes(
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
     _: UserInDB = Depends(require_permission("view_booking")),
@@ -418,7 +440,7 @@ async def dashboard_popular_routes(
     ]
 
 
-@router.get("/users", response_model=AdminUserListResponse)
+@router.get("/users", response_model=AdminUserListResponse, tags=["Admin - Users"])
 async def list_all_users(
     search: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -445,7 +467,11 @@ def _get_user_or_404(session: Session, user_id: uuid.UUID) -> UserInDB:
     return user
 
 
-@router.get("/users/{user_id}/bookings", response_model=BookingListResponse)
+@router.get(
+    "/users/{user_id}/bookings",
+    response_model=BookingListResponse,
+    tags=["Admin - Users"],
+)
 async def get_user_bookings_admin(
     user_id: uuid.UUID,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -464,7 +490,9 @@ async def get_user_bookings_admin(
     )
 
 
-@router.post("/users/{user_id}/staff", response_model=AdminUserRead)
+@router.post(
+    "/users/{user_id}/staff", response_model=AdminUserRead, tags=["Admin - Users"]
+)
 async def update_user_staff_status(
     user_id: uuid.UUID,
     request: SetStaffRequest,
@@ -479,7 +507,9 @@ async def update_user_staff_status(
     return user
 
 
-@router.post("/users/{user_id}/deactivate", response_model=AdminUserRead)
+@router.post(
+    "/users/{user_id}/deactivate", response_model=AdminUserRead, tags=["Admin - Users"]
+)
 async def deactivate_user(
     user_id: uuid.UUID,
     current_user: UserInDB = Depends(require_permission("delete_user")),
@@ -502,7 +532,7 @@ async def deactivate_user(
     return delete_user_account(session, user)
 
 
-@router.get("/users/{user_id}", response_model=AdminUserDetail)
+@router.get("/users/{user_id}", response_model=AdminUserDetail, tags=["Admin - Users"])
 async def get_user_detail(
     user_id: uuid.UUID,
     _: UserInDB = Depends(require_permission("view_user")),
@@ -520,7 +550,9 @@ async def get_user_detail(
     )
 
 
-@router.post("/users/{user_id}/ban", response_model=AdminUserRead)
+@router.post(
+    "/users/{user_id}/ban", response_model=AdminUserRead, tags=["Admin - Users"]
+)
 async def ban_user_route(
     user_id: uuid.UUID,
     request: BanUserRequest,
@@ -543,7 +575,9 @@ async def ban_user_route(
     return ban_user(session, user, request.reason, current_user)
 
 
-@router.post("/users/{user_id}/unban", response_model=AdminUserRead)
+@router.post(
+    "/users/{user_id}/unban", response_model=AdminUserRead, tags=["Admin - Users"]
+)
 async def unban_user_route(
     user_id: uuid.UUID,
     _: UserInDB = Depends(require_permission("delete_user")),
@@ -553,7 +587,9 @@ async def unban_user_route(
     return unban_user(session, user)
 
 
-@router.get("/pricing/sales", response_model=list[PricingSaleRead])
+@router.get(
+    "/pricing/sales", response_model=list[PricingSaleRead], tags=["Admin - Pricing"]
+)
 async def list_pricing_sales_route(
     _: UserInDB = Depends(require_permission("view_pricing")),
     session: Session = Depends(get_session),
@@ -561,7 +597,7 @@ async def list_pricing_sales_route(
     return list_pricing_sales(session)
 
 
-@router.post("/pricing/sales", response_model=PricingSaleRead)
+@router.post("/pricing/sales", response_model=PricingSaleRead, tags=["Admin - Pricing"])
 async def create_pricing_sale_route(
     request: CreatePricingSaleRequest,
     current_user: UserInDB = Depends(require_permission("add_pricing")),
@@ -580,7 +616,7 @@ async def create_pricing_sale_route(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.delete("/pricing/sales/{sale_id}")
+@router.delete("/pricing/sales/{sale_id}", tags=["Admin - Pricing"])
 async def delete_pricing_sale_route(
     sale_id: uuid.UUID,
     _: UserInDB = Depends(require_permission("delete_pricing")),
@@ -590,7 +626,11 @@ async def delete_pricing_sale_route(
     return {"message": "Sale deleted."}
 
 
-@router.get("/pricing/discount-codes", response_model=list[DiscountCodeRead])
+@router.get(
+    "/pricing/discount-codes",
+    response_model=list[DiscountCodeRead],
+    tags=["Admin - Pricing"],
+)
 async def list_discount_codes_route(
     _: UserInDB = Depends(require_permission("view_pricing")),
     session: Session = Depends(get_session),
@@ -598,7 +638,11 @@ async def list_discount_codes_route(
     return list_discount_codes(session)
 
 
-@router.post("/pricing/discount-codes", response_model=DiscountCodeRead)
+@router.post(
+    "/pricing/discount-codes",
+    response_model=DiscountCodeRead,
+    tags=["Admin - Pricing"],
+)
 async def create_discount_code_route(
     request: CreateDiscountCodeRequest,
     current_user: UserInDB = Depends(require_permission("add_pricing")),
@@ -627,7 +671,9 @@ def _get_discount_code_or_404(session: Session, discount_code_id: uuid.UUID):
 
 
 @router.post(
-    "/pricing/discount-codes/{discount_code_id}/active", response_model=DiscountCodeRead
+    "/pricing/discount-codes/{discount_code_id}/active",
+    response_model=DiscountCodeRead,
+    tags=["Admin - Pricing"],
 )
 async def set_discount_code_active_route(
     discount_code_id: uuid.UUID,

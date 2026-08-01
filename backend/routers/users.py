@@ -44,7 +44,7 @@ from backend.utils.security import (
 )
 
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", tags=["Auth"])
 
 # Every rate limit in this router is enforced via guard_deco.rate_limit
 # (fastapi-guard, IP-keyed - see utils/guard.py) - there is no per-email or
