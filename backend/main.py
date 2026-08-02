@@ -7,6 +7,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from backend.config import settings
 from backend.external_services.flight import duffel_flight_service
+from backend.external_services.google_oauth import google_oauth_service
 from backend.external_services.payment import pesapal_payment_service
 from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
@@ -20,6 +21,7 @@ from .routers import (
     concierge,
     flights,
     health,
+    oauth,
     payments,
     stays,
     support,
@@ -41,6 +43,7 @@ async def lifespan(app: FastAPI):
     await duffel_flight_service.aclose()
     await duffel_stay_service.aclose()
     await pesapal_payment_service.aclose()
+    await google_oauth_service.aclose()
     logger.info("flyt backend shutting down")
 
 
@@ -77,6 +80,7 @@ app.include_router(admin.router)
 app.include_router(concierge.router)
 app.include_router(notifications.router)
 app.include_router(health.router)
+app.include_router(oauth.router)
 
 
 @app.get("/")

@@ -52,12 +52,28 @@ class Settings(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
 
+    BLOCKED_USER_AGENTS: str = ""
+    AUTO_BAN_THRESHOLD: int
+    AUTO_BAN_DURATION: int
+
     # Auth cookie - COOKIE_DOMAIN unset locally (host-only cookie already
     # spans ports on localhost); in production set it to the shared parent
     # domain (e.g. "flyt.io") so the cookie is visible to both the frontend
     # and API subdomains.
     COOKIE_DOMAIN: str | None = None
     COOKIE_SECURE: bool = True
+
+    # Google OAuth ("Sign in with Google") - registered in Google Cloud
+    # Console's OAuth client. The redirect URI isn't stored here since it
+    # isn't a secret and must exactly match what's registered in the
+    # console - it's built from BACKEND_PUBLIC_URL instead (see
+    # routers/oauth.py), so it's automatically correct per environment
+    # without a second place to keep in sync.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_AUTH_URL: str = ""
+    GOOGLE_TOKEN_URL: str = ""
+    GOOGLE_USERINFO_URL: str = ""
 
     # Pesapal (customer payment collection) - sign up for a sandbox
     # merchant account at developer.pesapal.com to get these. PESAPAL_ENV
