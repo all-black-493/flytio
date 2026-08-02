@@ -150,7 +150,7 @@ def test_get_or_create_oauth_user_recovers_from_concurrent_insert(sqlite_engine)
 
 
 def test_google_login_redirects_to_google_with_state_cookie(db_client):
-    response = db_client.get("/auth/google/login", follow_redirects=False)
+    response = db_client.get("/api/v1/auth/google/login", follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -168,7 +168,8 @@ def test_google_callback_rejects_state_mismatch(db_client):
     db_client.cookies.set("flyt_oauth_state", "expected-state")
 
     response = db_client.get(
-        "/auth/google/callback?code=abc&state=wrong-state", follow_redirects=False
+        "/api/v1/auth/google/callback?code=abc&state=wrong-state",
+        follow_redirects=False,
     )
 
     assert response.status_code == 302
@@ -182,7 +183,7 @@ def test_google_callback_handles_google_reported_error(db_client):
     db_client.cookies.set("flyt_oauth_state", "some-state")
 
     response = db_client.get(
-        "/auth/google/callback?error=access_denied&state=some-state",
+        "/api/v1/auth/google/callback?error=access_denied&state=some-state",
         follow_redirects=False,
     )
 
@@ -215,7 +216,7 @@ def test_google_callback_happy_path_creates_user_and_sets_session_cookie(
     )
 
     response = db_client.get(
-        "/auth/google/callback?code=auth-code-123&state=matching-state",
+        "/api/v1/auth/google/callback?code=auth-code-123&state=matching-state",
         follow_redirects=False,
     )
 
@@ -253,7 +254,7 @@ def test_google_callback_rejects_banned_user(db_client, monkeypatch, sqlite_engi
     )
 
     response = db_client.get(
-        "/auth/google/callback?code=auth-code-123&state=matching-state",
+        "/api/v1/auth/google/callback?code=auth-code-123&state=matching-state",
         follow_redirects=False,
     )
 
@@ -288,7 +289,7 @@ def test_google_callback_rejects_unverified_email_collision(
     )
 
     response = db_client.get(
-        "/auth/google/callback?code=auth-code-123&state=matching-state",
+        "/api/v1/auth/google/callback?code=auth-code-123&state=matching-state",
         follow_redirects=False,
     )
 

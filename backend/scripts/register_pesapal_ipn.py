@@ -26,12 +26,13 @@ Pesapal doesn't verify reachability at registration time.
 import asyncio
 
 from backend.config import settings
+from backend.utils.constants import API_V1_PREFIX
 from backend.external_services.payment import pesapal_payment_service
 
 
 async def main() -> None:
     backend_url = settings.BACKEND_PUBLIC_URL
-    ipn_url = f"{backend_url.rstrip('/')}/payments/ipn"
+    ipn_url = f"{backend_url.rstrip('/')}{API_V1_PREFIX}/payments/ipn"
 
     existing = await pesapal_payment_service.get_registered_ipns()
     match = next((ipn for ipn in existing if ipn.url == ipn_url), None)

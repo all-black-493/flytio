@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from guard import SecurityMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from backend.config import settings
+from backend.utils.constants import API_V1_PREFIX
 from backend.external_services.flight import duffel_flight_service
 from backend.external_services.google_oauth import google_oauth_service
 from backend.external_services.payment import pesapal_payment_service
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
 Instrumentator().instrument(app).expose(app)
 
 # The frontend authenticates via an httpOnly cookie, so allow_credentials
@@ -69,18 +71,30 @@ app.add_middleware(SecurityMiddleware, config=security_config)
 # this, not off the guard_deco instance directly.
 app.state.guard_decorator = guard_deco
 
-app.include_router(users.router)
-app.include_router(flights.router)
-app.include_router(bookings.router)
-app.include_router(payments.router)
-app.include_router(webhooks.router)
-app.include_router(stays.router)
-app.include_router(support.router)
-app.include_router(admin.router)
-app.include_router(concierge.router)
-app.include_router(notifications.router)
+api_v1_router = APIRouter(prefix=API_V1_PREFIX)
+
+api_v1_router.include_router(users.router, tags=["Auth"])
+api_v1_router.include_router(flights.router)
+api_v1_router.include_router(bookings.router)
+api_v1_router.include_router(payments.router)
+api_v1_router.include_router(webhooks.router)
+api_v1_router.include_router(stays.router)
+api_v1_router.include_router(support.router)
+api_v1_router.include_router(admin.router)
+api_v1_router.include_router(concierge.router)
+api_v1_router.include_router(notifications.router)
+api_v1_router.include_router(health.router)
+api_v1_router.include_router(oauth.router)
+
+app.include_router(api_v1_router)
+
+# Unversioned alias for the liveness/readiness probe. Load balancers,
+# uptime monitors and container orchestrators are configured with a URL
+# once and are not going to follow /api/v2 later - the whole point of
+# versioning the API is that the contract can change, and this endpoint's
+# contract must not. Serving it at both paths keeps existing probes
+# working while /api/v1/health stays available to the frontend.
 app.include_router(health.router)
-app.include_router(oauth.router)
 
 
 @app.get("/")

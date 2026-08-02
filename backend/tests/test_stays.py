@@ -55,7 +55,7 @@ def test_search_stays_endpoint_returns_duffels_raw_response(api_client, monkeypa
 
     monkeypatch.setattr(duffel_stay_service, "search_stays", fake_search_stays)
 
-    response = api_client.post("/stays/search", json=_search_payload())
+    response = api_client.post("/api/v1/stays/search", json=_search_payload())
 
     assert response.status_code == 200
     assert response.json() == fake_response
@@ -69,7 +69,7 @@ def test_search_stays_endpoint_maps_duffel_client_error_to_matching_status(
 
     monkeypatch.setattr(duffel_stay_service, "search_stays", fake_search_stays)
 
-    response = api_client.post("/stays/search", json=_search_payload())
+    response = api_client.post("/api/v1/stays/search", json=_search_payload())
 
     assert response.status_code == 422
 
@@ -85,7 +85,7 @@ def test_fetch_stay_rates_endpoint(api_client, monkeypatch):
 
     monkeypatch.setattr(duffel_stay_service, "fetch_rates", fake_fetch_rates)
 
-    response = api_client.post("/stays/search-results/sre_test123/rates")
+    response = api_client.post("/api/v1/stays/search-results/sre_test123/rates")
 
     assert response.status_code == 200
     assert response.json() == fake_response
@@ -100,7 +100,7 @@ def test_create_stay_quote_endpoint(api_client, monkeypatch):
 
     monkeypatch.setattr(duffel_stay_service, "create_quote", fake_create_quote)
 
-    response = api_client.post("/stays/quotes", json={"rate_id": "rat_test123"})
+    response = api_client.post("/api/v1/stays/quotes", json={"rate_id": "rat_test123"})
 
     assert response.status_code == 200
     assert response.json() == fake_response
@@ -117,7 +117,7 @@ def test_create_stay_booking_endpoint(api_client, monkeypatch):
     monkeypatch.setattr(duffel_stay_service, "create_booking", fake_create_booking)
 
     response = api_client.post(
-        "/stays/bookings",
+        "/api/v1/stays/bookings",
         json={
             "quote_id": "stq_test123",
             "email": "amelia.earhart@duffel.com",

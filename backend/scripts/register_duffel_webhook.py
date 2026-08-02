@@ -21,6 +21,7 @@ verify reachability at registration time.
 import asyncio
 
 from backend.config import settings
+from backend.utils.constants import API_V1_PREFIX
 from backend.external_services.flight import duffel_flight_service
 
 # The only event this app's webhook receiver (routers/webhooks.py) knows
@@ -30,7 +31,7 @@ EVENTS = ["order.airline_initiated_change_detected"]
 
 async def main() -> None:
     backend_url = settings.BACKEND_PUBLIC_URL
-    webhook_url = f"{backend_url.rstrip('/')}/webhooks/duffel"
+    webhook_url = f"{backend_url.rstrip('/')}{API_V1_PREFIX}/webhooks/duffel"
 
     response = await duffel_flight_service.create_webhook(webhook_url, EVENTS)
     await duffel_flight_service.aclose()

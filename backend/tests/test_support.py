@@ -18,7 +18,7 @@ def test_contact_support_publishes_event(api_client, monkeypatch):
     )
 
     response = api_client.post(
-        "/support/contact",
+        "/api/v1/support/contact",
         json={
             "name": "Amelia Earhart",
             "email": "amelia@example.com",
@@ -48,7 +48,7 @@ def test_contact_support_publishes_event(api_client, monkeypatch):
 
 def test_contact_support_rejects_missing_fields(api_client):
     response = api_client.post(
-        "/support/contact",
+        "/api/v1/support/contact",
         json={"name": "", "email": "not-an-email", "subject": "", "message": ""},
     )
 

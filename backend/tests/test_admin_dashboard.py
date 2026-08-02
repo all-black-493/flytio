@@ -152,7 +152,7 @@ def test_dashboard_summary_requires_both_booking_and_payment_permission(
     _grant(session, staffer, "view_booking")  # missing view_payment
 
     response = db_client.get(
-        "/api/admin/dashboard/summary", headers=_auth_headers(staffer)
+        "/api/v1/admin/dashboard/summary", headers=_auth_headers(staffer)
     )
     assert response.status_code == 403
 
@@ -168,7 +168,7 @@ def test_dashboard_summary_revenue_grouped_by_currency(session, db_client):
     _grant(session, staffer, "view_booking", "view_payment")
 
     response = db_client.get(
-        "/api/admin/dashboard/summary", headers=_auth_headers(staffer)
+        "/api/v1/admin/dashboard/summary", headers=_auth_headers(staffer)
     )
     assert response.status_code == 200
     revenue = {
@@ -188,7 +188,7 @@ def test_dashboard_summary_active_users_only_counts_users_with_a_booking(
     _grant(session, staffer, "view_booking", "view_payment")
 
     response = db_client.get(
-        "/api/admin/dashboard/summary", headers=_auth_headers(staffer)
+        "/api/v1/admin/dashboard/summary", headers=_auth_headers(staffer)
     )
     assert response.status_code == 200
     body = response.json()
@@ -206,7 +206,7 @@ def test_dashboard_summary_bookings_today_and_this_week(session, db_client):
     _grant(session, staffer, "view_booking", "view_payment")
 
     response = db_client.get(
-        "/api/admin/dashboard/summary", headers=_auth_headers(staffer)
+        "/api/v1/admin/dashboard/summary", headers=_auth_headers(staffer)
     )
     assert response.status_code == 200
     body = response.json()
@@ -230,7 +230,7 @@ def test_popular_routes_orders_by_count_and_respects_threshold(session, db_clien
     _grant(session, staffer, "view_booking")
 
     response = db_client.get(
-        "/api/admin/dashboard/popular-routes", headers=_auth_headers(staffer)
+        "/api/v1/admin/dashboard/popular-routes", headers=_auth_headers(staffer)
     )
     assert response.status_code == 200
     routes = response.json()
@@ -252,7 +252,9 @@ def test_list_users_search_by_email(session, db_client):
     _grant(session, staffer, "view_user")
 
     response = db_client.get(
-        "/api/admin/users", params={"search": "alice"}, headers=_auth_headers(staffer)
+        "/api/v1/admin/users",
+        params={"search": "alice"},
+        headers=_auth_headers(staffer),
     )
     assert response.status_code == 200
     emails = [row["email"] for row in response.json()["items"]]
@@ -264,7 +266,7 @@ def test_set_staff_requires_superuser(session, db_client):
     staffer = _make_user(session, email="staffer6@example.com", is_staff=True)
 
     response = db_client.post(
-        f"/api/admin/users/{target.id}/staff",
+        f"/api/v1/admin/users/{target.id}/staff",
         json={"is_staff": True},
         headers=_auth_headers(staffer),
     )
@@ -278,7 +280,7 @@ def test_set_staff_works_for_superuser(session, db_client):
     )
 
     response = db_client.post(
-        f"/api/admin/users/{target.id}/staff",
+        f"/api/v1/admin/users/{target.id}/staff",
         json={"is_staff": True},
         headers=_auth_headers(superuser),
     )
@@ -293,7 +295,7 @@ def test_deactivate_user_reuses_soft_delete_and_preserves_bookings(session, db_c
     _grant(session, staffer, "delete_user")
 
     response = db_client.post(
-        f"/api/admin/users/{target.id}/deactivate", headers=_auth_headers(staffer)
+        f"/api/v1/admin/users/{target.id}/deactivate", headers=_auth_headers(staffer)
     )
     assert response.status_code == 200
     assert response.json()["email"] != "deactivate-me@example.com"
@@ -309,6 +311,6 @@ def test_deactivate_user_rejects_self(session, db_client):
     _grant(session, staffer, "delete_user")
 
     response = db_client.post(
-        f"/api/admin/users/{staffer.id}/deactivate", headers=_auth_headers(staffer)
+        f"/api/v1/admin/users/{staffer.id}/deactivate", headers=_auth_headers(staffer)
     )
     assert response.status_code == 400
