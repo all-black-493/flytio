@@ -10,6 +10,7 @@ const SUBNAV_LINKS = [
   { label: "Bookings", href: "/admin/bookings" },
   { label: "Users", href: "/admin/users" },
   { label: "Pricing", href: "/admin/pricing" },
+  { label: "Refunds", href: "/admin/refunds" },
 ];
 
 // Only shown/reachable for a superuser - group/permission management is

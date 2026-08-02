@@ -7,7 +7,7 @@
 
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
-import { getCurrentUser, listBookings } from "@/lib/api/client";
+import { getBookingRefund, getCurrentUser, listBookings } from "@/lib/api/client";
 
 const BOOKINGS_PAGE_SIZE = 10;
 
@@ -25,5 +25,15 @@ export function bookingsQuery() {
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+  });
+}
+
+/** A booking's refund, if one is owed. Resolves to null (not an error)
+ * when there isn't one - see getBookingRefund - so the component simply
+ * renders nothing for the overwhelmingly common uncancelled case. */
+export function bookingRefundQuery(bookingId: string) {
+  return queryOptions({
+    queryKey: ["booking", bookingId, "refund"] as const,
+    queryFn: () => getBookingRefund(bookingId),
   });
 }

@@ -361,3 +361,32 @@ def test_list_refunds_filters_by_status(sqlite_engine, accepted_pesapal):
         manual = list_refunds(session, status=RefundStatus.MANUAL_REQUIRED)
         assert len(manual) == 1
         assert manual[0].payment_id == manual_payment.id
+
+
+# ---------- what the customer is shown ----------
+
+
+def test_customer_refund_view_hides_internal_failure_states(sqlite_engine):
+    """A traveller whose refund failed or needs a manual payout is still
+    owed the money and can't act on either - from their side it simply
+    hasn't arrived, so both read as `processing`. Only a human confirming
+    it was actually paid flips this to `paid`."""
+    from backend.schemas.refunds import CustomerRefundRead, CustomerRefundStatus
+
+    with Session(sqlite_engine) as session:
+        payment = _payment(session)
+        for internal, expected in [
+            (RefundStatus.REQUESTED, CustomerRefundStatus.PROCESSING),
+            (RefundStatus.FAILED, CustomerRefundStatus.PROCESSING),
+            (RefundStatus.MANUAL_REQUIRED, CustomerRefundStatus.PROCESSING),
+            (RefundStatus.COMPLETED, CustomerRefundStatus.PAID),
+        ]:
+            refund = Refund(
+                payment_id=payment.id,
+                booking_id=uuid.uuid4(),
+                amount="8000.00",
+                currency="KES",
+                status=internal,
+            )
+            assert CustomerRefundRead.from_refund(refund).status == expected
+            assert CustomerRefundRead.from_refund(refund).amount == "8000.00"

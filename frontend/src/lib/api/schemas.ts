@@ -377,6 +377,63 @@ export type OrderCancellationQuote = z.infer<typeof orderCancellationQuoteSchema
 export const orderCancellationResponseSchema = z.object({ data: orderCancellationQuoteSchema });
 export type OrderCancellationResponse = z.infer<typeof orderCancellationResponseSchema>;
 
+/** Mirrors backend/schemas/refunds.py's CancellationRefundPreview. Kept
+ * distinct from the Duffel quote it arrives beside because they are
+ * genuinely different numbers: the quote's refund_amount returns to
+ * flyt's Duffel balance, while this is what the customer receives. The
+ * backend computes it (crud/refunds.py) so nothing here has to redo that
+ * arithmetic and risk quoting a figure that never gets paid. */
+export const cancellationRefundPreviewSchema = z.object({
+  amount: z.string(),
+  currency: z.string(),
+  to_original_payment_method: z.boolean(),
+  manual_payout_reason: z.string().nullable(),
+});
+export type CancellationRefundPreview = z.infer<typeof cancellationRefundPreviewSchema>;
+
+export const orderCancellationQuoteResponseSchema = z.object({
+  data: orderCancellationQuoteSchema,
+  customer_refund: cancellationRefundPreviewSchema,
+});
+export type OrderCancellationQuoteResponse = z.infer<
+  typeof orderCancellationQuoteResponseSchema
+>;
+
+/** Mirrors backend/schemas/refunds.py's CustomerRefundRead - deliberately
+ * only two states. The backend collapses failed/manual_required into
+ * "processing" because a traveller can act on neither; see that file. */
+export const customerRefundSchema = z.object({
+  amount: z.string(),
+  currency: z.string(),
+  status: z.enum(["processing", "paid"]),
+  created_at: z.string(),
+});
+export type CustomerRefund = z.infer<typeof customerRefundSchema>;
+
+/** Mirrors backend/schemas/refunds.py's RefundRead - the full internal
+ * view, staff only. */
+export const refundStatusSchema = z.enum([
+  "requested",
+  "failed",
+  "manual_required",
+  "completed",
+]);
+export type RefundStatus = z.infer<typeof refundStatusSchema>;
+
+export const refundReadSchema = z.object({
+  id: z.string(),
+  payment_id: z.string(),
+  booking_id: z.string().nullable(),
+  amount: z.string(),
+  currency: z.string(),
+  status: refundStatusSchema,
+  failure_reason: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type RefundRead = z.infer<typeof refundReadSchema>;
+export const refundListSchema = z.array(refundReadSchema);
+
 /* ---------- order changes: POST .../change-requests, .../changes (backend/schemas/duffel_orders.py) ---------- */
 
 export const orderChangeRequestSchema = z.object({

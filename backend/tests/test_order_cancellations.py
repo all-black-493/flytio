@@ -1,8 +1,11 @@
-"""Router-level tests for the order-cancellation confirm flow
-(routers/bookings.py's confirm_order_cancellation) - requesting a
-cancellation quote is just a Duffel proxy with no side effects and
-isn't covered here; this is the confirm step, which mutates the
-booking and publishes a Kafka event."""
+"""Router-level tests for the order-cancellation flow
+(routers/bookings.py): the confirm step, which mutates the booking and
+publishes the event that triggers the customer's refund, and the quote
+step, which is no longer a plain Duffel proxy - it now also reports what
+the *customer* would get back, which is a different number from Duffel's
+own refund (see backend/crud/refunds.py)."""
+
+import uuid
 
 import pytest
 from sqlmodel import Session
@@ -12,6 +15,7 @@ from backend.crud.db import get_session
 from backend.external_services.flight import duffel_flight_service
 from backend.main import app
 from backend.models.bookings import Booking, BookingStatus
+from backend.models.payments import Payment, PaymentStatus
 from backend.models.users import UserInDB
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.security import create_access_token
@@ -143,3 +147,87 @@ def test_confirm_order_cancellation_rejects_already_cancelled(
     assert response.status_code == 400
     assert called == []
     assert published == []
+
+
+def _completed_payment(sqlite_engine, user_id, booking_id, **kwargs):
+    defaults = dict(
+        amount="10700.00",
+        duffel_amount="10000.00",
+        currency="USD",
+        payment_method="MpesaKE",
+        pesapal_confirmation_code="AA11BB22",
+    )
+    defaults.update(kwargs)
+    with Session(sqlite_engine) as session:
+        payment = Payment(
+            user_id=user_id,
+            booking_id=booking_id,
+            order_request_snapshot="{}",
+            merchant_reference=f"flyt-{uuid.uuid4().hex[:10]}",
+            status=PaymentStatus.COMPLETED,
+            **defaults,
+        )
+        session.add(payment)
+        session.commit()
+
+
+def _mock_quote(monkeypatch, refund_amount: str):
+    async def fake_request_order_cancellation(order_id):
+        return {
+            "data": {
+                "id": "orc_test123",
+                "order_id": order_id,
+                "refund_amount": refund_amount,
+                "refund_currency": "USD",
+                "refund_to": "balance",
+                "expires_at": "2026-09-01T00:00:00Z",
+                "confirmed_at": None,
+            }
+        }
+
+    monkeypatch.setattr(
+        duffel_flight_service,
+        "request_order_cancellation",
+        fake_request_order_cancellation,
+    )
+
+
+def test_quote_reports_what_the_customer_gets_not_duffels_refund(
+    sqlite_engine, db_client, monkeypatch
+):
+    """Duffel's refund_amount goes to flyt's balance and is quoted against
+    the raw fare - with a discount code it can exceed what the customer
+    paid. The customer_refund block is what the UI must show, so it has to
+    be capped the same way the payout is."""
+    booking_id, user_id, headers = _make_booking_and_auth(sqlite_engine)
+    _completed_payment(sqlite_engine, user_id, booking_id, amount="9700.00")
+    _mock_quote(monkeypatch, "10000.00")
+
+    response = db_client.post(
+        "/booking/flight-orders/ord_test123/cancellations", headers=headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["refund_amount"] == "10000.00"
+    assert body["customer_refund"]["amount"] == "9700.00"
+    assert body["customer_refund"]["to_original_payment_method"] is True
+
+
+def test_quote_warns_when_the_refund_cannot_go_back_automatically(
+    sqlite_engine, db_client, monkeypatch
+):
+    """A partial refund on M-Pesa can't be sent through Pesapal at all, so
+    the dialog must not promise the original payment method."""
+    booking_id, user_id, headers = _make_booking_and_auth(sqlite_engine)
+    _completed_payment(sqlite_engine, user_id, booking_id, payment_method="MpesaKE")
+    _mock_quote(monkeypatch, "8000.00")
+
+    response = db_client.post(
+        "/booking/flight-orders/ord_test123/cancellations", headers=headers
+    )
+
+    body = response.json()
+    assert body["customer_refund"]["amount"] == "8000.00"
+    assert body["customer_refund"]["to_original_payment_method"] is False
+    assert "mobile money" in body["customer_refund"]["manual_payout_reason"]

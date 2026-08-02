@@ -56,7 +56,7 @@ def customer_refund_amount(payment: Payment, duffel_refund_amount: str | None) -
     return f"{max(0.0, min(refund, paid)):.2f}"
 
 
-def _blocking_reason(payment: Payment, amount: str) -> str | None:
+def refund_blocker(payment: Payment, amount: str) -> str | None:
     """Why this refund can't go through Pesapal's API, or None if it can.
 
     Every one of these is a hard constraint rather than a policy choice -
@@ -94,6 +94,12 @@ def _blocking_reason(payment: Payment, amount: str) -> str | None:
 
 def get_refund_for_payment(session: Session, payment_id: uuid.UUID) -> Refund | None:
     return session.exec(select(Refund).where(Refund.payment_id == payment_id)).first()
+
+
+def get_refund_for_booking(session: Session, booking_id: uuid.UUID) -> Refund | None:
+    """The refund owed for one booking - what the traveller sees on their
+    own booking page (routers/bookings.py)."""
+    return session.exec(select(Refund).where(Refund.booking_id == booking_id)).first()
 
 
 def _save(session: Session, refund: Refund) -> Refund:
@@ -141,7 +147,7 @@ async def initiate_refund(
         )
         return existing
 
-    blocked = _blocking_reason(payment, amount)
+    blocked = refund_blocker(payment, amount)
     refund = Refund(
         payment_id=payment.id,
         booking_id=booking_id,

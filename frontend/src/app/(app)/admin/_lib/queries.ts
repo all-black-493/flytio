@@ -6,6 +6,8 @@
 
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
+import type { RefundStatus } from "@/lib/api/schemas";
+
 import {
   getAdminBookingDetail,
   getAdminDashboardSummary,
@@ -17,6 +19,7 @@ import {
   listAdminGroups,
   listAdminPermissions,
   listAdminPricingSales,
+  listAdminRefunds,
   listAdminUsers,
 } from "@/lib/api/client";
 
@@ -108,5 +111,15 @@ export function adminDiscountCodesQuery() {
   return queryOptions({
     queryKey: ["admin", "pricing", "discount-codes"] as const,
     queryFn: listAdminDiscountCodes,
+  });
+}
+
+/** `status` is part of the key so each filter caches separately; the
+ * mutations invalidate the whole ["admin","refunds"] prefix, since an
+ * action can move a refund from one filter into another. */
+export function adminRefundsQuery(status: RefundStatus | "all") {
+  return queryOptions({
+    queryKey: ["admin", "refunds", status] as const,
+    queryFn: () => listAdminRefunds(status === "all" ? {} : { status }),
   });
 }

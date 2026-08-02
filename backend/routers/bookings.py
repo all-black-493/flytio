@@ -16,6 +16,12 @@ from backend.crud.bookings import (
     seat_designators_by_passenger,
 )
 from backend.crud.db import get_session
+from backend.crud.payments import get_completed_payment_for_booking
+from backend.crud.refunds import (
+    customer_refund_amount,
+    get_refund_for_booking,
+    refund_blocker,
+)
 from backend.crud.tickets import get_ticket_by_number
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.models.bookings import Booking, BookingStatus
@@ -26,6 +32,11 @@ from backend.schemas.bookings import (
     BookingPublic,
 )
 from backend.schemas.common import PaginationMeta
+from backend.schemas.refunds import (
+    CancellationRefundPreview,
+    CustomerRefundRead,
+    OrderCancellationQuoteResponse,
+)
 from backend.schemas.duffel_orders import (
     Order,
     OrderCancellationQuote,
@@ -237,7 +248,7 @@ async def flight_order_management(
 
 @router.post(
     "/flight-orders/{order_id}/cancellations",
-    response_model=OrderCancellationResponse,
+    response_model=OrderCancellationQuoteResponse,
 )
 async def request_order_cancellation(
     order_id: Annotated[str, Path()],
@@ -254,6 +265,12 @@ async def request_order_cancellation(
     - Check the order's available_actions includes "cancel" before calling
     - Confirm the quote via the /confirm endpoint before it expires,
       otherwise a new quote must be requested
+
+    Returns Duffel's quote alongside `customer_refund` - what the person
+    actually gets back. Those are different numbers (Duffel refunds
+    flyt's balance, and its figure can exceed what the customer paid once
+    a discount code is involved), and the customer-facing UI must quote
+    the latter or it promises money that will never arrive.
     """
     booking = _get_owned_booking(session, order_id, current_user)
     if booking.status == BookingStatus.CANCELLED:
@@ -262,11 +279,68 @@ async def request_order_cancellation(
             detail="This booking has already been cancelled.",
         )
     try:
-        return await duffel_flight_service.request_order_cancellation(order_id)
+        response = await duffel_flight_service.request_order_cancellation(order_id)
     except DuffelAPIError as e:
         raise duffel_http_exception(e)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    quote = OrderCancellationQuote.model_validate(response["data"])
+    return OrderCancellationQuoteResponse(
+        data=quote,
+        customer_refund=_preview_customer_refund(session, booking, quote),
+    )
+
+
+def _preview_customer_refund(
+    session: Session, booking: Booking, quote: OrderCancellationQuote
+) -> CancellationRefundPreview:
+    """Runs the real refund rules (crud/refunds.py) against a quote that
+    hasn't been confirmed yet, so what the customer is shown before
+    cancelling is exactly what they'd be paid after."""
+    payment = get_completed_payment_for_booking(session, booking.id)
+    if payment is None:
+        # No payment flyt collected - nothing it can send back itself.
+        return CancellationRefundPreview(
+            amount="0.00",
+            currency=quote.refund_currency or booking.total_currency,
+            to_original_payment_method=False,
+            manual_payout_reason="No completed payment was found for this booking.",
+        )
+
+    amount = customer_refund_amount(payment, quote.refund_amount)
+    blocker = refund_blocker(payment, amount) if float(amount) > 0 else None
+    return CancellationRefundPreview(
+        amount=amount,
+        currency=payment.currency,
+        to_original_payment_method=blocker is None and float(amount) > 0,
+        manual_payout_reason=blocker,
+    )
+
+
+@router.get(
+    "/flight-orders/by-id/{booking_id}/refund", response_model=CustomerRefundRead
+)
+async def get_booking_refund(
+    booking_id: uuid.UUID,
+    current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """The traveller's own view of the refund owed on a cancelled
+    booking. 404s when there isn't one - a booking that was never
+    cancelled, or a fully non-refundable fare where nothing is owed."""
+    booking = get_booking(session, booking_id)
+    if booking is None or booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    refund = get_refund_for_booking(session, booking_id)
+    if refund is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No refund has been recorded for this booking.",
+        )
+    return CustomerRefundRead.from_refund(refund)
 
 
 @router.post(

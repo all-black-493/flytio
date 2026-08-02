@@ -30,6 +30,7 @@ import {
   cardCheckoutResponseSchema,
   checkoutResponseSchema,
   discountCodeReadSchema,
+  customerRefundSchema,
   discountPreviewResponseSchema,
   flightSearchResponseSchema,
   healthResponseSchema,
@@ -37,6 +38,7 @@ import {
   notificationListResponseSchema,
   notificationReadSchema,
   offerResponseSchema,
+  orderCancellationQuoteResponseSchema,
   orderCancellationResponseSchema,
   orderChangeOffersResponseSchema,
   orderChangeRequestResponseSchema,
@@ -46,6 +48,8 @@ import {
   placeSuggestionsResponseSchema,
   popularRouteListSchema,
   pricingSaleReadSchema,
+  refundListSchema,
+  refundReadSchema,
   seatMapResponseSchema,
   tokenSchema,
   unreadCountResponseSchema,
@@ -63,6 +67,7 @@ import {
   type CardCheckoutResponse,
   type CheckoutResponse,
   type DiscountCodeRead,
+  type CustomerRefund,
   type DiscountPreviewResponse,
   type FlightSearchResponse,
   type HealthResponse,
@@ -70,6 +75,7 @@ import {
   type NotificationListResponse,
   type NotificationRead,
   type OfferResponse,
+  type OrderCancellationQuoteResponse,
   type OrderCancellationResponse,
   type OrderChangeOffersResponse,
   type OrderChangeRequestResponse,
@@ -79,6 +85,8 @@ import {
   type PlaceSuggestionsResponse,
   type PopularRoute,
   type PricingSaleRead,
+  type RefundRead,
+  type RefundStatus,
   type SeatMapResponse,
   type Token,
   type UnreadCountResponse,
@@ -461,15 +469,19 @@ export async function getOrder(orderId: string): Promise<OrderResponse> {
   return orderResponseSchema.parse(await res.json());
 }
 
-/** POST /booking/flight-orders/{orderId}/cancellations — get a refund quote. */
-export async function requestCancellation(orderId: string): Promise<OrderCancellationResponse> {
+/** POST /booking/flight-orders/{orderId}/cancellations — get a refund quote.
+ * Returns Duffel's quote plus `customer_refund`, which is what the person
+ * actually gets back; always quote that one to a customer. */
+export async function requestCancellation(
+  orderId: string,
+): Promise<OrderCancellationQuoteResponse> {
   const res = await fetch(`${API_URL}/booking/flight-orders/${orderId}/cancellations`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return orderCancellationResponseSchema.parse(await res.json());
+  return orderCancellationQuoteResponseSchema.parse(await res.json());
 }
 
 /** POST .../cancellations/{cancellationId}/confirm — finalize the cancellation. */
@@ -995,4 +1007,57 @@ export async function checkHealth(): Promise<HealthResponse> {
   const res = await fetch(`${API_URL}/health`);
   if (!res.ok) throw new Error(await errorDetail(res));
   return healthResponseSchema.parse(await res.json());
+}
+
+/** GET /booking/flight-orders/by-id/{bookingId}/refund — the traveller's own
+ * refund for a cancelled booking. Resolves to null on 404, which is the
+ * normal case (booking not cancelled, or a non-refundable fare owing
+ * nothing) rather than an error worth surfacing. */
+export async function getBookingRefund(bookingId: string): Promise<CustomerRefund | null> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/by-id/${bookingId}/refund`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return customerRefundSchema.parse(await res.json());
+}
+
+/** GET /api/admin/refunds — staff view of every customer refund. */
+export async function listAdminRefunds(
+  params: { status?: RefundStatus; limit?: number; offset?: number } = {},
+): Promise<RefundRead[]> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.limit != null) query.set("limit", String(params.limit));
+  if (params.offset != null) query.set("offset", String(params.offset));
+  const res = await fetch(`${API_URL}/api/admin/refunds?${query}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return refundListSchema.parse(await res.json());
+}
+
+/** POST /api/admin/refunds/{refundId}/retry — re-send a failed refund. */
+export async function retryAdminRefund(refundId: string): Promise<RefundRead> {
+  const res = await fetch(`${API_URL}/api/admin/refunds/${refundId}/retry`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return refundReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/refunds/{refundId}/complete — mark a refund as actually
+ * paid out. Pesapal never tells flyt this, so it's always a human call. */
+export async function completeAdminRefund(refundId: string): Promise<RefundRead> {
+  const res = await fetch(`${API_URL}/api/admin/refunds/${refundId}/complete`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return refundReadSchema.parse(await res.json());
 }
