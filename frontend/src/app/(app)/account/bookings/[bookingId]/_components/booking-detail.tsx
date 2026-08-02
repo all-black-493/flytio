@@ -6,7 +6,7 @@ import { ArrowLeft, Download, Ticket as TicketIcon, TriangleAlert } from "lucide
 
 import { bookingDetailQuery } from "@/app/(app)/account/bookings/[bookingId]/_lib/queries";
 import { CancelBookingDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/cancel-booking-dialog";
-import { RefundStatus } from "@/app/(app)/account/bookings/[bookingId]/_components/refund-status";
+import { CancellationRefundNotice } from "@/app/(app)/account/bookings/[bookingId]/_components/cancellation-refund-notice";
 import { ChangeFlightDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/change-flight-dialog";
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { BaggageSummary, FareRulesCard, SliceCard } from "@/components/booking/BookingDetailParts";
@@ -119,10 +119,9 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
             </>
           )}
 
-          {/* Renders nothing unless a refund is actually owed, so it can
-           * sit here unconditionally rather than duplicating the
-           * cancelled-booking check. */}
-          <RefundStatus bookingId={booking.id} />
+          {/* Self-gating on booking.status, so it sits here
+           * unconditionally rather than duplicating that check. */}
+          <CancellationRefundNotice booking={booking} />
 
           <div className="space-y-3">
             <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
