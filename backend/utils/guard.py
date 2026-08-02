@@ -32,7 +32,12 @@ security_config = SecurityConfig(
     # these default to True in SecurityConfig, so they need an explicit
     # False here rather than just being left unset.
     enable_ip_banning=False,
-    enable_penetration_detection=False,
+    enable_penetration_detection=True,
+    blocked_user_agents=settings.BLOCKED_USER_AGENTS.split(","),
+    auto_ban_threshold=settings.AUTO_BAN_THRESHOLD,
+    auto_ban_duration=settings.AUTO_BAN_DURATION,
+    custom_log_file=None,
+    passive_mode=True,
 )
 
 guard_deco = SecurityDecorator(security_config)

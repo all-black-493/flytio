@@ -19,3 +19,5 @@ wheels/
 backend.log.*
 
 flytio_keypair.pem
+
+.logs/

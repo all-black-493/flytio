@@ -3,7 +3,7 @@ routers/concierge.py). Deliberately never reads the real ambient
 OPENAI_API_KEY - a developer's own backend/.env may or may not have a
 real key in it, and these tests must pass (and never make a real,
 billed OpenAI call) either way. `settings.OPENAI_API_KEY` is always
-monkeypatched explicitly to whichever state each test needs, and the
+bpatched explicitly to whichever state each test needs, and the
 "unconfigured" router path is exercised by patching
 external_services.concierge.concierge_agent directly rather than
 relying on that ambient state. The _offer_to_card mapping is tested

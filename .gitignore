@@ -7,3 +7,6 @@ terraform/terraform.tfvars
 .kombai
 mprocs.yaml
 mprocs.log
+
+.logs
+

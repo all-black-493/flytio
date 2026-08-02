@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LogoutButton } from "@/components/auth/logout-button";
 import Logo from "@/components/Logo";
 import { MobileNavMenu } from "@/components/MobileNavMenu";
+import { NavLink } from "@/components/NavLink";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { StatusTicker } from "@/components/StatusTicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -28,8 +29,6 @@ const NAV_LINKS = [
   { label: "api", href: "/#business" },
 ];
 
-const linkClass = "font-mono text-[11px] tracking-[0.15em] text-board-muted hover:text-board-ink";
-
 export default async function TopNav() {
   const authed = await isAuthenticated();
   const staff = authed && (await checkIsStaff());
@@ -48,41 +47,50 @@ export default async function TopNav() {
           <StatusTicker />
         </div>
 
-        <nav className="ml-auto hidden items-center gap-6 px-8 md:flex">
+        {/* command rail: full-height uppercase sectors with a lit active tab */}
+        <nav className="ml-auto hidden items-stretch md:flex">
           {NAV_LINKS.map((link) => (
-            <Link key={link.label} href={link.href} className={linkClass}>
+            <NavLink key={link.label} href={link.href} className="px-4">
               {link.label}
-            </Link>
+            </NavLink>
           ))}
 
-          <span className="mx-2 h-4 w-px bg-board-line" />
-          <ThemeToggle />
+          {/* utilities cell, fenced off from the sectors like the ticker/logo */}
+          <div className="ml-2 flex items-stretch gap-5 border-l border-board-line pl-6">
+            <span className="flex items-center">
+              <ThemeToggle />
+            </span>
 
-          {authed ? (
-            <>
-              {staff && (
-                <Link href="/admin" className={linkClass}>
-                  admin
-                </Link>
-              )}
-              <Link href="/account" className={linkClass}>
-                account
-              </Link>
-              <NotificationBell triggerClassName="text-board-muted hover:text-board-ink" />
-              <LogoutButton />
-            </>
-          ) : (
-            <Link href="/login" className={linkClass}>
-              sign in
-            </Link>
-          )}
+            {authed ? (
+              <>
+                {staff && (
+                  <NavLink href="/admin" className="px-0">
+                    admin
+                  </NavLink>
+                )}
+                <NavLink href="/account" className="px-0">
+                  account
+                </NavLink>
+                <span className="flex items-center">
+                  <NotificationBell triggerClassName="text-board-muted hover:text-board-ink" />
+                </span>
+                <span className="flex items-center">
+                  <LogoutButton className="uppercase tracking-[0.2em]" />
+                </span>
+              </>
+            ) : (
+              <NavLink href="/login" className="px-0">
+                sign in
+              </NavLink>
+            )}
+          </div>
         </nav>
 
         {!authed && (
           <Button
             render={<Link href="/register" />}
             nativeButton={false}
-            className="hidden h-auto shrink-0 items-center self-stretch bg-signal px-8 font-mono text-[11px] font-semibold tracking-[0.15em] text-white hover:bg-signal/90 md:flex"
+            className="ml-4 hidden h-auto shrink-0 items-center self-stretch bg-signal px-8 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-white hover:bg-signal/90 md:flex"
           >
             create account
           </Button>

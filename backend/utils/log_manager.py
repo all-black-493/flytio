@@ -11,7 +11,7 @@ from pathlib import Path
 # repo root - see config.py's _ENV_FILE for the same fix applied there),
 # and a bare relative path silently writes the log file wherever the
 # process happened to be launched from.
-DEFAULT_LOG_FILE = Path(__file__).resolve().parent.parent / "backend.log"
+DEFAULT_LOG_FILE = "./.logs/backend.log"
 DEFAULT_LOG_LEVEL = logging.INFO
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(lineno)d | %(message)s"
 
@@ -47,6 +47,11 @@ class LogManager:
         """
         Initializes and configures the main global settings for all loggers
         """
+
+        log_path = Path(DEFAULT_LOG_FILE)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.touch(exist_ok=True)
+
         root_logger = logging.getLogger()
         root_logger.setLevel(DEFAULT_LOG_LEVEL)
         formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
@@ -91,6 +96,19 @@ class LogManager:
 
         return self._loggers[name]
 
+    def setup_security_logger(self) -> None:
+        """
+        Configures `fastapi_guard` logger
+        """
+
+        logger = logging.getLogger("fastapi_guard")
+        logger.setLevel(DEFAULT_LOG_LEVEL)
+
+        logger.propagate = True
+
+        self._loggers["fastapi_guard"] = logger
+        logger.info("Security logger configured successfully")
+
 
 log_manager = LogManager()
 
@@ -99,5 +117,5 @@ def get_app_logger(name: str = __name__) -> logging.Logger:
     """
     Public convenience function to get logger instance. All other files call this to get their logger
     """
-
+    log_manager.setup_security_logger()
     return log_manager.get_logger(name)
