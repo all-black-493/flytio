@@ -112,17 +112,14 @@ async def notify_staff(
     return notifications
 
 
-def list_notifications(
-    session: Session, user_id: uuid.UUID, *, limit: int = 20, offset: int = 0
-) -> list[Notification]:
-    query = (
+def notifications_query(user_id: uuid.UUID):
+    """Ordered statement behind GET /notifications - see
+    crud/bookings.py's user_bookings_query on the id tiebreaker."""
+    return (
         select(Notification)
         .where(Notification.user_id == user_id)
-        .order_by(Notification.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
     )
-    return list(session.exec(query).all())
 
 
 def count_unread(session: Session, user_id: uuid.UUID) -> int:

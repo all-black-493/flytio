@@ -1,11 +1,23 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  Bell,
+  CheckCircle2,
+  MessageCircle,
+  RefreshCw,
+  TicketX,
+  X,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { meQuery } from "@/app/(app)/account/_lib/queries";
+import { formatRelativeTime } from "@/components/notifications/_lib/format";
 import {
   notificationsPanelQuery,
   unreadNotificationCountQuery,
@@ -23,8 +35,33 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/api/client";
-import type { NotificationRead } from "@/lib/api/schemas";
+import type { NotificationRead, NotificationType } from "@/lib/api/schemas";
 import { cn } from "@/lib/utils";
+
+// Refreshes the "x ago" strings while the panel is open - a purely
+// display-layer tick (no refetch), since date-fns computes the string
+// fresh from `created_at` on every render.
+const RELATIVE_TIME_TICK_MS = 30_000;
+
+const NOTIFICATION_TYPE_ICON: Record<NotificationType, LucideIcon> = {
+  booking_confirmed: CheckCircle2,
+  booking_failed: XCircle,
+  airline_change: AlertTriangle,
+  cancellation_confirmed: Ban,
+  change_confirmed: RefreshCw,
+  support_request: MessageCircle,
+  discount_redemption_failed: TicketX,
+};
+
+const NOTIFICATION_TYPE_ICON_CLASS: Record<NotificationType, string> = {
+  booking_confirmed: "text-emerald-600 dark:text-emerald-400",
+  booking_failed: "text-destructive",
+  airline_change: "text-amber-600 dark:text-amber-400",
+  cancellation_confirmed: "text-muted-foreground",
+  change_confirmed: "text-signal",
+  support_request: "text-sky-600 dark:text-sky-400",
+  discount_redemption_failed: "text-destructive",
+};
 
 function NotificationRow({ notification }: { notification: NotificationRead }) {
   const queryClient = useQueryClient();
@@ -45,14 +82,26 @@ function NotificationRow({ notification }: { notification: NotificationRead }) {
     if (!notification.read_at) readMutation.mutate();
   };
 
+  const Icon = NOTIFICATION_TYPE_ICON[notification.type];
+  const icon = (
+    <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted">
+      <Icon className={cn("size-3.5", NOTIFICATION_TYPE_ICON_CLASS[notification.type])} />
+    </span>
+  );
+
   const body = (
     <div className="min-w-0 flex-1 space-y-0.5">
-      <p className="text-sm font-medium">{notification.title}</p>
+      <p className="flex items-center gap-1.5 text-sm font-medium">
+        {!notification.read_at && (
+          <span className="size-1.5 shrink-0 rounded-full bg-signal" />
+        )}
+        <span className="truncate">{notification.title}</span>
+      </p>
       {notification.body && (
         <p className="line-clamp-2 text-xs text-muted-foreground">{notification.body}</p>
       )}
       <p className="font-mono text-[10px] text-muted-foreground">
-        {new Date(notification.created_at).toLocaleString()}
+        {formatRelativeTime(notification.created_at)}
       </p>
     </div>
   );
@@ -70,9 +119,7 @@ function NotificationRow({ notification }: { notification: NotificationRead }) {
           onClick={handleActivate}
           className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2"
         >
-          {!notification.read_at && (
-            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-signal" />
-          )}
+          {icon}
           {body}
         </Link>
       ) : (
@@ -81,9 +128,7 @@ function NotificationRow({ notification }: { notification: NotificationRead }) {
           onClick={handleActivate}
           className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2 text-left"
         >
-          {!notification.read_at && (
-            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-signal" />
-          )}
+          {icon}
           {body}
         </button>
       )}
@@ -127,6 +172,15 @@ export function NotificationBell({ triggerClassName }: { triggerClassName?: stri
   const panelQuery = useQuery({ ...notificationsPanelQuery(), enabled: authed && open });
   const queryClient = useQueryClient();
 
+  // Forces NotificationRow's "x ago" strings to recompute periodically
+  // while the panel is visible - no data changes, just a render tick.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setTick((t) => t + 1), RELATIVE_TIME_TICK_MS);
+    return () => clearInterval(id);
+  }, [open]);
+
   const markAllMutation = useMutation({
     mutationFn: markAllNotificationsRead,
     onSuccess: () => {
@@ -138,7 +192,7 @@ export function NotificationBell({ triggerClassName }: { triggerClassName?: stri
   if (!authed) return null;
 
   const unreadCount = unread?.unread_count ?? 0;
-  const notifications = panelQuery.data?.data ?? [];
+  const notifications = panelQuery.data?.items ?? [];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

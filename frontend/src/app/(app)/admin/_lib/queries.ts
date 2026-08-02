@@ -6,6 +6,7 @@
 
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
+import { FIRST_PAGE, nextCursor } from "@/lib/api/pagination";
 import type { RefundStatus } from "@/lib/api/schemas";
 
 import {
@@ -43,10 +44,9 @@ export function adminBookingsQuery(search?: string) {
   return infiniteQueryOptions({
     queryKey: ["admin", "bookings", search] as const,
     queryFn: ({ pageParam }) =>
-      listAdminBookings({ search, limit: ADMIN_PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) =>
-      lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+      listAdminBookings({ search, size: ADMIN_PAGE_SIZE, cursor: pageParam }),
+    initialPageParam: FIRST_PAGE,
+    getNextPageParam: nextCursor,
   });
 }
 
@@ -54,10 +54,9 @@ export function adminUsersQuery(search?: string) {
   return infiniteQueryOptions({
     queryKey: ["admin", "users", search] as const,
     queryFn: ({ pageParam }) =>
-      listAdminUsers({ search, limit: ADMIN_PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) =>
-      lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+      listAdminUsers({ search, size: ADMIN_PAGE_SIZE, cursor: pageParam }),
+    initialPageParam: FIRST_PAGE,
+    getNextPageParam: nextCursor,
   });
 }
 
@@ -79,10 +78,9 @@ export function adminUserBookingsQuery(userId: string) {
   return infiniteQueryOptions({
     queryKey: ["admin", "users", "detail", userId, "bookings"] as const,
     queryFn: ({ pageParam }) =>
-      getAdminUserBookings(userId, { limit: ADMIN_PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) =>
-      lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+      getAdminUserBookings(userId, { size: ADMIN_PAGE_SIZE, cursor: pageParam }),
+    initialPageParam: FIRST_PAGE,
+    getNextPageParam: nextCursor,
   });
 }
 

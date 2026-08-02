@@ -3,22 +3,22 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi_pagination.ext.sqlalchemy import paginate
 from sqlmodel import Session
 
 from backend.crud.bookings import (
+    all_bookings_query,
     count_all_bookings,
     count_bookings_since,
-    count_user_bookings,
-    get_all_bookings,
     get_booking,
     get_popular_routes,
-    get_user_bookings,
+    user_bookings_query,
 )
 from backend.crud.db import get_session
 from backend.crud.payments import create_admin_booking, get_revenue_by_currency
 from backend.crud.refunds import (
-    list_refunds,
     mark_refund_completed,
+    refunds_query,
     send_refund_request,
 )
 from backend.crud.pricing import (
@@ -51,9 +51,9 @@ from backend.crud.users import (
     count_users,
     delete_user_account,
     get_users_by_ids,
-    list_users,
     set_user_staff,
     unban_user,
+    users_query,
 )
 from backend.external_services.flight import DuffelAPIError
 from backend.models.payments import Payment
@@ -62,12 +62,10 @@ from backend.models.rbac import Group
 from backend.models.refunds import Refund, RefundStatus
 from backend.models.users import UserInDB
 from backend.schemas.admin import (
-    AdminBookingListResponse,
     AdminBookingRead,
     AdminCreateBookingRequest,
     AdminDashboardSummary,
     AdminUserDetail,
-    AdminUserListResponse,
     AdminUserRead,
     BanUserRequest,
     CreateDiscountCodeRequest,
@@ -78,8 +76,7 @@ from backend.schemas.admin import (
     SetDiscountCodeActiveRequest,
     SetStaffRequest,
 )
-from backend.schemas.bookings import BookingListResponse, BookingPublic, PopularRoute
-from backend.schemas.common import PaginationMeta
+from backend.schemas.bookings import BookingPublic, PopularRoute
 from backend.schemas.refunds import RefundRead
 from backend.schemas.rbac import (
     AssignGroupsRequest,
@@ -92,6 +89,7 @@ from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
 from backend.utils.log_manager import get_app_logger
+from backend.utils.pagination import cursor_page
 from backend.utils.rbac import (
     require_permission,
     require_permissions,
@@ -228,39 +226,36 @@ async def remove_user_group_route(
     return {"message": f"{user.email} removed from group."}
 
 
-@router.get(
-    "/bookings", response_model=AdminBookingListResponse, tags=["Admin - Bookings"]
-)
+@router.get("/bookings", **cursor_page(AdminBookingRead), tags=["Admin - Bookings"])
 async def list_all_bookings(
     search: str | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
     _: UserInDB = Depends(require_permission("view_booking")),
     session: Session = Depends(get_session),
 ):
     """Every booking in the system, most recent first - the staff
     counterpart of GET /booking/flight-orders (which is scoped to the
     logged-in user). `search` matches booking reference or owner email."""
-    bookings = get_all_bookings(session, search=search, limit=limit, offset=offset)
-    total = count_all_bookings(session, search=search)
 
-    user_ids = {b.user_id for b in bookings}
-    email_by_user_id = {
-        user.id: user.email for user in get_users_by_ids(session, user_ids)
-    }
-    data = [
-        AdminBookingRead(
-            **BookingPublic.model_validate(booking).model_dump(),
-            user_id=booking.user_id,
-            user_email=email_by_user_id.get(booking.user_id, ""),
-        )
-        for booking in bookings
-    ]
-    return AdminBookingListResponse(
-        data=data,
-        meta=PaginationMeta(
-            limit=limit, offset=offset, total=total, has_more=offset + limit < total
-        ),
+    def with_owner_email(bookings: list) -> list[AdminBookingRead]:
+        # One query for the whole page's owners rather than one per row -
+        # runs as a transformer so it still applies to exactly the rows
+        # this page returned, the same as before pagination moved out of
+        # this function.
+        email_by_user_id = {
+            user.id: user.email
+            for user in get_users_by_ids(session, {b.user_id for b in bookings})
+        }
+        return [
+            AdminBookingRead(
+                **BookingPublic.model_validate(booking).model_dump(),
+                user_id=booking.user_id,
+                user_email=email_by_user_id.get(booking.user_id, ""),
+            )
+            for booking in bookings
+        ]
+
+    return paginate(
+        session, all_bookings_query(search=search), transformer=with_owner_email
     )
 
 
@@ -448,22 +443,13 @@ async def dashboard_popular_routes(
     ]
 
 
-@router.get("/users", response_model=AdminUserListResponse, tags=["Admin - Users"])
+@router.get("/users", **cursor_page(AdminUserRead), tags=["Admin - Users"])
 async def list_all_users(
     search: str | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
     _: UserInDB = Depends(require_permission("view_user")),
     session: Session = Depends(get_session),
 ):
-    users = list_users(session, search=search, limit=limit, offset=offset)
-    total = count_users(session, search=search)
-    return AdminUserListResponse(
-        data=users,
-        meta=PaginationMeta(
-            limit=limit, offset=offset, total=total, has_more=offset + limit < total
-        ),
-    )
+    return paginate(session, users_query(search=search))
 
 
 def _get_user_or_404(session: Session, user_id: uuid.UUID) -> UserInDB:
@@ -477,25 +463,16 @@ def _get_user_or_404(session: Session, user_id: uuid.UUID) -> UserInDB:
 
 @router.get(
     "/users/{user_id}/bookings",
-    response_model=BookingListResponse,
+    **cursor_page(BookingPublic),
     tags=["Admin - Users"],
 )
 async def get_user_bookings_admin(
     user_id: uuid.UUID,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
     _: UserInDB = Depends(require_permission("view_user")),
     session: Session = Depends(get_session),
 ):
     user = _get_user_or_404(session, user_id)
-    bookings = get_user_bookings(session, user.id, limit=limit, offset=offset)
-    total = count_user_bookings(session, user.id)
-    return BookingListResponse(
-        data=bookings,
-        meta=PaginationMeta(
-            limit=limit, offset=offset, total=total, has_more=offset + limit < total
-        ),
-    )
+    return paginate(session, user_bookings_query(user.id))
 
 
 @router.post(
@@ -702,18 +679,16 @@ def _get_refund_or_404(session: Session, refund_id: uuid.UUID) -> Refund:
     return refund
 
 
-@router.get("/refunds", response_model=list[RefundRead], tags=["Admin - Refunds"])
+@router.get("/refunds", **cursor_page(RefundRead), tags=["Admin - Refunds"])
 async def list_refunds_route(
     status_filter: Annotated[RefundStatus | None, Query(alias="status")] = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
     _: UserInDB = Depends(require_permission("view_payment")),
     session: Session = Depends(get_session),
 ):
     """Every customer refund, newest first. Filter by status=manual_required
     to find the ones Pesapal couldn't carry and a human still owes someone -
     see crud/refunds.py for when that happens."""
-    return list_refunds(session, status=status_filter, limit=limit, offset=offset)
+    return paginate(session, refunds_query(status=status_filter))
 
 
 @router.post(

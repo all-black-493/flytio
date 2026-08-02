@@ -255,7 +255,7 @@ def test_list_users_search_by_email(session, db_client):
         "/api/admin/users", params={"search": "alice"}, headers=_auth_headers(staffer)
     )
     assert response.status_code == 200
-    emails = [row["email"] for row in response.json()["data"]]
+    emails = [row["email"] for row in response.json()["items"]]
     assert emails == ["alice@example.com"]
 
 

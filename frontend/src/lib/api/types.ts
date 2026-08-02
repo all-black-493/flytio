@@ -149,21 +149,27 @@ export interface DiscountPreviewRequest {
   discount_code: string;
 }
 
-export interface BookingListQueryParams {
+/** The query params every cursor-paginated list endpoint accepts
+ * (fastapi-pagination's CursorParams). `cursor` is the opaque
+ * `next_page` value from the previous page; omit it for the first page. */
+export interface CursorPageQueryParams {
+  cursor?: string | null;
+  size?: number;
+}
+
+/** Cursor pagination (cursor/size), not offset — see
+ * CursorPageQueryParams. An absent cursor means "the first page". */
+export interface BookingListQueryParams extends CursorPageQueryParams {
   booking_reference?: string;
   origin?: string;
   destination?: string;
   status?: BookingStatus;
-  limit?: number;
-  offset?: number;
 }
 
 /* ---------- admin: mirrors backend/routers/admin.py ---------- */
 
-export interface AdminListQueryParams {
+export interface AdminListQueryParams extends CursorPageQueryParams {
   search?: string;
-  limit?: number;
-  offset?: number;
 }
 
 /** POST /api/admin/bookings - CheckoutRequest plus which existing

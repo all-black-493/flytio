@@ -8,6 +8,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { getBookingRefund, getCurrentUser, listBookings } from "@/lib/api/client";
+import { FIRST_PAGE, nextCursor } from "@/lib/api/pagination";
 
 const BOOKINGS_PAGE_SIZE = 10;
 
@@ -21,10 +22,9 @@ export function meQuery() {
 export function bookingsQuery() {
   return infiniteQueryOptions({
     queryKey: ["bookings"] as const,
-    queryFn: ({ pageParam }) => listBookings({ limit: BOOKINGS_PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) =>
-      lastPage.meta.has_more ? lastPage.meta.offset + lastPage.meta.limit : undefined,
+    queryFn: ({ pageParam }) => listBookings({ size: BOOKINGS_PAGE_SIZE, cursor: pageParam }),
+    initialPageParam: FIRST_PAGE,
+    getNextPageParam: nextCursor,
   });
 }
 

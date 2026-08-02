@@ -33,7 +33,7 @@ export function DeleteAccountDialog() {
   const [error, setError] = useState<string | null>(null);
 
   const { data } = useInfiniteQuery(bookingsQuery());
-  const bookingCount = data?.pages[0]?.meta.total ?? 0;
+  const bookingCount = data?.pages[0]?.total ?? 0;
 
   const mutation = useMutation({
     mutationFn: () => deleteAccount(password),

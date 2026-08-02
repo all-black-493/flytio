@@ -24,7 +24,7 @@ export function AdminBookingsList() {
     isFetchingNextPage,
   } = useInfiniteQuery(adminBookingsQuery(search));
 
-  const bookings = data?.pages.flatMap((page) => page.data);
+  const bookings = data?.pages.flatMap((page) => page.items);
 
   return (
     <div className="space-y-4">

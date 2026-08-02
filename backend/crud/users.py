@@ -112,21 +112,22 @@ def get_users_by_ids(session: Session, user_ids: set[uuid.UUID]) -> list[UserInD
 
 
 def _filtered_users_query(*, search: str | None = None):
-    """Shared filter-building base for list_users/count_users, same
-    pairing convention as crud/bookings.py's
-    _filtered_user_bookings_query."""
+    """Shared filter-building base for users_query/count_users, so the
+    listing and the count always agree on which rows match - same pairing
+    convention as crud/bookings.py's _filtered_user_bookings_query."""
     query = select(UserInDB)
     if search:
         query = query.where(func.lower(UserInDB.email).contains(search.lower()))
     return query
 
 
-def list_users(
-    session: Session, *, search: str | None = None, limit: int = 50, offset: int = 0
-) -> list[UserInDB]:
-    query = _filtered_users_query(search=search)
-    query = query.order_by(UserInDB.created_at.desc()).offset(offset).limit(limit)
-    return list(session.exec(query).all())
+def users_query(*, search: str | None = None):
+    """Ordered statement behind GET /api/admin/users - see
+    crud/bookings.py's user_bookings_query for why id joins the ordering
+    (keyset pagination needs a total order, and created_at isn't unique)."""
+    return _filtered_users_query(search=search).order_by(
+        UserInDB.created_at.desc(), UserInDB.id.desc()
+    )
 
 
 def count_users(session: Session, *, search: str | None = None) -> int:

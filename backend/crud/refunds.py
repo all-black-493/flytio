@@ -228,15 +228,10 @@ def mark_refund_completed(session: Session, refund: Refund) -> Refund:
     return _save(session, refund)
 
 
-def list_refunds(
-    session: Session,
-    *,
-    status: RefundStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[Refund]:
+def refunds_query(*, status: RefundStatus | None = None):
+    """Ordered statement behind GET /api/admin/refunds - see
+    crud/bookings.py's user_bookings_query on the id tiebreaker."""
     query = select(Refund)
     if status is not None:
         query = query.where(Refund.status == status)
-    query = query.order_by(Refund.created_at.desc()).offset(offset).limit(limit)
-    return list(session.exec(query).all())
+    return query.order_by(Refund.created_at.desc(), Refund.id.desc())

@@ -9,6 +9,7 @@ dependencies = [
     "confluent-kafka>=2.15.0",
     "email-validator>=2.3.0",
     "fastapi-guard>=7.3.0",
+    "fastapi-pagination>=0.15.16",
     "fastapi[standard]>=0.139.0",
     "fpdf2>=2.8.7",
     "httpx>=0.28.1",
@@ -24,6 +25,7 @@ dependencies = [
     "redis>=8.0.1",
     "resend>=2.16.0",
     "ruff>=0.15.22",
+    "sqlakeyset>=2.0.1775222100",
     "sqlmodel>=0.0.39",
     "typer>=0.26.8",
 ]

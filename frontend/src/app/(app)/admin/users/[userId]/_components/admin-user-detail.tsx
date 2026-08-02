@@ -29,7 +29,7 @@ export function AdminUserDetail({ userId }: { userId: string }) {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery(adminUserBookingsQuery(userId));
-  const bookings = bookingsData?.pages.flatMap((page) => page.data);
+  const bookings = bookingsData?.pages.flatMap((page) => page.items);
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4">

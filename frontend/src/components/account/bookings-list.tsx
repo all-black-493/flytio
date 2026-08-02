@@ -21,7 +21,7 @@ export function BookingsList() {
     isFetchingNextPage,
   } = useInfiniteQuery(bookingsQuery());
 
-  const bookings = data?.pages.flatMap((page) => page.data);
+  const bookings = data?.pages.flatMap((page) => page.items);
 
   return (
     <div className="mt-6 w-full max-w-sm space-y-3">

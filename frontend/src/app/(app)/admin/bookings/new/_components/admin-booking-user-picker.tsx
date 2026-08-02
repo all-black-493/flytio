@@ -23,7 +23,7 @@ export function AdminBookingUserPicker() {
   const [search, setSearch] = useState<string | undefined>(undefined);
 
   const { data, isPending, isError } = useInfiniteQuery(adminUsersQuery(search));
-  const users = data?.pages.flatMap((page) => page.data);
+  const users = data?.pages.flatMap((page) => page.items);
 
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">

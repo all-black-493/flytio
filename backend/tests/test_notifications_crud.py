@@ -21,7 +21,7 @@ from backend.crud.notifications import (
     count_unread,
     create_notification,
     delete_notification,
-    list_notifications,
+    notifications_query,
     mark_all_read,
     mark_read,
     notify_staff,
@@ -95,7 +95,7 @@ def test_list_notifications_most_recent_first(session):
         )
     )
 
-    notifications = list_notifications(session, user.id)
+    notifications = session.exec(notifications_query(user.id)).all()
 
     assert [n.id for n in notifications] == [second.id, first.id]
 

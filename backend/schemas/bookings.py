@@ -9,10 +9,9 @@ attributes instead.
 import uuid
 from datetime import date, datetime
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import SQLModel
 
 from backend.models.bookings import BookingStatus, CabinClass, PassengerType
-from backend.schemas.common import PaginationMeta
 from backend.schemas.tickets import TicketPublic
 
 
@@ -91,24 +90,6 @@ class BookingPublic(SQLModel):
     airline_initiated_change_detected_at: datetime | None = None
     slices: list[BookingSlicePublic] = []
     passengers: list[BookingPassengerPublic] = []
-
-
-class BookingListQueryParams(SQLModel):
-    """Query params for listing the current user's bookings from our own
-    DB (not Duffel's cursor-paginated /air/orders), so plain offset/limit
-    pagination is used instead of Duffel's opaque before/after cursors."""
-
-    booking_reference: str | None = None
-    origin: str | None = Field(default=None, min_length=3, max_length=3)
-    destination: str | None = Field(default=None, min_length=3, max_length=3)
-    status: BookingStatus | None = None
-    limit: int = Field(default=50, ge=1, le=200)
-    offset: int = Field(default=0, ge=0)
-
-
-class BookingListResponse(SQLModel):
-    data: list[BookingPublic]
-    meta: PaginationMeta
 
 
 class PopularRoute(SQLModel):

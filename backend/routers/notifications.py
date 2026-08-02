@@ -1,26 +1,22 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from backend.crud.db import get_session
 from backend.crud.notifications import (
-    count_notifications,
     count_unread,
     delete_notification,
-    list_notifications,
     mark_all_read,
     mark_read,
+    notifications_query,
 )
 from backend.models.users import UserInDB
-from backend.schemas.common import PaginationMeta
-from backend.schemas.notifications import (
-    NotificationListResponse,
-    NotificationRead,
-    UnreadCountResponse,
-)
+from backend.schemas.notifications import NotificationRead, UnreadCountResponse
 from backend.utils.log_manager import get_app_logger
+from backend.utils.pagination import cursor_page
 from backend.utils.redis_client import notification_streamer
 from backend.utils.security import get_current_user
 
@@ -64,35 +60,27 @@ async def stream_notifications(current_user: UserInDB = Depends(get_current_user
     )
 
 
-@router.get("", response_model=NotificationListResponse)
+@router.get("", **cursor_page(NotificationRead))
 async def list_my_notifications(
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
     current_user: UserInDB = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     """The signed-in user's own notifications, most recent first - backs
     the bell icon's panel on initial load/refresh; the SSE stream above
-    only covers what arrives while it's connected."""
+    only covers what arrives while it's connected.
+
+    The unread count is deliberately not here - GET /notifications/
+    unread-count already serves it, and that is where every caller reads
+    it from, so computing it again on each list call was pure waste.
+    """
     try:
-        notifications = list_notifications(
-            session, current_user.id, limit=limit, offset=offset
-        )
-        total = count_notifications(session, current_user.id)
-        unread_count = count_unread(session, current_user.id)
+        return paginate(session, notifications_query(current_user.id))
     except Exception as e:
         logger.exception("Failed to list notifications for user %s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Couldn't load notifications.",
         ) from e
-    return NotificationListResponse(
-        data=notifications,
-        meta=PaginationMeta(
-            limit=limit, offset=offset, total=total, has_more=offset + limit < total
-        ),
-        unread_count=unread_count,
-    )
 
 
 @router.get("/unread-count", response_model=UnreadCountResponse)

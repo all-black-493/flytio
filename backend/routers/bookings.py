@@ -2,18 +2,18 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi_pagination.ext.sqlalchemy import paginate
 from sqlmodel import Session
 
 from backend.crud.bookings import (
     build_order_request_body,
-    count_user_bookings,
     create_booking_from_order,
     get_booking,
     get_booking_by_duffel_order_id,
-    get_user_bookings,
     mark_booking_cancelled,
     resync_booking_slices_from_order,
     seat_designators_by_passenger,
+    user_bookings_query,
 )
 from backend.crud.db import get_session
 from backend.crud.payments import get_completed_payment_for_booking
@@ -26,12 +26,7 @@ from backend.crud.tickets import get_ticket_by_number
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
-from backend.schemas.bookings import (
-    BookingListQueryParams,
-    BookingListResponse,
-    BookingPublic,
-)
-from backend.schemas.common import PaginationMeta
+from backend.schemas.bookings import BookingPublic
 from backend.schemas.refunds import (
     CancellationRefundPreview,
     CustomerRefundRead,
@@ -55,6 +50,7 @@ from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.itinerary_pdf import build_itinerary_pdf
 from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
+from backend.utils.pagination import cursor_page
 from backend.utils.security import get_current_user
 
 logger = get_app_logger(__name__)
@@ -118,9 +114,12 @@ async def flight_order(
     return response
 
 
-@router.get("/flight-orders", response_model=BookingListResponse)
+@router.get("/flight-orders", **cursor_page(BookingPublic))
 async def list_flight_orders(
-    params: Annotated[BookingListQueryParams, Query()],
+    booking_reference: Annotated[str | None, Query()] = None,
+    origin: Annotated[str | None, Query(min_length=3, max_length=3)] = None,
+    destination: Annotated[str | None, Query(min_length=3, max_length=3)] = None,
+    status: Annotated[BookingStatus | None, Query()] = None,
     current_user: UserInDB = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -130,24 +129,29 @@ async def list_flight_orders(
     Backed by our own DB (not a live Duffel call), since Duffel's
     /air/orders isn't scoped per end-user - it lists every order in the
     whole Duffel account. Only bookings made through this app appear here.
+
+    Cursor-paginated (?cursor=&size=): a page is found by seeking straight
+    to the cursor's position in the sort key, so cost doesn't grow with
+    how deep into the list you are, the way OFFSET's row-skipping does.
+
+    The four filters are spelled out here rather than grouped into one
+    Annotated[Model, Query()] parameter, which is what this route used to
+    do: fastapi-pagination's pagination_ctx dependency stops FastAPI from
+    expanding such a model into its individual query params, so /docs
+    advertised a single required `params` object instead of the four real
+    filters. Requests still parsed correctly - only the published schema
+    was wrong - but that schema is the API contract, so the filters are
+    declared in the form that documents itself accurately (and matches
+    how the admin list routes declare theirs).
     """
-    filters = dict(
-        booking_reference=params.booking_reference,
-        origin=params.origin,
-        destination=params.destination,
-        status=params.status,
-    )
-    bookings = get_user_bookings(
-        session, current_user.id, limit=params.limit, offset=params.offset, **filters
-    )
-    total = count_user_bookings(session, current_user.id, **filters)
-    return BookingListResponse(
-        data=bookings,
-        meta=PaginationMeta(
-            limit=params.limit,
-            offset=params.offset,
-            total=total,
-            has_more=params.offset + params.limit < total,
+    return paginate(
+        session,
+        user_bookings_query(
+            current_user.id,
+            booking_reference=booking_reference,
+            origin=origin,
+            destination=destination,
+            status=status,
         ),
     )
 

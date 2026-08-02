@@ -130,7 +130,8 @@ function RefundRow({ refund }: { refund: RefundRead }) {
  * Pesapal can't carry surface here for a human to settle. */
 export function RefundsList() {
   const [filter, setFilter] = useState<RefundStatus | "all">("all");
-  const { data: refunds, isPending, isError } = useQuery(adminRefundsQuery(filter));
+  const { data: refundPage, isPending, isError } = useQuery(adminRefundsQuery(filter));
+  const refunds = refundPage?.items;
 
   return (
     <section className="space-y-4">

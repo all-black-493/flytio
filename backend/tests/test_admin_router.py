@@ -122,7 +122,7 @@ def test_admin_bookings_allows_staff_with_permission_via_group(session, db_clien
     response = db_client.get("/api/admin/bookings", headers=_auth_headers(staffer))
 
     assert response.status_code == 200
-    references = [b["booking_reference"] for b in response.json()["data"]]
+    references = [b["booking_reference"] for b in response.json()["items"]]
     assert "ABC123" in references
 
 

@@ -9,7 +9,6 @@ from datetime import datetime
 from sqlmodel import Field, SQLModel
 
 from backend.schemas.bookings import BookingPublic
-from backend.schemas.common import PaginationMeta
 from backend.schemas.payments import CheckoutRequest
 
 
@@ -56,11 +55,6 @@ class AdminUserDetail(AdminUserRead):
     banned_by_email: str | None = None
 
 
-class AdminUserListResponse(SQLModel):
-    data: list[AdminUserRead]
-    meta: PaginationMeta
-
-
 class BanUserRequest(SQLModel):
     reason: str = Field(min_length=1)
 
@@ -72,11 +66,6 @@ class AdminBookingRead(BookingPublic):
 
     user_id: uuid.UUID
     user_email: str
-
-
-class AdminBookingListResponse(SQLModel):
-    data: list[AdminBookingRead]
-    meta: PaginationMeta
 
 
 class AdminCreateBookingRequest(CheckoutRequest):

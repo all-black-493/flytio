@@ -9,7 +9,7 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { getUnreadNotificationCount, listNotifications } from "@/lib/api/client";
 
-const NOTIFICATION_PANEL_LIMIT = 20;
+const NOTIFICATION_PANEL_SIZE = 20;
 
 // Periodic poll as a fallback only - the SSE stream (NotificationBell's
 // useNotificationStream) is what actually keeps this live; this interval
@@ -27,6 +27,6 @@ export function unreadNotificationCountQuery() {
 export function notificationsPanelQuery() {
   return queryOptions({
     queryKey: ["notifications", "panel"] as const,
-    queryFn: () => listNotifications({ limit: NOTIFICATION_PANEL_LIMIT }),
+    queryFn: () => listNotifications({ size: NOTIFICATION_PANEL_SIZE }),
   });
 }

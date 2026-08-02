@@ -17,7 +17,7 @@ import backend.crud.refunds as refunds_module
 from backend.crud.refunds import (
     customer_refund_amount,
     initiate_refund,
-    list_refunds,
+    refunds_query,
     mark_refund_completed,
     send_refund_request,
 )
@@ -357,8 +357,8 @@ def test_list_refunds_filters_by_status(sqlite_engine, accepted_pesapal):
             )
         )
 
-        assert len(list_refunds(session)) == 2
-        manual = list_refunds(session, status=RefundStatus.MANUAL_REQUIRED)
+        assert len(session.exec(refunds_query()).all()) == 2
+        manual = session.exec(refunds_query(status=RefundStatus.MANUAL_REQUIRED)).all()
         assert len(manual) == 1
         assert manual[0].payment_id == manual_payment.id
 

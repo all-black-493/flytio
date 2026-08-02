@@ -28,7 +28,7 @@ export function AdminUsersList() {
     isFetchingNextPage,
   } = useInfiniteQuery(adminUsersQuery(search));
 
-  const users = data?.pages.flatMap((page) => page.data);
+  const users = data?.pages.flatMap((page) => page.items);
 
   return (
     <div className="space-y-4">

@@ -325,9 +325,9 @@ def _filtered_user_bookings_query(
     destination: str | None = None,
     status: BookingStatus | None = None,
 ):
-    """Shared filter-building base for get_user_bookings/count_user_bookings
-    so pagination (limit/offset/order) and counting always agree on which
-    rows match."""
+    """Shared filter-building base for user_bookings_query/
+    count_user_bookings, so the paginated listing and the count always
+    agree on which rows match."""
     query = select(Booking).where(Booking.user_id == user_id)
     if booking_reference:
         query = query.where(Booking.booking_reference == booking_reference)
@@ -342,17 +342,29 @@ def _filtered_user_bookings_query(
     return query
 
 
-def get_user_bookings(
-    session: Session,
+def user_bookings_query(
     user_id: uuid.UUID,
     *,
     booking_reference: str | None = None,
     origin: str | None = None,
     destination: str | None = None,
     status: BookingStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[Booking]:
+):
+    """The ordered statement behind GET /booking/flight-orders, handed
+    straight to fastapi-pagination rather than executed here.
+
+    Ordering is (created_at desc, id desc), not created_at alone: keyset
+    pagination walks the sort key itself, so it has to be a *total* order.
+    created_at isn't unique - two bookings made in the same instant would
+    give the cursor an ambiguous position and could silently skip or
+    repeat rows across pages. id breaks that tie.
+
+    .distinct() whenever origin/destination is set: those filters join
+    BookingSlice, so a booking matching on more than one slice would come
+    back duplicated (count_user_bookings has always applied distinct for
+    exactly this reason; the offset-based list query this replaced did
+    not, so it could repeat rows).
+    """
     query = _filtered_user_bookings_query(
         user_id,
         booking_reference=booking_reference,
@@ -360,8 +372,19 @@ def get_user_bookings(
         destination=destination,
         status=status,
     )
-    query = query.order_by(Booking.created_at.desc()).offset(offset).limit(limit)
-    return list(session.exec(query).all())
+    if origin or destination:
+        query = query.distinct()
+    return query.order_by(Booking.created_at.desc(), Booking.id.desc())
+
+
+def all_bookings_query(*, search: str | None = None):
+    """Ordered statement behind GET /api/admin/bookings: every booking in
+    the system, unfiltered by owner (the route is gated by utils/rbac.py's
+    require_permission("view_booking")). See user_bookings_query for why
+    id is part of the ordering."""
+    return _filtered_all_bookings_query(search=search).order_by(
+        Booking.created_at.desc(), Booking.id.desc()
+    )
 
 
 def count_user_bookings(
@@ -387,8 +410,9 @@ def count_user_bookings(
 
 
 def _filtered_all_bookings_query(*, search: str | None = None):
-    """Shared filter-building base for get_all_bookings/count_all_bookings
-    - search matches booking_reference OR the owning user's email
+    """Shared filter-building base for all_bookings_query/
+    count_all_bookings - search matches booking_reference OR the owning
+    user's email
     (case-insensitive substring), same pairing convention as
     _filtered_user_bookings_query above."""
     query = select(Booking)
@@ -399,22 +423,6 @@ def _filtered_all_bookings_query(*, search: str | None = None):
             | func.lower(UserInDB.email).contains(pattern)
         )
     return query
-
-
-def get_all_bookings(
-    session: Session, *, search: str | None = None, limit: int = 50, offset: int = 0
-) -> list[Booking]:
-    """Every booking in the system, unfiltered by owner - the staff/admin
-    counterpart to get_user_bookings, backing routers/admin.py's
-    GET /api/admin/bookings (gated by utils/rbac.py's require_permission
-    ("view_booking"))."""
-    query = (
-        _filtered_all_bookings_query(search=search)
-        .order_by(Booking.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    return list(session.exec(query).all())
 
 
 def count_all_bookings(session: Session, *, search: str | None = None) -> int:

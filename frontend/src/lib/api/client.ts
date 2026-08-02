@@ -17,15 +17,15 @@
  */
 
 import {
-  adminBookingListResponseSchema,
+  adminBookingPageSchema,
   adminBookingReadSchema,
   adminDashboardSummarySchema,
   adminGroupReadSchema,
   adminPermissionReadSchema,
   adminUserDetailSchema,
-  adminUserListResponseSchema,
+  adminUserPageSchema,
   adminUserReadSchema,
-  bookingListResponseSchema,
+  bookingPageSchema,
   bookingPublicSchema,
   cardCheckoutResponseSchema,
   checkoutResponseSchema,
@@ -35,7 +35,7 @@ import {
   flightSearchResponseSchema,
   healthResponseSchema,
   messageResponseSchema,
-  notificationListResponseSchema,
+  notificationPageSchema,
   notificationReadSchema,
   offerResponseSchema,
   orderCancellationQuoteResponseSchema,
@@ -48,21 +48,22 @@ import {
   placeSuggestionsResponseSchema,
   popularRouteListSchema,
   pricingSaleReadSchema,
-  refundListSchema,
+  refundPageSchema,
+  type RefundPage,
   refundReadSchema,
   seatMapResponseSchema,
   tokenSchema,
   unreadCountResponseSchema,
   userReadSchema,
-  type AdminBookingListResponse,
+  type AdminBookingPage,
   type AdminBookingRead,
   type AdminDashboardSummary,
   type AdminGroupRead,
   type AdminPermissionRead,
   type AdminUserDetail,
-  type AdminUserListResponse,
+  type AdminUserPage,
   type AdminUserRead,
-  type BookingListResponse,
+  type BookingPage,
   type BookingPublic,
   type CardCheckoutResponse,
   type CheckoutResponse,
@@ -72,7 +73,7 @@ import {
   type FlightSearchResponse,
   type HealthResponse,
   type MessageResponse,
-  type NotificationListResponse,
+  type NotificationPage,
   type NotificationRead,
   type OfferResponse,
   type OrderCancellationQuoteResponse,
@@ -96,6 +97,7 @@ import type {
   AdminCreateBookingRequest,
   AdminListQueryParams,
   BookingListQueryParams,
+  CursorPageQueryParams,
   CheckoutRequest,
   ContactRequest,
   CreateDiscountCodeRequest,
@@ -237,6 +239,18 @@ export async function deleteAccount(password: string): Promise<MessageResponse> 
 }
 
 /* ---------- shopping: mirrors backend/routers/flights.py ---------- */
+
+/** Query string for the flat, scalar-only list endpoints (filters plus
+ * fastapi-pagination's cursor/size). Undefined AND null are both dropped
+ * so `{ cursor: null }` - what an infinite query passes for its first
+ * page - sends no cursor at all rather than the string "null". */
+function listSearchParams(params: object): URLSearchParams {
+  return new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => [key, String(value)]),
+  );
+}
 
 /** Repeats `airlines` as multiple query params (FastAPI's default for
  * list[str] query params), unlike the plain filter().map() pattern used
@@ -423,18 +437,14 @@ export async function confirmCardPayment(paymentId: string): Promise<PaymentStat
 /** GET /booking/flight-orders — the current user's own bookings, one page. */
 export async function listBookings(
   params: BookingListQueryParams = {},
-): Promise<BookingListResponse> {
-  const search = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)]),
-  );
+): Promise<BookingPage> {
+  const search = listSearchParams(params);
   const res = await fetch(`${API_URL}/booking/flight-orders?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return bookingListResponseSchema.parse(await res.json());
+  return bookingPageSchema.parse(await res.json());
 }
 
 /** GET /booking/flight-orders/by-id/{bookingId} — our own booking record
@@ -573,53 +583,41 @@ export async function getAdminPopularRoutes(limit?: number): Promise<PopularRout
  * caller's own (see listBookings above for the customer-scoped version). */
 export async function listAdminBookings(
   params: AdminListQueryParams = {},
-): Promise<AdminBookingListResponse> {
-  const search = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)]),
-  );
+): Promise<AdminBookingPage> {
+  const search = listSearchParams(params);
   const res = await fetch(`${API_URL}/api/admin/bookings?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return adminBookingListResponseSchema.parse(await res.json());
+  return adminBookingPageSchema.parse(await res.json());
 }
 
 /** GET /api/admin/users */
 export async function listAdminUsers(
   params: AdminListQueryParams = {},
-): Promise<AdminUserListResponse> {
-  const search = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)]),
-  );
+): Promise<AdminUserPage> {
+  const search = listSearchParams(params);
   const res = await fetch(`${API_URL}/api/admin/users?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return adminUserListResponseSchema.parse(await res.json());
+  return adminUserPageSchema.parse(await res.json());
 }
 
 /** GET /api/admin/users/{userId}/bookings */
 export async function getAdminUserBookings(
   userId: string,
-  params: { limit?: number; offset?: number } = {},
-): Promise<BookingListResponse> {
-  const search = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)]),
-  );
+  params: CursorPageQueryParams = {},
+): Promise<BookingPage> {
+  const search = listSearchParams(params);
   const res = await fetch(`${API_URL}/api/admin/users/${userId}/bookings?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return bookingListResponseSchema.parse(await res.json());
+  return bookingPageSchema.parse(await res.json());
 }
 
 /** POST /api/admin/users/{userId}/staff — superuser-only on the backend. */
@@ -926,19 +924,15 @@ export async function removeUserGroup(
  * initial load/refresh (the SSE stream only covers what arrives while
  * connected). */
 export async function listNotifications(
-  params: { limit?: number; offset?: number } = {},
-): Promise<NotificationListResponse> {
-  const search = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)]),
-  );
+  params: CursorPageQueryParams = {},
+): Promise<NotificationPage> {
+  const search = listSearchParams(params);
   const res = await fetch(`${API_URL}/notifications?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return notificationListResponseSchema.parse(await res.json());
+  return notificationPageSchema.parse(await res.json());
 }
 
 /** GET /notifications/unread-count — cheap poll for the bell badge. */
@@ -1025,18 +1019,14 @@ export async function getBookingRefund(bookingId: string): Promise<CustomerRefun
 
 /** GET /api/admin/refunds — staff view of every customer refund. */
 export async function listAdminRefunds(
-  params: { status?: RefundStatus; limit?: number; offset?: number } = {},
-): Promise<RefundRead[]> {
-  const query = new URLSearchParams();
-  if (params.status) query.set("status", params.status);
-  if (params.limit != null) query.set("limit", String(params.limit));
-  if (params.offset != null) query.set("offset", String(params.offset));
-  const res = await fetch(`${API_URL}/api/admin/refunds?${query}`, {
+  params: CursorPageQueryParams & { status?: RefundStatus } = {},
+): Promise<RefundPage> {
+  const res = await fetch(`${API_URL}/api/admin/refunds?${listSearchParams(params)}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return refundListSchema.parse(await res.json());
+  return refundPageSchema.parse(await res.json());
 }
 
 /** POST /api/admin/refunds/{refundId}/retry — re-send a failed refund. */

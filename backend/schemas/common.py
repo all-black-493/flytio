@@ -12,6 +12,18 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class PaginationMeta(BaseModel):
+    """Offset pagination, now used only by flight search.
+
+    Every DB-backed list moved to cursor pagination (fastapi-pagination's
+    CursorPage) because OFFSET makes the database walk and discard every
+    row it skips, so deep pages get steadily slower as data grows. Flight
+    search deliberately stays here: it pages a Redis-cached Duffel result
+    already held in memory (utils/offer_filtering.py slices a Python
+    list), so there is no row-skipping to avoid, and its UI shows a
+    result count and lets you jump around - neither of which cursor
+    pagination gives you.
+    """
+
     limit: int
     offset: int
     total: int

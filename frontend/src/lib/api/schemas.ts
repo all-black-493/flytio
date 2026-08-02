@@ -213,6 +213,10 @@ export const offerFacetsSchema = z.object({
 });
 export type OfferFacets = z.infer<typeof offerFacetsSchema>;
 
+/** Offset pagination — flight search only. Every DB-backed list uses
+ * cursorPageSchema below instead; search keeps offsets because it pages a
+ * Redis-cached Duffel response already held in memory (there is no
+ * row-skipping cost to avoid) and its UI shows a result count. */
 export const paginationMetaSchema = z.object({
   limit: z.number(),
   offset: z.number(),
@@ -220,6 +224,29 @@ export const paginationMetaSchema = z.object({
   has_more: z.boolean(),
 });
 export type PaginationMeta = z.infer<typeof paginationMetaSchema>;
+
+/** One page of a cursor-paginated list, mirroring fastapi-pagination's
+ * CursorPage (see backend/utils/pagination.py). Every DB-backed list
+ * endpoint returns this exact shape, so it's declared once and
+ * specialised per item type rather than restated per endpoint.
+ *
+ * `next_page` is the whole protocol on this side: hand it back as
+ * ?cursor= to get the following page, and null means there is no
+ * following page. It replaces the offset arithmetic these lists used to
+ * do (meta.offset + meta.limit), because a cursor already encodes a
+ * position in the sort key.
+ *
+ * Only items/total are required by the backend's schema, so the four
+ * cursor fields are nullish (absent or null) rather than nullable. */
+export const cursorPageSchema = <T extends z.ZodTypeAny>(itemSchema: T) =>
+  z.object({
+    items: z.array(itemSchema),
+    total: z.number(),
+    current_page: z.string().nullish().default(null),
+    current_page_backwards: z.string().nullish().default(null),
+    previous_page: z.string().nullish().default(null),
+    next_page: z.string().nullish().default(null),
+  });
 
 export const flightSearchResponseSchema = z.object({
   data: offerRequestSchema,
@@ -432,7 +459,8 @@ export const refundReadSchema = z.object({
   updated_at: z.string(),
 });
 export type RefundRead = z.infer<typeof refundReadSchema>;
-export const refundListSchema = z.array(refundReadSchema);
+export const refundPageSchema = cursorPageSchema(refundReadSchema);
+export type RefundPage = z.infer<typeof refundPageSchema>;
 
 /* ---------- order changes: POST .../change-requests, .../changes (backend/schemas/duffel_orders.py) ---------- */
 
@@ -577,11 +605,8 @@ export const bookingPublicSchema = z.object({
 });
 export type BookingPublic = z.infer<typeof bookingPublicSchema>;
 
-export const bookingListResponseSchema = z.object({
-  data: z.array(bookingPublicSchema),
-  meta: paginationMetaSchema,
-});
-export type BookingListResponse = z.infer<typeof bookingListResponseSchema>;
+export const bookingPageSchema = cursorPageSchema(bookingPublicSchema);
+export type BookingPage = z.infer<typeof bookingPageSchema>;
 
 /* ---------- admin: mirrors backend/schemas/admin.py, backend/schemas/bookings.py's PopularRoute ---------- */
 
@@ -686,11 +711,8 @@ export const adminUserReadSchema = z.object({
 });
 export type AdminUserRead = z.infer<typeof adminUserReadSchema>;
 
-export const adminUserListResponseSchema = z.object({
-  data: z.array(adminUserReadSchema),
-  meta: paginationMetaSchema,
-});
-export type AdminUserListResponse = z.infer<typeof adminUserListResponseSchema>;
+export const adminUserPageSchema = cursorPageSchema(adminUserReadSchema);
+export type AdminUserPage = z.infer<typeof adminUserPageSchema>;
 
 /** GET /api/admin/users/{userId} only - group_ids/banned_by_email would
  * mean an extra query per row if they were on adminUserReadSchema
@@ -707,11 +729,8 @@ export const adminBookingReadSchema = bookingPublicSchema.extend({
 });
 export type AdminBookingRead = z.infer<typeof adminBookingReadSchema>;
 
-export const adminBookingListResponseSchema = z.object({
-  data: z.array(adminBookingReadSchema),
-  meta: paginationMetaSchema,
-});
-export type AdminBookingListResponse = z.infer<typeof adminBookingListResponseSchema>;
+export const adminBookingPageSchema = cursorPageSchema(adminBookingReadSchema);
+export type AdminBookingPage = z.infer<typeof adminBookingPageSchema>;
 
 /* ---------- RBAC: mirrors backend/schemas/rbac.py - groups/permissions
  * management, superuser-only on the backend (utils/rbac.py's
@@ -830,12 +849,10 @@ export const notificationReadSchema = z.object({
 });
 export type NotificationRead = z.infer<typeof notificationReadSchema>;
 
-export const notificationListResponseSchema = z.object({
-  data: z.array(notificationReadSchema),
-  meta: paginationMetaSchema,
-  unread_count: z.number(),
-});
-export type NotificationListResponse = z.infer<typeof notificationListResponseSchema>;
+/** No unread_count here: GET /notifications/unread-count is the single
+ * source for the badge, and the list endpoint no longer recomputes it. */
+export const notificationPageSchema = cursorPageSchema(notificationReadSchema);
+export type NotificationPage = z.infer<typeof notificationPageSchema>;
 
 export const unreadCountResponseSchema = z.object({ unread_count: z.number() });
 export type UnreadCountResponse = z.infer<typeof unreadCountResponseSchema>;
