@@ -1,8 +1,8 @@
 "use client";
 
-import { Armchair } from "lucide-react";
-
-import type { OfferPassenger, SeatElement, SeatMap } from "@/lib/api/schemas";
+import { SeatCell } from "@/app/(app)/booking/[offerId]/_components/seat-cell";
+import { rowHasExit, seatPosition, serviceFor } from "@/app/(app)/booking/[offerId]/_lib/seat-map";
+import type { OfferPassenger, SeatMap } from "@/lib/api/schemas";
 
 export interface SeatPick {
   designator: string;
@@ -24,13 +24,6 @@ export interface SeatPickerProps {
   /** passengerId -> picked seat */
   selectedSeats: Record<string, SeatPick>;
   onSelect: (passengerId: string, pick: SeatPick) => void;
-}
-
-/** Availability and pricing are per-passenger in Duffel's seat map — a seat
- * can be open for one passenger and not another, so this checks the
- * specific passenger, not a flat available/unavailable boolean. */
-function serviceFor(element: SeatElement, passengerId: string) {
-  return element.available_services?.find((s) => s.passenger_id === passengerId);
 }
 
 function PassengerTabs({
@@ -71,69 +64,6 @@ function PassengerTabs({
   );
 }
 
-function SeatCell({
-  element,
-  selectedByActive,
-  takenByLabel,
-  service,
-  onSelect,
-}: {
-  element: SeatElement;
-  selectedByActive: boolean;
-  takenByLabel: string | null;
-  service: ReturnType<typeof serviceFor>;
-  onSelect: () => void;
-}) {
-  if (element.type !== "seat") {
-    // non-seat elements (galley, lavatory, exit row, etc.) just reserve
-    // their grid position so the layout stays true to the aircraft
-    return <div className="size-9" aria-hidden />;
-  }
-
-  const designator = element.designator ?? "?";
-  const available = service !== undefined;
-  const canSelect = available && !takenByLabel;
-  const isFree = available && parseFloat(service.total_amount) === 0;
-
-  return (
-    <button
-      type="button"
-      disabled={!canSelect && !selectedByActive}
-      onClick={() => canSelect && onSelect()}
-      aria-label={
-        takenByLabel
-          ? `Seat ${designator} (taken by ${takenByLabel})`
-          : available
-            ? `Seat ${designator}${isFree ? "" : `, ${service.total_currency} ${service.total_amount}`}`
-            : `Seat ${designator} (unavailable)`
-      }
-      aria-pressed={selectedByActive}
-      title={
-        takenByLabel
-          ? `Taken by ${takenByLabel}`
-          : available && !isFree
-            ? `${service.total_currency} ${service.total_amount}`
-            : undefined
-      }
-      className={`flex size-9 flex-col items-center justify-center rounded-lg border font-mono text-[9px] leading-none transition-colors ${
-        selectedByActive
-          ? "border-signal bg-signal text-white"
-          : takenByLabel
-            ? "cursor-not-allowed border-dashed border-muted-foreground/40 bg-muted/50 text-muted-foreground"
-            : available
-              ? "border-border bg-card text-foreground hover:border-signal hover:text-signal"
-              : "cursor-not-allowed border-transparent bg-muted text-muted-foreground/50"
-      }`}
-    >
-      <Armchair className="size-3.5" />
-      <span>{designator}</span>
-      {available && !isFree && !selectedByActive && (
-        <span className="text-[7px] text-signal">{Math.round(parseFloat(service.total_amount))}</span>
-      )}
-    </button>
-  );
-}
-
 export function SeatPicker({
   seatMap,
   passengers,
@@ -150,6 +80,12 @@ export function SeatPicker({
     if (seat) takenBy.set(seat.designator, `PASSENGER ${index + 1}`);
   });
 
+  // Only worth naming the traveller on the select button when there's
+  // more than one of them to choose between.
+  const activeIndex = passengers.findIndex((p) => p.id === activePassengerId);
+  const activePassengerLabel =
+    passengers.length > 1 && activeIndex !== -1 ? `PASSENGER ${activeIndex + 1}` : null;
+
   return (
     <div className="space-y-4">
       {passengers.length > 1 && (
@@ -160,45 +96,64 @@ export function SeatPicker({
           selectedSeats={selectedSeats}
         />
       )}
+      <p className="font-mono text-[10px] tracking-widest text-muted-foreground">
+        Hover or tap a seat for its details
+      </p>
       <div className="space-y-8">
         {seatMap.cabins.map((cabin, cabinIndex) => (
           <div key={cabinIndex} className="space-y-2">
             <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
               {cabin.cabin_class.replace("_", " ").toUpperCase()}
             </p>
-            <div className="flex flex-col items-center gap-1.5 rounded-xl border bg-muted/30 p-4">
-              {cabin.rows.map((row, rowIndex) => (
-                <div key={rowIndex} className="flex items-center gap-4">
-                  {row.sections.map((section, sectionIndex) => (
-                    <div key={sectionIndex} className="flex gap-1.5">
-                      {section.elements.map((element, elementIndex) => {
-                        const designator = element.designator;
-                        const service = serviceFor(element, activePassengerId);
-                        return (
-                          <SeatCell
-                            key={elementIndex}
-                            element={element}
-                            selectedByActive={
-                              designator === selectedSeats[activePassengerId]?.designator
-                            }
-                            takenByLabel={designator ? (takenBy.get(designator) ?? null) : null}
-                            service={service}
-                            onSelect={() => {
-                              if (!designator || !service) return;
-                              onSelect(activePassengerId, {
-                                designator,
-                                serviceId: service.id,
-                                amount: service.total_amount,
-                                currency: service.total_currency,
-                              });
-                            }}
-                          />
-                        );
-                      })}
+            {/* The map scrolls inside its own box rather than dragging the whole
+                page sideways: a 3-3-3 row is wider than a phone viewport at any
+                legible seat size (it already was at the previous 36px cells).
+                w-max lets the rows keep their natural width, min-w-full keeps
+                them centred on the wide screens where they do fit. */}
+            <div className="overflow-x-auto rounded-xl border bg-muted/30">
+              <div className="flex w-max min-w-full flex-col items-center gap-1.5 p-4">
+                {cabin.rows.map((row, rowIndex) => {
+                  const inExitRow = rowHasExit(row);
+                  return (
+                    <div key={rowIndex} className="flex items-center gap-4">
+                      {row.sections.map((section, sectionIndex) => (
+                        <div key={sectionIndex} className="flex gap-1.5">
+                          {section.elements.map((element, elementIndex) => {
+                            const designator = element.designator;
+                            const service = serviceFor(element, activePassengerId);
+                            return (
+                              <SeatCell
+                                key={elementIndex}
+                                element={element}
+                                cabinClass={cabin.cabin_class}
+                                position={seatPosition(row, sectionIndex, element)}
+                                inExitRow={inExitRow}
+                                service={service}
+                                selectedByActive={
+                                  designator === selectedSeats[activePassengerId]?.designator
+                                }
+                                takenByLabel={
+                                  designator ? (takenBy.get(designator) ?? null) : null
+                                }
+                                activePassengerLabel={activePassengerLabel}
+                                onSelect={() => {
+                                  if (!designator || !service) return;
+                                  onSelect(activePassengerId, {
+                                    designator,
+                                    serviceId: service.id,
+                                    amount: service.total_amount,
+                                    currency: service.total_currency,
+                                  });
+                                }}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
           </div>
         ))}

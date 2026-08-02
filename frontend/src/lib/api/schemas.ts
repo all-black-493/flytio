@@ -281,6 +281,23 @@ export const seatElementSchema = z.object({
   type: z.enum(["seat", "bassinet", "empty", "lavatory", "galley", "closet", "stairs", "exit_row"]),
   designator: z.string().nullable().optional(),
   available_services: z.array(availableSeatServiceSchema).optional(),
+  /** Airline's own label for the seat, e.g. "Extra legroom seat", and any
+   * conditions attached to it, e.g. "Do not seat children in exit rows".
+   * Duffel sends both on every element but leaves them empty far more
+   * often than not, so anything rendering these has to drop out cleanly
+   * when they're blank rather than leave an empty heading behind.
+   *
+   * Both are nullable, not merely optional, because Duffel really does
+   * send `null` here - on a sampled NBO-MBA seat map, `name` was null on
+   * all 209 elements and `disclosures` was null on 17 of them (a list
+   * elsewhere). A schema accepting only an array/undefined rejects the
+   * entire seat map over those 17, so disclosures is normalised to [] to
+   * spare every consumer the null check. */
+  name: z.string().nullable().optional().default(null),
+  disclosures: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? []),
 });
 export type SeatElement = z.infer<typeof seatElementSchema>;
 
