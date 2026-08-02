@@ -44,8 +44,15 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col font-sans">
         <ThemeProvider attribute="class" defaultTheme="light">
           <QueryProvider>
-            {children}
+            {/* Before {children}, deliberately: React runs sibling effects in
+             * tree order, and sonner drops any toast published while it has no
+             * subscribers (its publish() only notifies subscribers registered
+             * at call time, and subscribe() never replays). Mounted after
+             * {children}, its subscription happened *after* page-level mount
+             * effects, so a toast fired on mount - e.g. the Google sign-in
+             * error on /login?error=... - was silently swallowed. */}
             <Toaster />
+            {children}
             <CookieConsentBanner />
             <GoogleAnalyticsGate />
           </QueryProvider>
