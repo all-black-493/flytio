@@ -5,6 +5,7 @@ from backend.external_services.cache import redis_cache
 from backend.schemas.pesapal import (
     PesapalAuthResponse,
     PesapalBillingAddress,
+    PesapalRefundResponse,
     PesapalRegisteredIpn,
     PesapalRegisterIpnResponse,
     PesapalSubmitOrderResponse,
@@ -176,6 +177,46 @@ class PesapalPaymentService:
             "POST", "Transactions/SubmitOrderRequest", json_body=body
         )
         return PesapalSubmitOrderResponse.model_validate(payload)
+
+    async def request_refund(
+        self,
+        *,
+        confirmation_code: str,
+        amount: float,
+        username: str,
+        remarks: str,
+    ) -> PesapalRefundResponse:
+        """Queues a refund back to the customer's original payment method.
+
+        `confirmation_code` is the one Pesapal returned on the original
+        payment (GetTransactionStatus), not our merchant_reference.
+
+        Two Pesapal rules the caller must already have honoured, because
+        this method can't recover from either: only ONE refund is ever
+        accepted per payment, and mobile-money payments (M-Pesa) can only
+        be refunded in FULL - partial refunds are card-only. See
+        crud/refunds.py, which decides both before getting here.
+
+        Raises PesapalAPIError on rejection. Pesapal signals that in the
+        *body* (`status` "500") while still returning HTTP 200, so a
+        clean HTTP response is not on its own a success.
+        """
+        payload = await self._request(
+            "POST",
+            "Transactions/RefundRequest",
+            json_body={
+                "confirmation_code": confirmation_code,
+                "amount": str(amount),
+                "username": username,
+                "remarks": remarks,
+            },
+        )
+        refund = PesapalRefundResponse.model_validate(payload)
+        if refund.status != "200":
+            raise PesapalAPIError(
+                200, refund.message or f"Pesapal rejected the refund: {refund.status}"
+            )
+        return refund
 
     async def get_transaction_status(
         self, order_tracking_id: str

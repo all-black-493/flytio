@@ -8,6 +8,7 @@ from backend.models.flights import Flight  # noqa: F401
 from backend.models.notifications import Notification  # noqa: F401
 from backend.models.payments import Payment  # noqa: F401
 from backend.models.pricing import DiscountCode, PricingSale  # noqa: F401
+from backend.models.refunds import Refund  # noqa: F401
 from backend.models.rbac import (  # noqa: F401
     Group,
     GroupPermission,

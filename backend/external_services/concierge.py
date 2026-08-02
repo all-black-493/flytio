@@ -42,6 +42,8 @@ from backend.schemas.duffel_orders import (
     OrderChangeSliceRemove,
     OrderChangeSlices,
 )
+from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.kafka import kafka_producer
 from backend.utils.offer_filtering import build_flight_search_response
 from backend.utils.pricing import get_active_markup_rate
 
@@ -272,12 +274,27 @@ if concierge_agent is not None:
         # once Duffel has actually confirmed it, and a booking fetched
         # before the (possibly slow) network call above is stale to write
         # through regardless.
+        quote = OrderCancellationQuote.model_validate(response["data"])
         with Session(engine) as session:
             booking = _get_owned_booking_or_retry(
                 session, booking_reference, ctx.deps.user
             )
             mark_booking_cancelled(session, booking)
-        quote = OrderCancellationQuote.model_validate(response["data"])
+            # Same event the REST cancellation path publishes
+            # (routers/bookings.py) - without it, a booking cancelled
+            # through the concierge would notify nobody and, more
+            # importantly, never refund the customer.
+            kafka_producer.publish_event(
+                KafkaTopics.BOOKING_EVENTS,
+                KafkaEventTypes.BOOKING_CANCELLED,
+                {
+                    "user_id": ctx.deps.user.id,
+                    "booking_id": booking.id,
+                    "booking_reference": booking.booking_reference,
+                    "duffel_refund_amount": quote.refund_amount,
+                    "duffel_refund_currency": quote.refund_currency,
+                },
+            )
         return CancellationQuote(
             cancellation_id=quote.id,
             refund_amount=quote.refund_amount,

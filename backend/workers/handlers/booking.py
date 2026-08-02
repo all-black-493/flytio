@@ -11,8 +11,11 @@ from sqlmodel import Session
 
 from backend.crud.bookings import get_booking
 from backend.crud.db import engine
-from backend.crud.notifications import create_notification
+from backend.crud.notifications import create_notification, notify_staff
+from backend.crud.payments import get_completed_payment_for_booking
+from backend.crud.refunds import initiate_refund
 from backend.models.notifications import NotificationType
+from backend.models.refunds import RefundStatus
 from backend.models.users import UserInDB
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
@@ -41,6 +44,54 @@ async def _handle_booking_cancelled(data: dict[str, Any]) -> None:
             )
         except Exception:
             logger.exception(f"Failed to notify booking {booking_id} cancellation")
+
+        # Independent of the notification above: cancelling the Duffel
+        # order refunded flyt's own balance, not the customer, so their
+        # money still has to be sent back down Pesapal (crud/refunds.py).
+        # Wrapped separately so a failed notification never costs someone
+        # their refund, and vice versa.
+        try:
+            await _refund_cancelled_booking(session, data)
+        except Exception:
+            logger.exception(
+                f"Failed to initiate customer refund for booking {booking_id}"
+            )
+
+
+async def _refund_cancelled_booking(session: Session, data: dict[str, Any]) -> None:
+    booking_id = uuid.UUID(data["booking_id"])
+    payment = get_completed_payment_for_booking(session, booking_id)
+    if payment is None:
+        # Nothing was ever collected through flyt for this booking, so
+        # there is nothing to send back.
+        logger.warning(
+            "No completed payment found for cancelled booking %s - no refund to make",
+            booking_id,
+        )
+        return
+
+    refund = await initiate_refund(
+        session,
+        payment=payment,
+        booking_id=booking_id,
+        duffel_refund_amount=data.get("duffel_refund_amount"),
+    )
+    if refund is not None and refund.status == RefundStatus.MANUAL_REQUIRED:
+        # Real money is owed that Pesapal's API can't move - most often a
+        # partial refund on M-Pesa, which it only allows in full. Staff
+        # have to pay this one out by hand, so it must be surfaced rather
+        # than left sitting in a table nobody watches.
+        try:
+            await notify_staff(
+                session,
+                type=NotificationType.BOOKING_FAILED,
+                title=f"Manual refund needed: {refund.amount} {refund.currency}",
+                body=f"Booking {data['booking_reference']} was cancelled but its "
+                f"refund can't go through Pesapal. {refund.failure_reason}",
+                link_url="/admin/refunds",
+            )
+        except Exception:
+            logger.exception("Failed to notify staff of manual refund %s", refund.id)
 
 
 async def _handle_booking_change_confirmed(data: dict[str, Any]) -> None:

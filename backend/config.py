@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     PESAPAL_CONSUMER_SECRET: str
     PESAPAL_ENV: str = "sandbox"
     PESAPAL_IPN_ID: str = ""
+    # Sent as RefundRequest's `username` ("the identity of the user
+    # initiating the refund" per Pesapal) - it shows up on their side for
+    # whoever approves the refund, so it wants to identify flyt as the
+    # requester rather than any individual staff member, since refunds
+    # here are raised automatically by the app.
+    PESAPAL_REFUND_USERNAME: str = "flyt"
 
     # Kafka (fire-and-forget event bus - see utils/kafka.py and
     # workers/kafka_consumer.py) - empty default so the app still starts

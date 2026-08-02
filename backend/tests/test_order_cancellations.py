@@ -103,10 +103,15 @@ def test_confirm_order_cancellation_publishes_event(
     topic, event_type, data = published[0]
     assert topic == KafkaTopics.BOOKING_EVENTS
     assert event_type == KafkaEventTypes.BOOKING_CANCELLED
+    # The Duffel refund figures ride along on the event so the consumer
+    # can work out the customer's refund (crud/refunds.py) without a
+    # second round trip to Duffel for a quote that may have expired.
     assert data == {
         "user_id": user_id,
         "booking_id": booking_id,
         "booking_reference": "ABC123",
+        "duffel_refund_amount": "100.00",
+        "duffel_refund_currency": "USD",
     }
 
 

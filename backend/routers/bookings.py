@@ -28,6 +28,7 @@ from backend.schemas.bookings import (
 from backend.schemas.common import PaginationMeta
 from backend.schemas.duffel_orders import (
     Order,
+    OrderCancellationQuote,
     OrderCancellationResponse,
     OrderChangeConfirm,
     OrderChangeCreate,
@@ -304,7 +305,13 @@ async def confirm_order_cancellation(
     # publish immediately - the consumer (backend/workers/
     # kafka_consumer.py) never needs to look the booking up itself, since
     # everything create_notification needs is already in the event.
+    #
+    # refund_amount is Duffel's, i.e. what comes back to *flyt's* balance
+    # - the consumer turns it into what the customer gets (see
+    # crud/refunds.py). Carried on the event so the refund never needs a
+    # second, possibly-expired round trip to Duffel to find it out.
     mark_booking_cancelled(session, booking)
+    quote = OrderCancellationQuote.model_validate(response["data"])
     kafka_producer.publish_event(
         KafkaTopics.BOOKING_EVENTS,
         KafkaEventTypes.BOOKING_CANCELLED,
@@ -312,6 +319,8 @@ async def confirm_order_cancellation(
             "user_id": current_user.id,
             "booking_id": booking.id,
             "booking_reference": booking.booking_reference,
+            "duffel_refund_amount": quote.refund_amount,
+            "duffel_refund_currency": quote.refund_currency,
         },
     )
     return response

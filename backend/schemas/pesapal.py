@@ -75,6 +75,21 @@ class PesapalSubmitOrderResponse(PesapalBaseSchema):
     status: str
 
 
+class PesapalRefundResponse(PesapalBaseSchema):
+    """Response from POST /Transactions/RefundRequest.
+
+    `status` is a *string* here ("200" accepted, "500" rejected), not the
+    HTTP status - Pesapal returns HTTP 200 either way, so the body is the
+    only place a rejection shows up. And an accepted refund is only
+    queued for Pesapal's finance team to approve; there's no callback or
+    lookup endpoint to find out whether it was ultimately paid.
+    """
+
+    status: str | None = None
+    message: str | None = None
+    error: dict | None = None
+
+
 class PesapalTransactionStatusResponse(PesapalBaseSchema):
     """Response from GET /Transactions/GetTransactionStatus."""
 

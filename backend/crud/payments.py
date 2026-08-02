@@ -119,6 +119,22 @@ def get_payment_by_pesapal_tracking_id(
     ).first()
 
 
+def get_completed_payment_for_booking(
+    session: Session, booking_id: uuid.UUID
+) -> Payment | None:
+    """The payment that actually funded a booking - what a refund has to
+    be sent back against (crud/refunds.py). Filtered to COMPLETED because
+    a booking can carry earlier abandoned or failed checkout attempts,
+    and refunding against one of those would target money that was never
+    collected."""
+    return session.exec(
+        select(Payment)
+        .where(Payment.booking_id == booking_id)
+        .where(Payment.status == PaymentStatus.COMPLETED)
+        .order_by(Payment.created_at.desc())
+    ).first()
+
+
 def attach_pesapal_tracking_id(
     session: Session, payment: Payment, order_tracking_id: str
 ) -> Payment:

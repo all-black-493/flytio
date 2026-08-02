@@ -16,6 +16,11 @@ from backend.crud.bookings import (
 )
 from backend.crud.db import get_session
 from backend.crud.payments import create_admin_booking, get_revenue_by_currency
+from backend.crud.refunds import (
+    list_refunds,
+    mark_refund_completed,
+    send_refund_request,
+)
 from backend.crud.pricing import (
     create_discount_code,
     create_pricing_sale,
@@ -51,8 +56,10 @@ from backend.crud.users import (
     unban_user,
 )
 from backend.external_services.flight import DuffelAPIError
+from backend.models.payments import Payment
 from backend.models.pricing import DiscountCode
 from backend.models.rbac import Group
+from backend.models.refunds import Refund, RefundStatus
 from backend.models.users import UserInDB
 from backend.schemas.admin import (
     AdminBookingListResponse,
@@ -73,6 +80,7 @@ from backend.schemas.admin import (
 )
 from backend.schemas.bookings import BookingListResponse, BookingPublic, PopularRoute
 from backend.schemas.common import PaginationMeta
+from backend.schemas.refunds import RefundRead
 from backend.schemas.rbac import (
     AssignGroupsRequest,
     AssignPermissionsRequest,
@@ -683,3 +691,69 @@ async def set_discount_code_active_route(
 ):
     discount = _get_discount_code_or_404(session, discount_code_id)
     return set_discount_code_active(session, discount, request.is_active)
+
+
+def _get_refund_or_404(session: Session, refund_id: uuid.UUID) -> Refund:
+    refund = session.get(Refund, refund_id)
+    if refund is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Refund not found"
+        )
+    return refund
+
+
+@router.get("/refunds", response_model=list[RefundRead], tags=["Admin - Refunds"])
+async def list_refunds_route(
+    status_filter: Annotated[RefundStatus | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    _: UserInDB = Depends(require_permission("view_payment")),
+    session: Session = Depends(get_session),
+):
+    """Every customer refund, newest first. Filter by status=manual_required
+    to find the ones Pesapal couldn't carry and a human still owes someone -
+    see crud/refunds.py for when that happens."""
+    return list_refunds(session, status=status_filter, limit=limit, offset=offset)
+
+
+@router.post(
+    "/refunds/{refund_id}/retry", response_model=RefundRead, tags=["Admin - Refunds"]
+)
+async def retry_refund_route(
+    refund_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("change_payment")),
+    session: Session = Depends(get_session),
+):
+    """Re-sends a FAILED refund to Pesapal - for a rejection that has since
+    been fixed (or was transient). Deliberately re-sends the existing row
+    rather than creating a second one: Pesapal accepts only one refund per
+    payment, so a duplicate would be rejected outright."""
+    refund = _get_refund_or_404(session, refund_id)
+    if refund.status != RefundStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only a failed refund can be retried (this one is {refund.status.value}).",
+        )
+    payment = session.get(Payment, refund.payment_id)
+    if payment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The payment this refund belongs to no longer exists.",
+        )
+    return await send_refund_request(session, refund, payment)
+
+
+@router.post(
+    "/refunds/{refund_id}/complete", response_model=RefundRead, tags=["Admin - Refunds"]
+)
+async def complete_refund_route(
+    refund_id: uuid.UUID,
+    _: UserInDB = Depends(require_permission("change_payment")),
+    session: Session = Depends(get_session),
+):
+    """Marks a refund as actually paid out. Pesapal exposes no way to learn
+    this (no webhook, no status lookup for refunds), so reconciliation is
+    necessarily manual - this is also how a manual_required refund gets
+    closed once someone has sent the money another way."""
+    refund = _get_refund_or_404(session, refund_id)
+    return mark_refund_completed(session, refund)
