@@ -1,10 +1,13 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 import { LogoutButton } from "@/components/auth/logout-button";
+import { unreadNotificationCountQuery } from "@/components/notifications/_lib/queries";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { StatusTicker } from "@/components/StatusTicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -20,20 +23,30 @@ const NAV_LINKS = [
 const linkClass =
   "rounded-lg px-3 py-3 font-mono text-sm tracking-wide hover:bg-muted";
 
-export function MobileNavMenu({ authed }: { authed: boolean }) {
+export function MobileNavMenu({ authed, staff = false }: { authed: boolean; staff?: boolean }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+
+  // The bell itself is tucked inside this sheet on mobile, so its own
+  // unread badge is invisible until the menu is opened - this surfaces
+  // the same signal on the hamburger icon so an unread notification
+  // isn't easy to miss.
+  const { data: unread } = useQuery({ ...unreadNotificationCountQuery(), enabled: authed });
+  const hasUnread = (unread?.unread_count ?? 0) > 0;
 
   return (
     <>
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Open menu"
+        aria-label={hasUnread ? "Open menu (unread notifications)" : "Open menu"}
         onClick={() => setOpen(true)}
-        className="text-board-ink hover:bg-board-ink/10 hover:text-board-ink md:hidden"
+        className="relative text-board-ink hover:bg-board-ink/10 hover:text-board-ink md:hidden"
       >
         <Menu />
+        {hasUnread && (
+          <span className="absolute top-1 right-1 size-2 rounded-full bg-signal ring-2 ring-board" />
+        )}
       </Button>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="flex w-full flex-col sm:max-w-xs">
@@ -58,8 +71,21 @@ export function MobileNavMenu({ authed }: { authed: boolean }) {
               </span>
               <ThemeToggle />
             </div>
+            {authed && (
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
+                  NOTIFICATIONS
+                </span>
+                <NotificationBell />
+              </div>
+            )}
             {authed ? (
               <div className="flex flex-col gap-1">
+                {staff && (
+                  <Link href="/admin" onClick={close} className={`${linkClass} text-center`}>
+                    Admin
+                  </Link>
+                )}
                 <Link href="/account" onClick={close} className={`${linkClass} text-center`}>
                   Account
                 </Link>

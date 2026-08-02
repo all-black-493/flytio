@@ -3,17 +3,24 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 
 import { AuthCard } from "@/components/auth/auth-card";
+import { ExpiryCountdown } from "@/components/auth/expiry-countdown";
 import { friendlyAuthError } from "@/components/auth/form-error";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { forgotPassword } from "@/lib/api/client";
+import { formLabelClass as labelClass } from "@/lib/utils";
 
-const labelClass = "font-mono text-[11px] tracking-widest text-muted-foreground";
+// Matches backend/utils/security.py's PASSWORD_RESET_TOKEN_EXPIRE_MINUTES -
+// there's no token to read an `exp` claim from yet at this point (the
+// email hasn't been clicked), so this is the one place that duration has
+// to be duplicated rather than decoded.
+const RESET_LINK_EXPIRY_MINUTES = 30;
 
 const forgotPasswordSchema = z.object({
   email: z.email("Enter a valid email"),
@@ -26,28 +33,37 @@ export function ForgotPasswordForm() {
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: { email: "" },
   });
+  // Set once, the instant the request succeeds - a single state update on
+  // success (not a per-second one) is exactly what useState is for; the
+  // ticking itself still never touches React state (see ExpiryCountdown).
+  const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
 
   const mutation = useMutation({
     mutationFn: (values: ForgotPasswordValues) => forgotPassword(values.email),
+    onSuccess: () => {
+      setExpiresAtMs(Date.now() + RESET_LINK_EXPIRY_MINUTES * 60_000);
+    },
   });
 
   // The backend always returns the same ack whether or not the email is
   // registered (no user-enumeration) - the UI must not reveal that
   // either, so success here means "request sent", not "email found".
-  if (mutation.isSuccess) {
+  if (mutation.isSuccess && expiresAtMs !== null) {
     return (
       <AuthCard
         strip="CHECK-IN"
         gate="GATE 01"
         title="Check your email"
-        subtitle="If that email is registered, we've sent a link to reset your password. It expires in 30 minutes."
+        subtitle="If that email is registered, we've sent a link to reset your password."
         footer={
           <Link href="/login" className="font-semibold text-signal">
             Back to sign in
           </Link>
         }
       >
-        <div />
+        <p className="text-center font-mono text-[11px] tracking-widest text-muted-foreground">
+          IT EXPIRES IN <ExpiryCountdown expiresAtMs={expiresAtMs} />
+        </p>
       </AuthCard>
     );
   }

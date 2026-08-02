@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { meQuery } from "@/app/(app)/account/_lib/queries";
+import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { DeleteAccountDialog } from "@/components/account/delete-account-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,6 +36,8 @@ export function ProfileCard() {
           </div>
         )}
 
+        <ChangePasswordForm />
+
         <Button
           variant="outline"
           size="lg"
@@ -43,6 +47,13 @@ export function ProfileCard() {
         >
           {logout.isPending ? "Logging out…" : "Log out"}
         </Button>
+
+        <div className="mt-6 border-t border-dashed pt-4">
+          <p className="font-mono text-[11px] tracking-[0.2em] text-destructive">DANGER ZONE</p>
+          <div className="mt-3">
+            <DeleteAccountDialog />
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

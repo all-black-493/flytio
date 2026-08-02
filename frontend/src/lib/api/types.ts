@@ -60,6 +60,19 @@ export interface OfferPriceRequest {
   offer_id: string;
 }
 
+/* ---------- loyalty: PATCH /shopping/flight-offers/{id}/passengers/{id} ---------- */
+
+export interface LoyaltyProgrammeAccount {
+  airline_iata_code: string;
+  account_number: string;
+}
+
+export interface OfferPassengerUpdate {
+  given_name: string;
+  family_name: string;
+  loyalty_programme_accounts: LoyaltyProgrammeAccount[];
+}
+
 /* ---------- places: GET /shopping/places ---------- */
 
 export interface PlaceSuggestionsQuery {
@@ -71,6 +84,13 @@ export interface PlaceSuggestionsQuery {
 
 /* ---------- booking: POST /booking/flight-orders ---------- */
 
+export interface IdentityDocument {
+  unique_identifier: string;
+  type: string;
+  issuing_country_code: string;
+  expires_on: string;
+}
+
 export interface OrderPassenger {
   id: string;
   title: string;
@@ -81,9 +101,21 @@ export interface OrderPassenger {
   email: string;
   phone_number: string;
   infant_passenger_id?: string | null;
-  /** Seat picked in our own seat-map UI. Recorded on our booking record
-   * only - the backend strips this before sending the order to Duffel. */
+  /** Required when the offer's passenger_identity_documents_required is
+   * true - see Offer.passenger_identity_documents_required. */
+  identity_documents?: IdentityDocument[] | null;
+  /** Seat picked in our own seat-map UI, for display only - the backend
+   * strips this before sending the order to Duffel. */
   seat_designator?: string | null;
+  /** The seat's available_services[].id (ase_...) for this passenger, from
+   * GET /shopping/seatmaps - this is what actually reserves the seat with
+   * the airline. The backend re-prices it from Duffel's own seat map at
+   * checkout time rather than trusting this value's cost. */
+  seat_service_id?: string | null;
+  /** Purchasable-baggage available_services[].id entries picked for this
+   * passenger (Offer.available_services, type "baggage") - same
+   * server-side re-pricing treatment as seat_service_id. */
+  extra_baggage_service_ids?: string[];
 }
 
 export interface OrderPayment {
@@ -105,13 +137,93 @@ export interface OrderCreate {
 export interface CheckoutRequest {
   selected_offers: [string];
   passengers: OrderPassenger[];
+  /** Validated and applied server-side - never trust a client-computed
+   * discounted amount for what's actually charged. */
+  discount_code?: string | null;
 }
 
-export interface BookingListQueryParams {
+/* ---------- discounts: POST /discounts/preview ---------- */
+
+export interface DiscountPreviewRequest {
+  offer_id: string;
+  discount_code: string;
+}
+
+/** The query params every cursor-paginated list endpoint accepts
+ * (fastapi-pagination's CursorParams). `cursor` is the opaque
+ * `next_page` value from the previous page; omit it for the first page. */
+export interface CursorPageQueryParams {
+  cursor?: string | null;
+  size?: number;
+}
+
+/** Cursor pagination (cursor/size), not offset — see
+ * CursorPageQueryParams. An absent cursor means "the first page". */
+export interface BookingListQueryParams extends CursorPageQueryParams {
   booking_reference?: string;
   origin?: string;
   destination?: string;
   status?: BookingStatus;
-  limit?: number;
-  offset?: number;
+}
+
+/* ---------- admin: mirrors backend/routers/admin.py ---------- */
+
+export interface AdminListQueryParams extends CursorPageQueryParams {
+  search?: string;
+}
+
+/** POST /api/admin/bookings - CheckoutRequest plus which existing
+ * customer this booking belongs to. No payment fields - see
+ * backend/crud/payments.py's create_admin_booking for what
+ * "admin-marked-paid" means. */
+export interface AdminCreateBookingRequest extends CheckoutRequest {
+  user_id: string;
+}
+
+/* ---------- pricing: POST/DELETE /api/admin/pricing/... ---------- */
+
+export interface CreatePricingSaleRequest {
+  name: string;
+  markup_rate: number;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface CreateDiscountCodeRequest {
+  code: string;
+  discount_percentage: number;
+  max_redemptions?: number | null;
+  expires_at?: string | null;
+}
+
+/* ---------- order changes: POST .../change-requests, .../changes ---------- */
+
+export interface OrderChangeSliceRemove {
+  slice_id: string;
+}
+
+export interface OrderChangeSliceAdd {
+  origin: string;
+  destination: string;
+  departure_date: string;
+  cabin_class?: string;
+}
+
+export interface OrderChangeSlices {
+  remove: OrderChangeSliceRemove[];
+  add: OrderChangeSliceAdd[];
+}
+
+export interface OrderChangeCreate {
+  selected_order_change_offer: string;
+}
+
+/* ---------- support: POST /support/contact ---------- */
+
+export interface ContactRequest {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  booking_reference?: string;
 }

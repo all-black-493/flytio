@@ -17,43 +17,98 @@
  */
 
 import {
-  bookingListResponseSchema,
+  adminBookingPageSchema,
+  adminBookingReadSchema,
+  adminDashboardSummarySchema,
+  adminGroupReadSchema,
+  adminPermissionReadSchema,
+  adminUserDetailSchema,
+  adminUserPageSchema,
+  adminUserReadSchema,
+  bookingPageSchema,
   bookingPublicSchema,
   cardCheckoutResponseSchema,
   checkoutResponseSchema,
+  discountCodeReadSchema,
+  customerRefundSchema,
+  discountPreviewResponseSchema,
   flightSearchResponseSchema,
   healthResponseSchema,
   messageResponseSchema,
+  notificationPageSchema,
+  notificationReadSchema,
   offerResponseSchema,
+  orderCancellationQuoteResponseSchema,
   orderCancellationResponseSchema,
+  orderChangeOffersResponseSchema,
+  orderChangeRequestResponseSchema,
+  orderChangeResponseSchema,
   orderResponseSchema,
   paymentStatusResponseSchema,
   placeSuggestionsResponseSchema,
+  popularRouteListSchema,
+  pricingSaleReadSchema,
+  refundPageSchema,
+  type RefundPage,
+  refundReadSchema,
   seatMapResponseSchema,
   tokenSchema,
+  unreadCountResponseSchema,
   userReadSchema,
-  type BookingListResponse,
+  type AdminBookingPage,
+  type AdminBookingRead,
+  type AdminDashboardSummary,
+  type AdminGroupRead,
+  type AdminPermissionRead,
+  type AdminUserDetail,
+  type AdminUserPage,
+  type AdminUserRead,
+  type BookingPage,
   type BookingPublic,
   type CardCheckoutResponse,
   type CheckoutResponse,
+  type DiscountCodeRead,
+  type CustomerRefund,
+  type DiscountPreviewResponse,
   type FlightSearchResponse,
   type HealthResponse,
   type MessageResponse,
+  type NotificationPage,
+  type NotificationRead,
   type OfferResponse,
+  type OrderCancellationQuoteResponse,
   type OrderCancellationResponse,
+  type OrderChangeOffersResponse,
+  type OrderChangeRequestResponse,
+  type OrderChangeResponse,
   type OrderResponse,
   type PaymentStatusResponse,
   type PlaceSuggestionsResponse,
+  type PopularRoute,
+  type PricingSaleRead,
+  type RefundRead,
+  type RefundStatus,
   type SeatMapResponse,
   type Token,
+  type UnreadCountResponse,
   type UserRead,
 } from "./schemas";
 import type {
+  AdminCreateBookingRequest,
+  AdminListQueryParams,
   BookingListQueryParams,
+  CursorPageQueryParams,
   CheckoutRequest,
+  ContactRequest,
+  CreateDiscountCodeRequest,
+  CreatePricingSaleRequest,
+  DiscountPreviewRequest,
   OfferListQueryParams,
+  OfferPassengerUpdate,
   OfferPriceRequest,
   OfferRequestCreate,
+  OrderChangeCreate,
+  OrderChangeSlices,
   OrderCreate,
   PlaceSuggestionsQuery,
 } from "./types";
@@ -152,7 +207,50 @@ export async function resetPassword(
   return messageResponseSchema.parse(await res.json());
 }
 
+/** POST /api/change-password — self-service change for a signed-in user;
+ * distinct from resetPassword, which proves identity via an emailed token
+ * instead of the current password. */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/change-password`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** DELETE /api/me — soft-deletes (anonymizes) the current user's own
+ * account; booking/payment history is preserved. Requires the current
+ * password, same reasoning as changePassword. */
+export async function deleteAccount(password: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/me`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
 /* ---------- shopping: mirrors backend/routers/flights.py ---------- */
+
+/** Query string for the flat, scalar-only list endpoints (filters plus
+ * fastapi-pagination's cursor/size). Undefined AND null are both dropped
+ * so `{ cursor: null }` - what an infinite query passes for its first
+ * page - sends no cursor at all rather than the string "null". */
+function listSearchParams(params: object): URLSearchParams {
+  return new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => [key, String(value)]),
+  );
+}
 
 /** Repeats `airlines` as multiple query params (FastAPI's default for
  * list[str] query params), unlike the plain filter().map() pattern used
@@ -197,6 +295,27 @@ export async function confirmOfferPrice(request: OfferPriceRequest): Promise<Off
   return offerResponseSchema.parse(await res.json());
 }
 
+/** PATCH /shopping/flight-offers/{offerId}/passengers/{offerPassengerId} —
+ * attach loyalty programme accounts to a passenger on an already-priced
+ * offer; returns the offer re-fetched (and re-marked-up), which may
+ * reflect a loyalty discount. */
+export async function updateOfferPassengerLoyalty(
+  offerId: string,
+  offerPassengerId: string,
+  request: OfferPassengerUpdate,
+): Promise<OfferResponse> {
+  const res = await fetch(
+    `${API_URL}/shopping/flight-offers/${offerId}/passengers/${offerPassengerId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return offerResponseSchema.parse(await res.json());
+}
+
 /** GET /shopping/seatmaps?offer_id=... */
 export async function getSeatMap(offerId: string): Promise<SeatMapResponse> {
   const res = await fetch(
@@ -218,6 +337,16 @@ export async function searchPlaces(
   const res = await fetch(`${API_URL}/shopping/places?${params}`);
   if (!res.ok) throw new Error(await errorDetail(res));
   return placeSuggestionsResponseSchema.parse(await res.json());
+}
+
+/** GET /flights/popular-destinations — public, no auth. Empty array is a
+ * normal response (the route hasn't cleared the real-bookings threshold
+ * yet), not an error. */
+export async function getPopularDestinations(limit?: number): Promise<PopularRoute[]> {
+  const params = limit !== undefined ? `?limit=${limit}` : "";
+  const res = await fetch(`${API_URL}/flights/popular-destinations${params}`);
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return popularRouteListSchema.parse(await res.json());
 }
 
 /* ---------- booking: mirrors backend/routers/flights.py (auth required) ---------- */
@@ -247,6 +376,23 @@ export async function checkout(request: CheckoutRequest): Promise<CheckoutRespon
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return checkoutResponseSchema.parse(await res.json());
+}
+
+/** POST /discounts/preview — non-persisting check of whether a discount
+ * code is valid and roughly what it saves, shown before checkout. The
+ * real checkout() call re-validates and applies the code against the
+ * final total, which is what's authoritative. */
+export async function previewDiscount(
+  request: DiscountPreviewRequest,
+): Promise<DiscountPreviewResponse> {
+  const res = await fetch(`${API_URL}/payments/discounts/preview`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountPreviewResponseSchema.parse(await res.json());
 }
 
 /** GET /payments/{paymentId}/status — polled after the Pesapal redirect. */
@@ -291,24 +437,31 @@ export async function confirmCardPayment(paymentId: string): Promise<PaymentStat
 /** GET /booking/flight-orders — the current user's own bookings, one page. */
 export async function listBookings(
   params: BookingListQueryParams = {},
-): Promise<BookingListResponse> {
-  const search = new URLSearchParams(
-    Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)]),
-  );
+): Promise<BookingPage> {
+  const search = listSearchParams(params);
   const res = await fetch(`${API_URL}/booking/flight-orders?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return bookingListResponseSchema.parse(await res.json());
+  return bookingPageSchema.parse(await res.json());
 }
 
 /** GET /booking/flight-orders/by-id/{bookingId} — our own booking record
  * (not Duffel's order_id, see getOrder below) — includes ticket numbers. */
 export async function getBookingById(bookingId: string): Promise<BookingPublic> {
   const res = await fetch(`${API_URL}/booking/flight-orders/by-id/${bookingId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return bookingPublicSchema.parse(await res.json());
+}
+
+/** GET /booking/flight-orders/by-ticket/{ticketNumber} — find one of the
+ * current user's bookings from an airline-issued ticket number alone. */
+export async function getBookingByTicketNumber(ticketNumber: string): Promise<BookingPublic> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/by-ticket/${ticketNumber}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -326,15 +479,19 @@ export async function getOrder(orderId: string): Promise<OrderResponse> {
   return orderResponseSchema.parse(await res.json());
 }
 
-/** POST /booking/flight-orders/{orderId}/cancellations — get a refund quote. */
-export async function requestCancellation(orderId: string): Promise<OrderCancellationResponse> {
+/** POST /booking/flight-orders/{orderId}/cancellations — get a refund quote.
+ * Returns Duffel's quote plus `customer_refund`, which is what the person
+ * actually gets back; always quote that one to a customer. */
+export async function requestCancellation(
+  orderId: string,
+): Promise<OrderCancellationQuoteResponse> {
   const res = await fetch(`${API_URL}/booking/flight-orders/${orderId}/cancellations`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
-  return orderCancellationResponseSchema.parse(await res.json());
+  return orderCancellationQuoteResponseSchema.parse(await res.json());
 }
 
 /** POST .../cancellations/{cancellationId}/confirm — finalize the cancellation. */
@@ -350,10 +507,547 @@ export async function confirmCancellation(
   return orderCancellationResponseSchema.parse(await res.json());
 }
 
+/** POST .../change-requests — step 1 of changing an order: describe which
+ * slice to remove and what new slice to search for in its place. */
+export async function createOrderChangeRequest(
+  orderId: string,
+  request: OrderChangeSlices,
+): Promise<OrderChangeRequestResponse> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/${orderId}/change-requests`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return orderChangeRequestResponseSchema.parse(await res.json());
+}
+
+/** GET .../change-requests/{id}/offers — step 2: the priced ways to
+ * satisfy a change request. */
+export async function listOrderChangeOffers(
+  orderId: string,
+  orderChangeRequestId: string,
+): Promise<OrderChangeOffersResponse> {
+  const res = await fetch(
+    `${API_URL}/booking/flight-orders/${orderId}/change-requests/${orderChangeRequestId}/offers`,
+    { credentials: "include", headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return orderChangeOffersResponseSchema.parse(await res.json());
+}
+
+/** POST .../changes — step 3: create a pending change from a chosen
+ * offer. Not confirmed/charged yet - see backend/routers/bookings.py. */
+export async function createOrderChange(
+  orderId: string,
+  request: OrderChangeCreate,
+): Promise<OrderChangeResponse> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/${orderId}/changes`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return orderChangeResponseSchema.parse(await res.json());
+}
+
+/* ---------- admin: mirrors backend/routers/admin.py — every call here
+ * requires is_staff (and, for some, is_superuser) on the backend; the
+ * frontend's own gating (staff nav link, /admin layout redirect) is a UX
+ * convenience, not the real enforcement. ---------- */
+
+/** GET /api/admin/dashboard/summary */
+export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary> {
+  const res = await fetch(`${API_URL}/api/admin/dashboard/summary`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminDashboardSummarySchema.parse(await res.json());
+}
+
+/** GET /api/admin/dashboard/popular-routes */
+export async function getAdminPopularRoutes(limit?: number): Promise<PopularRoute[]> {
+  const params = limit !== undefined ? `?limit=${limit}` : "";
+  const res = await fetch(`${API_URL}/api/admin/dashboard/popular-routes${params}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return popularRouteListSchema.parse(await res.json());
+}
+
+/** GET /api/admin/bookings — every booking in the system, not just the
+ * caller's own (see listBookings above for the customer-scoped version). */
+export async function listAdminBookings(
+  params: AdminListQueryParams = {},
+): Promise<AdminBookingPage> {
+  const search = listSearchParams(params);
+  const res = await fetch(`${API_URL}/api/admin/bookings?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingPageSchema.parse(await res.json());
+}
+
+/** GET /api/admin/users */
+export async function listAdminUsers(
+  params: AdminListQueryParams = {},
+): Promise<AdminUserPage> {
+  const search = listSearchParams(params);
+  const res = await fetch(`${API_URL}/api/admin/users?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserPageSchema.parse(await res.json());
+}
+
+/** GET /api/admin/users/{userId}/bookings */
+export async function getAdminUserBookings(
+  userId: string,
+  params: CursorPageQueryParams = {},
+): Promise<BookingPage> {
+  const search = listSearchParams(params);
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/bookings?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return bookingPageSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/staff — superuser-only on the backend. */
+export async function setUserStaff(userId: string, isStaff: boolean): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/staff`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ is_staff: isStaff }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/deactivate — soft-delete, same
+ * mechanism as the self-service DELETE /api/me. */
+export async function deactivateUser(userId: string): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/deactivate`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** GET /api/admin/users/{userId} — profile + group membership, for the
+ * user detail page. Not the same shape listAdminUsers rows use, see
+ * adminUserDetailSchema. */
+export async function getAdminUserDetail(userId: string): Promise<AdminUserDetail> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserDetailSchema.parse(await res.json());
+}
+
+/** GET /api/admin/bookings/{bookingId} — one booking, with the owning
+ * user's id/email attached (same shape as a listAdminBookings row). */
+export async function getAdminBookingDetail(bookingId: string): Promise<AdminBookingRead> {
+  const res = await fetch(`${API_URL}/api/admin/bookings/${bookingId}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/bookings — admin-marked-paid booking on behalf of an
+ * existing customer, no real payment collection. See
+ * backend/crud/payments.py's create_admin_booking. */
+export async function createAdminBooking(
+  request: AdminCreateBookingRequest,
+): Promise<AdminBookingRead> {
+  const res = await fetch(`${API_URL}/api/admin/bookings`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/ban — reversible (see unbanUser),
+ * unlike deactivateUser: never scrubs the account's email. */
+export async function banUser(userId: string, reason: string): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/ban`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/unban */
+export async function unbanUser(userId: string): Promise<AdminUserRead> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/unban`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminUserReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/bookings/{bookingId}/backfill-tickets — manually
+ * re-checks Duffel for e-tickets on a booking that's still ticket-less
+ * after the automatic booking-time retry window. Safe to call more than
+ * once - a no-op once the booking has tickets. */
+export async function backfillBookingTickets(bookingId: string): Promise<AdminBookingRead> {
+  const res = await fetch(`${API_URL}/api/admin/bookings/${bookingId}/backfill-tickets`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminBookingReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/bookings/{bookingId}/resend-confirmation */
+export async function resendBookingConfirmation(
+  bookingId: string,
+): Promise<MessageResponse> {
+  const res = await fetch(
+    `${API_URL}/api/admin/bookings/${bookingId}/resend-confirmation`,
+    { method: "POST", credentials: "include", headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/* ---------- pricing: mirrors backend/routers/admin.py's sale/discount-code
+ * routes - permission-gated (view/add/change/delete_pricing) on the
+ * backend, same MANAGED_MODELS grid as everything else in utils/rbac.py. ---------- */
+
+/** GET /api/admin/pricing/sales */
+export async function listAdminPricingSales(): Promise<PricingSaleRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/sales`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return pricingSaleReadSchema.array().parse(await res.json());
+}
+
+/** POST /api/admin/pricing/sales — schedules a markup-rate override that
+ * applies automatically to every customer during its window. */
+export async function createAdminPricingSale(
+  request: CreatePricingSaleRequest,
+): Promise<PricingSaleRead> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/sales`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return pricingSaleReadSchema.parse(await res.json());
+}
+
+/** DELETE /api/admin/pricing/sales/{saleId} */
+export async function deleteAdminPricingSale(saleId: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/sales/${saleId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** GET /api/admin/pricing/discount-codes */
+export async function listAdminDiscountCodes(): Promise<DiscountCodeRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/discount-codes`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountCodeReadSchema.array().parse(await res.json());
+}
+
+/** POST /api/admin/pricing/discount-codes */
+export async function createAdminDiscountCode(
+  request: CreateDiscountCodeRequest,
+): Promise<DiscountCodeRead> {
+  const res = await fetch(`${API_URL}/api/admin/pricing/discount-codes`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountCodeReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/pricing/discount-codes/{discountCodeId}/active —
+ * toggles a code on/off without deleting its redemption history. */
+export async function setAdminDiscountCodeActive(
+  discountCodeId: string,
+  isActive: boolean,
+): Promise<DiscountCodeRead> {
+  const res = await fetch(
+    `${API_URL}/api/admin/pricing/discount-codes/${discountCodeId}/active`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify({ is_active: isActive }),
+    },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return discountCodeReadSchema.parse(await res.json());
+}
+
+/* ---------- RBAC: mirrors backend/routers/admin.py's group/permission
+ * routes - superuser-only on the backend, see adminGroupReadSchema's
+ * docstring. ---------- */
+
+/** GET /api/admin/permissions — the full, fixed set (utils/rbac.py's
+ * MANAGED_MODELS x ACTIONS grid), for the group-permission editor. */
+export async function listAdminPermissions(): Promise<AdminPermissionRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/permissions`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminPermissionReadSchema.array().parse(await res.json());
+}
+
+/** GET /api/admin/groups */
+export async function listAdminGroups(): Promise<AdminGroupRead[]> {
+  const res = await fetch(`${API_URL}/api/admin/groups`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.array().parse(await res.json());
+}
+
+/** POST /api/admin/groups */
+export async function createAdminGroup(name: string): Promise<AdminGroupRead> {
+  const res = await fetch(`${API_URL}/api/admin/groups`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/groups/{groupId}/permissions — idempotent, adds any
+ * codename not already granted (see backend/crud/rbac.py's
+ * add_group_permissions). Returns the group's full updated permission
+ * set, not just what was newly added. */
+export async function assignGroupPermissions(
+  groupId: number,
+  codenames: string[],
+): Promise<AdminGroupRead> {
+  const res = await fetch(`${API_URL}/api/admin/groups/${groupId}/permissions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ codenames }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.parse(await res.json());
+}
+
+/** DELETE /api/admin/groups/{groupId}/permissions/{codename} */
+export async function revokeGroupPermission(
+  groupId: number,
+  codename: string,
+): Promise<AdminGroupRead> {
+  const res = await fetch(
+    `${API_URL}/api/admin/groups/${groupId}/permissions/${codename}`,
+    { method: "DELETE", credentials: "include", headers: await authHeaders() },
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return adminGroupReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/users/{userId}/groups — idempotent, same shape as
+ * add_group_permissions above. */
+export async function assignUserGroups(
+  userId: string,
+  groupIds: number[],
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/groups`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ group_ids: groupIds }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** DELETE /api/admin/users/{userId}/groups/{groupId} */
+export async function removeUserGroup(
+  userId: string,
+  groupId: number,
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/api/admin/users/${userId}/groups/${groupId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/* ---------- notifications: mirrors backend/routers/notifications.py -
+ * bell icon, works identically for a customer or staff/admin account.
+ * GET /notifications/stream (SSE) isn't wrapped here - it's consumed
+ * directly via the browser's native EventSource in
+ * components/notifications/NotificationBell.tsx, not through fetch. ---------- */
+
+/** GET /notifications — most recent first, backs the bell panel's
+ * initial load/refresh (the SSE stream only covers what arrives while
+ * connected). */
+export async function listNotifications(
+  params: CursorPageQueryParams = {},
+): Promise<NotificationPage> {
+  const search = listSearchParams(params);
+  const res = await fetch(`${API_URL}/notifications?${search}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return notificationPageSchema.parse(await res.json());
+}
+
+/** GET /notifications/unread-count — cheap poll for the bell badge. */
+export async function getUnreadNotificationCount(): Promise<UnreadCountResponse> {
+  const res = await fetch(`${API_URL}/notifications/unread-count`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return unreadCountResponseSchema.parse(await res.json());
+}
+
+/** POST /notifications/{id}/read */
+export async function markNotificationRead(
+  notificationId: string,
+): Promise<NotificationRead> {
+  const res = await fetch(`${API_URL}/notifications/${notificationId}/read`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return notificationReadSchema.parse(await res.json());
+}
+
+/** POST /notifications/read-all */
+export async function markAllNotificationsRead(): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/notifications/read-all`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/** DELETE /notifications/{notificationId} */
+export async function deleteNotification(notificationId: string): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/notifications/${notificationId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
+/* ---------- support: POST /support/contact ---------- */
+
+/** No auth required - a customer who can't log in is exactly who most
+ * needs this. */
+export async function contactSupport(request: ContactRequest): Promise<MessageResponse> {
+  const res = await fetch(`${API_URL}/support/contact`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return messageResponseSchema.parse(await res.json());
+}
+
 /** GET /health — used by the navbar's status ticker. No credentials/auth
- * needed; a real DB round trip on the backend (see backend/main.py). */
+ * needed; a real per-service check (DB, Redis, Kafka) on the backend
+ * (see backend/routers/health.py). */
 export async function checkHealth(): Promise<HealthResponse> {
   const res = await fetch(`${API_URL}/health`);
   if (!res.ok) throw new Error(await errorDetail(res));
   return healthResponseSchema.parse(await res.json());
+}
+
+/** GET /booking/flight-orders/by-id/{bookingId}/refund — the traveller's own
+ * refund for a cancelled booking. Resolves to null on 404, which is the
+ * normal case (booking not cancelled, or a non-refundable fare owing
+ * nothing) rather than an error worth surfacing. */
+export async function getBookingRefund(bookingId: string): Promise<CustomerRefund | null> {
+  const res = await fetch(`${API_URL}/booking/flight-orders/by-id/${bookingId}/refund`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return customerRefundSchema.parse(await res.json());
+}
+
+/** GET /api/admin/refunds — staff view of every customer refund. */
+export async function listAdminRefunds(
+  params: CursorPageQueryParams & { status?: RefundStatus } = {},
+): Promise<RefundPage> {
+  const res = await fetch(`${API_URL}/api/admin/refunds?${listSearchParams(params)}`, {
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return refundPageSchema.parse(await res.json());
+}
+
+/** POST /api/admin/refunds/{refundId}/retry — re-send a failed refund. */
+export async function retryAdminRefund(refundId: string): Promise<RefundRead> {
+  const res = await fetch(`${API_URL}/api/admin/refunds/${refundId}/retry`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return refundReadSchema.parse(await res.json());
+}
+
+/** POST /api/admin/refunds/{refundId}/complete — mark a refund as actually
+ * paid out. Pesapal never tells flyt this, so it's always a human call. */
+export async function completeAdminRefund(refundId: string): Promise<RefundRead> {
+  const res = await fetch(`${API_URL}/api/admin/refunds/${refundId}/complete`, {
+    method: "POST",
+    credentials: "include",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return refundReadSchema.parse(await res.json());
 }

@@ -41,6 +41,12 @@ export function CancelBookingDialog({ booking }: { booking: BookingPublic }) {
   });
 
   const quote = quoteMutation.data?.data;
+  // Deliberately NOT quote.refund_amount: that is what returns to flyt's
+  // Duffel balance, and it can exceed what this customer actually paid
+  // once a discount code is involved. The backend computes the real
+  // figure with the same code that pays it out (backend/crud/refunds.py),
+  // so what's promised here and what arrives can't drift apart.
+  const customerRefund = quoteMutation.data?.customer_refund;
 
   return (
     <>
@@ -66,16 +72,32 @@ export function CancelBookingDialog({ booking }: { booking: BookingPublic }) {
                   quoteMutation.error,
                   "This booking can't be cancelled online.",
                 )}
-              {quote && (
+              {customerRefund && Number(customerRefund.amount) > 0 && (
                 <>
                   You&apos;ll be refunded{" "}
                   <strong>
-                    {formatMoney(
-                      quote.refund_amount ?? "0",
-                      quote.refund_currency ?? booking.total_currency,
-                    )}
-                  </strong>{" "}
-                  to your original payment method. This can&apos;t be undone.
+                    {formatMoney(customerRefund.amount, customerRefund.currency)}
+                  </strong>
+                  {customerRefund.to_original_payment_method ? (
+                    <> to your original payment method.</>
+                  ) : (
+                    // Pesapal can't carry this one (most often a partial
+                    // refund on M-Pesa, which it only allows in full), so
+                    // promising the original payment method would be a
+                    // promise flyt can't keep - someone settles it by hand.
+                    <>
+                      . Our team will arrange this with you directly, as it
+                      can&apos;t be sent back automatically.
+                    </>
+                  )}{" "}
+                  Refunds usually take a few working days to arrive. This
+                  can&apos;t be undone.
+                </>
+              )}
+              {customerRefund && Number(customerRefund.amount) === 0 && (
+                <>
+                  This fare is non-refundable, so cancelling won&apos;t return any
+                  money. This can&apos;t be undone.
                 </>
               )}
             </DialogDescription>

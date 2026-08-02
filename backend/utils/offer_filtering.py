@@ -206,19 +206,22 @@ def paginate_groups(
 
 
 def build_flight_search_response(
-    duffel_response: dict, params: OfferListQueryParams
+    duffel_response: dict, params: OfferListQueryParams, markup_rate: float
 ) -> FlightSearchResponse:
     """Full pipeline for one request: facets from the complete cached
     offer list, then filter -> sort -> group -> paginate for the page
     actually sent back. Order matters - see group_by_route()'s docstring
-    for why sort must run before grouping."""
+    for why sort must run before grouping. `markup_rate` is the caller's
+    job to resolve (utils/pricing.py's get_active_markup_rate) - kept out
+    of this function so it stays a pure, DB-free view-layer transform."""
     offer_request = duffel_response["data"]
     # Marked up here, before anything downstream reads a price, so facets,
     # filtering, sorting, and the final Offer.model_validate() all see
     # consistent numbers - a shallow copy per offer keeps the Redis-cached
     # raw Duffel response itself unmarked-up.
     offers = [
-        apply_markup_to_offer_dict(dict(o)) for o in (offer_request.get("offers") or [])
+        apply_markup_to_offer_dict(dict(o), markup_rate)
+        for o in (offer_request.get("offers") or [])
     ]
 
     facets = compute_facets(offers)

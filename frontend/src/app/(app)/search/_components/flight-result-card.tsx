@@ -6,7 +6,14 @@ import { ChevronDown, PlaneTakeoff } from "lucide-react";
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { formatDuration, formatMoney, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
+import {
+  FlightItineraryTimeline,
+  formatLayoverDuration,
+  layoverMinutes,
+  segmentFromOffer,
+} from "@/components/FlightItineraryTimeline";
+import { SelfTransferNotice } from "@/components/SelfTransferNotice";
+import { formatDuration, formatMoney, formatTime, stopsLabel } from "@/lib/api/format";
 import type { Offer, OfferSlice } from "@/lib/api/schemas";
 
 function SliceRow({ slice }: { slice: OfferSlice }) {
@@ -48,7 +55,15 @@ function SliceRow({ slice }: { slice: OfferSlice }) {
 
       {stops > 0 && (
         <p className="col-span-3 -mt-1 font-mono text-[11px] text-muted-foreground">
-          via {slice.segments.slice(0, -1).map((s) => s.destination.iata_code).join(", ")}
+          via{" "}
+          {slice.segments
+            .slice(0, -1)
+            .map((s, i) => {
+              const next = slice.segments[i + 1];
+              const minutes = layoverMinutes(s.arriving_at, next.departing_at);
+              return `${s.destination.iata_code} (${formatLayoverDuration(minutes)})`;
+            })
+            .join(", ")}
         </p>
       )}
     </div>
@@ -78,6 +93,7 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
           {offer.slices.map((slice) => (
             <SliceRow key={slice.id} slice={slice} />
           ))}
+          {offer.partial && <SelfTransferNotice className="mt-3" />}
         </div>
 
         {/* boarding-pass stub: same dark board + signal treatment as the
@@ -129,22 +145,15 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
       </div>
 
       {detailOpen && (
-        <div className="grid gap-3 border-t border-dashed p-4 sm:grid-cols-2 sm:p-5">
-          {offer.slices.flatMap((slice) =>
-            slice.segments.map((segment) => (
-              <div key={segment.id} className="rounded-lg bg-muted/50 p-3 font-mono text-xs">
-                <p className="text-foreground">
-                  {segment.origin.iata_code} {formatTime(segment.departing_at)} →{" "}
-                  {segment.destination.iata_code} {formatTime(segment.arriving_at)}
-                </p>
-                <p className="mt-1 text-muted-foreground">
-                  {segment.marketing_carrier?.iata_code} {segment.marketing_carrier_flight_number} ·{" "}
-                  {segment.aircraft?.name ?? "Aircraft n/a"} · {formatDuration(segment.duration)}
-                </p>
-                <p className="mt-1 text-muted-foreground">{formatShortDate(segment.departing_at)}</p>
-              </div>
-            )),
-          )}
+        <div className="space-y-4 border-t border-dashed p-4 sm:p-5">
+          {offer.slices.map((slice) => (
+            <div key={slice.id}>
+              <p className="mb-1 font-mono text-[11px] tracking-wide text-muted-foreground">
+                {slice.origin.iata_code} → {slice.destination.iata_code}
+              </p>
+              <FlightItineraryTimeline segments={slice.segments.map(segmentFromOffer)} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -168,6 +177,7 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
                       {alt.slices.map((slice) => (
                         <SliceRow key={slice.id} slice={slice} />
                       ))}
+                      {alt.partial && <SelfTransferNotice className="mt-3" />}
                     </div>
                     <div className="flex flex-col items-end gap-2 pl-3">
                       <p className="text-lg font-bold tabular-nums">

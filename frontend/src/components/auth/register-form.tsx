@@ -9,13 +9,14 @@ import { toast } from "sonner";
 import * as z from "zod";
 
 import { AuthCard } from "@/components/auth/auth-card";
+import { AuthDivider } from "@/components/auth/auth-divider";
 import { friendlyAuthError } from "@/components/auth/form-error";
+import { GoogleSignInButton } from "@/components/auth/google-signin-button";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { registerUser } from "@/lib/api/client";
-
-const labelClass = "font-mono text-[11px] tracking-widest text-muted-foreground";
+import { formLabelClass as labelClass } from "@/lib/utils";
 
 const registerSchema = z
   .object({
@@ -113,6 +114,10 @@ export function RegisterForm() {
           {mutation.isPending ? "Creating account…" : "Create account"}
         </Button>
       </form>
+      <div className="mt-4 grid gap-4">
+        <AuthDivider label="or continue with" />
+        <GoogleSignInButton />
+      </div>
     </AuthCard>
   );
 }

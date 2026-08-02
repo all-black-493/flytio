@@ -5,3 +5,8 @@ terraform/terraform.tfvars
 
 .playwright-mcp
 .kombai
+mprocs.yaml
+mprocs.log
+
+.logs
+

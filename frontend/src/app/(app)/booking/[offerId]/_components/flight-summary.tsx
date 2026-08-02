@@ -1,8 +1,52 @@
-import { PlaneTakeoff } from "lucide-react";
-
 import { AirlineLogo } from "@/components/AirlineLogo";
-import { formatDuration, formatMoney, formatShortDate, formatTime, stopsLabel } from "@/lib/api/format";
+import { FlightItineraryTimeline, segmentFromOffer } from "@/components/FlightItineraryTimeline";
+import { PriceBreakdown } from "@/components/PriceBreakdown";
+import { SelfTransferNotice } from "@/components/SelfTransferNotice";
+import { formatDuration, formatMoney, stopsLabel } from "@/lib/api/format";
 import type { Offer } from "@/lib/api/schemas";
+
+/** Pre-purchase refund/change eligibility, straight from the offer Duffel
+ * quoted us - shown before checkout so travelers see it while they can
+ * still pick a different fare, not after they've already paid. */
+function ConditionsNotice({ offer }: { offer: Offer }) {
+  const refund = offer.conditions?.refund_before_departure;
+  const change = offer.conditions?.change_before_departure;
+  if (!refund && !change) return null;
+
+  return (
+    <div className="space-y-1.5 p-4 text-sm">
+      <p className="font-mono text-[11px] tracking-widest text-muted-foreground">FARE RULES</p>
+      {refund && (
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Refund before departure</span>
+          <span>
+            {refund.allowed ? "Allowed" : "Not allowed"}
+            {refund.allowed && refund.penalty_amount && (
+              <span className="text-muted-foreground">
+                {" "}
+                ({formatMoney(refund.penalty_amount, refund.penalty_currency!)} fee)
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+      {change && (
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Change before departure</span>
+          <span>
+            {change.allowed ? "Allowed" : "Not allowed"}
+            {change.allowed && change.penalty_amount && (
+              <span className="text-muted-foreground">
+                {" "}
+                ({formatMoney(change.penalty_amount, change.penalty_currency!)} fee)
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function FlightSummary({ offer }: { offer: Offer }) {
   const firstSegmentCarrier = offer.slices[0]?.segments[0]?.marketing_carrier;
@@ -19,48 +63,31 @@ export function FlightSummary({ offer }: { offer: Offer }) {
           />
           {offer.owner?.name ?? "Airline"}
         </span>
-        <span className="text-lg font-bold tabular-nums">
-          {formatMoney(offer.total_amount, offer.total_currency)}
-        </span>
+        <PriceBreakdown
+          baseAmount={offer.base_amount}
+          baseCurrency={offer.base_currency}
+          taxAmount={offer.tax_amount}
+          taxCurrency={offer.tax_currency}
+          totalAmount={offer.total_amount}
+          totalCurrency={offer.total_currency}
+        />
       </div>
       <div className="divide-y">
-        {offer.slices.map((slice) => {
-          const first = slice.segments[0];
-          const last = slice.segments[slice.segments.length - 1];
-          return (
-            <div key={slice.id} className="flex items-center gap-4 p-4">
-              <div>
-                <p className="text-lg font-bold tabular-nums leading-none">
-                  {formatTime(first.departing_at)}
-                </p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {first.origin.iata_code} · {formatShortDate(first.departing_at)}
-                </p>
-              </div>
-              <div className="flex flex-1 flex-col items-center px-2">
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {formatDuration(slice.duration)}
-                </span>
-                <div className="flex w-full items-center gap-1">
-                  <span className="h-px flex-1 bg-border" />
-                  <PlaneTakeoff className="size-3.5 rotate-45 text-signal" />
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {stopsLabel(slice)}
-                </span>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-bold tabular-nums leading-none">
-                  {formatTime(last.arriving_at)}
-                </p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {last.destination.iata_code} · {formatShortDate(last.arriving_at)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+        {offer.slices.map((slice) => (
+          <div key={slice.id} className="p-4">
+            <p className="mb-1 font-mono text-[11px] tracking-wide text-muted-foreground">
+              {slice.origin.iata_code} → {slice.destination.iata_code} ·{" "}
+              {formatDuration(slice.duration)} · {stopsLabel(slice)}
+            </p>
+            <FlightItineraryTimeline segments={slice.segments.map(segmentFromOffer)} />
+          </div>
+        ))}
+        {offer.partial && (
+          <div className="p-4">
+            <SelfTransferNotice />
+          </div>
+        )}
+        <ConditionsNotice offer={offer} />
       </div>
     </div>
   );

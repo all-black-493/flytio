@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowUpDown, MapPin, PlaneTakeoff } from "lucide-react";
 
+import { PassengerCountPicker, type PassengerCounts } from "@/components/PassengerCountPicker";
 import { PlaceAutocomplete } from "@/components/PlaceAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,8 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { searchHrefFromForm } from "@/lib/search-params";
-
-const labelClass = "font-mono text-[10px] tracking-[0.2em] text-muted-foreground";
+import { compactLabelClass as labelClass } from "@/lib/utils";
 
 type TripType = "one_way" | "round_trip";
 
@@ -36,6 +36,11 @@ export default function SearchCard() {
   const [origin, setOrigin] = useState("OSL");
   const [destination, setDestination] = useState("JFK");
   const [tripType, setTripType] = useState<TripType>("one_way");
+  const [passengers, setPassengers] = useState<PassengerCounts>({
+    adults: 1,
+    children: 0,
+    infants: 0,
+  });
 
   function swap() {
     setOrigin(destination);
@@ -174,21 +179,15 @@ export default function SearchCard() {
           </Select>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="home-adults" className={labelClass}>
+          <Label htmlFor="home-passengers" className={labelClass}>
             PASSENGERS
           </Label>
-          <Select name="adults" defaultValue="1">
-            <SelectTrigger id="home-adults" className="h-10 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[1, 2, 3, 4, 5, 6].map((n) => (
-                <SelectItem key={n} value={String(n)}>
-                  {n} adult{n > 1 ? "s" : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PassengerCountPicker
+            triggerId="home-passengers"
+            value={passengers}
+            onChange={setPassengers}
+            className="h-10"
+          />
         </div>
 
         {/* ticket perforation before the tear-off action */}

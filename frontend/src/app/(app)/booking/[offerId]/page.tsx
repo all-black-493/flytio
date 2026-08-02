@@ -6,7 +6,7 @@ import { offerPriceQuery, seatMapQuery } from "@/app/(app)/booking/[offerId]/_li
 import { getQueryClient } from "@/lib/query/get-query-client";
 import { isAuthenticated } from "@/lib/auth/session";
 
-export const metadata = { title: "Confirm your booking — flyt.io" };
+export const metadata = { title: "Confirm your booking — flyt" };
 
 interface PageProps {
   params: Promise<{ offerId: string }>;

@@ -1,0 +1,47 @@
+{% extends "_shell.html" %}
+{% from "_macros.html" import slice_block, passenger_row, receipt, conditions %}
+
+{% block content %}
+<h2 style="margin:0 0 4px;font-size:20px;">You're booked!</h2>
+<p style="margin:0 0 20px;color:#55677c;">Booking reference <strong style="color:#0b1526;">{{ booking.booking_reference }}</strong></p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;border:1px solid #d8e0e8;margin-bottom:24px;">
+  <tr>
+    <td style="padding:16px 20px;">
+      <p style="margin:0;font-size:16px;font-weight:bold;">{{ route_summary }}</p>
+      <p style="margin:4px 0 0;color:#55677c;">{{ departure_date }} · {{ booking.passengers | length }} passenger{{ "s" if booking.passengers | length != 1 else "" }} · {{ booking.owner_name or "—" }}</p>
+    </td>
+  </tr>
+</table>
+
+<h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Itinerary</h3>
+{% for slice_ in booking.slices %}{{ slice_block(slice_) }}{% endfor %}
+
+<h3 style="margin:24px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Passengers</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+  <tr style="color:#55677c;font-size:11px;text-transform:uppercase;">
+    <td style="padding:0 0 4px;">Name</td>
+    <td style="padding:0 0 4px;">Class</td>
+    <td style="padding:0 0 4px;">Baggage</td>
+    <td style="padding:0 0 4px;">Seat</td>
+  </tr>
+  {% for passenger in booking.passengers %}{{ passenger_row(passenger) }}{% endfor %}
+</table>
+
+<h3 style="margin:24px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Your trip receipt</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+  {{ receipt(booking) }}
+</table>
+{{ conditions(booking) }}
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px;">
+  <tr>
+    <td style="background:#ff4f00;">
+      <a href="{{ booking_url }}" style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;text-decoration:none;">View booking</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:16px 0 0;">
+  <a href="{{ pdf_url }}" style="color:#ff4f00;">Download itinerary (PDF)</a> - includes a QR code for quick lookup.
+</p>
+{% endblock %}

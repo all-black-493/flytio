@@ -7,7 +7,14 @@ import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { searchPlaces } from "@/lib/api/client";
 import type { Place } from "@/lib/api/schemas";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
+
+/** Duffel's places endpoint has no per-keystroke caching win the way
+ * search/pricing do (every distinct prefix is a distinct cache key), and
+ * no backend rate limit of its own - debouncing here is the only thing
+ * standing between a fast typer/paste and a burst of uncached requests. */
+const PLACE_QUERY_DEBOUNCE_MS = 250;
 
 function placeCode(place: Place): string {
   return place.iata_code ?? place.iata_city_code ?? "";
@@ -67,10 +74,14 @@ export function PlaceAutocomplete({
   }
 
   const trimmed = query.trim();
+  // The input itself binds to `query` directly (unaffected, stays
+  // responsive) - only the network-triggering value is debounced, so a
+  // fast typer doesn't fire a request per keystroke.
+  const debouncedQuery = useDebouncedValue(trimmed, PLACE_QUERY_DEBOUNCE_MS);
   const { data, isFetching } = useQuery({
-    queryKey: ["place-suggestions", trimmed],
-    queryFn: () => searchPlaces({ query: trimmed }),
-    enabled: open && trimmed.length >= 2,
+    queryKey: ["place-suggestions", debouncedQuery],
+    queryFn: () => searchPlaces({ query: debouncedQuery }),
+    enabled: open && debouncedQuery.length >= 2,
     staleTime: 60_000,
   });
 

@@ -59,7 +59,7 @@ def build_itinerary_pdf(booking: Booking) -> bytes:
 
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(*_INK)
-    pdf.cell(0, 10, "flyt.io", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "flyt", new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(*_MUTED)

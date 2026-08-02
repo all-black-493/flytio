@@ -134,6 +134,8 @@ export function searchHrefFromForm(
     departureDate: String(form.get("departure_date")),
     returnDate: String(form.get("return_date") || "") || undefined,
     adults: Number(form.get("adults")) || 1,
+    children: Number(form.get("children")) || undefined,
+    infants: Number(form.get("infants")) || undefined,
     cabinClass: (String(form.get("cabin_class")) as CabinClass) || undefined,
   });
   return `/search?${query}`;

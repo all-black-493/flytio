@@ -2,17 +2,21 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from backend.config import settings
 from backend.crud.bookings import get_booking
 from backend.crud.db import get_session
 from backend.crud.payments import (
+    attach_duffel_payment_intent,
+    attach_pesapal_tracking_id,
     confirm_card_payment,
-    create_payment,
     finalize_payment,
     get_payment,
+    get_payment_by_pesapal_tracking_id,
+    reconfirm_price_and_create_payment,
 )
+from backend.crud.pricing import validate_discount_code
 from backend.external_services.flight import DuffelAPIError, duffel_flight_service
 from backend.external_services.payment import PesapalAPIError, pesapal_payment_service
 from backend.models.payments import Payment, PaymentProvider
@@ -22,15 +26,35 @@ from backend.schemas.payments import (
     CardCheckoutResponse,
     CheckoutRequest,
     CheckoutResponse,
+    DiscountPreviewRequest,
+    DiscountPreviewResponse,
     PaymentStatusResponse,
 )
 from backend.schemas.pesapal import PesapalBillingAddress
-from backend.utils.pricing import marked_up_amount
+from backend.utils.duffel_errors import duffel_http_exception
+from backend.utils.guard import guard_deco
+from backend.utils.log_manager import get_app_logger
+from backend.utils.pricing import (
+    apply_discount,
+    get_active_markup_rate,
+    marked_up_amount,
+)
 from backend.utils.security import get_current_user
 
-router = APIRouter(prefix="/payments")
+logger = get_app_logger(__name__)
+
+router = APIRouter(prefix="/payments", tags=["Payments"])
 
 FRONTEND_URL = settings.FRONTEND_URL
+
+# Both checkout paths are authenticated and each call re-confirms price
+# with Duffel and creates a provider-side order (Pesapal order / Duffel
+# PaymentIntent) - this guards against a runaway retry loop (bug or
+# otherwise) spamming either provider with duplicate in-flight payments.
+# IP-keyed via guard_deco.rate_limit (fastapi-guard) below, not per-user -
+# see routers/users.py's constants block for why.
+CHECKOUT_IP_LIMIT = 10
+CHECKOUT_WINDOW_SECONDS = 60 * 10
 
 
 def _get_owned_payment(
@@ -46,41 +70,47 @@ def _get_owned_payment(
     return payment
 
 
-async def _reconfirm_price_and_create_payment(
-    session: Session,
-    current_user: UserInDB,
-    request: CheckoutRequest,
-    provider: PaymentProvider,
-) -> Payment:
-    """Shared by both checkout endpoints below: re-confirms the offer's
-    live price, applies flyt's markup, and persists a pending Payment.
-    The one place this money-critical price/markup logic lives, so both
-    payment providers can never drift apart on it."""
-    offer_id = request.selected_offers[0]
+@router.post("/discounts/preview", response_model=DiscountPreviewResponse)
+@guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
+async def preview_discount(
+    request: DiscountPreviewRequest,
+    _: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Non-persisting check so the customer sees whether a code works (and
+    roughly what it saves) before committing to checkout - see
+    DiscountPreviewRequest's docstring for why this previews the base
+    fare only, not the final total with seats/baggage folded in. The real
+    checkout call re-validates and applies the code for real."""
     try:
-        priced = await duffel_flight_service.confirm_price(offer_id)
+        priced = await duffel_flight_service.confirm_price(request.offer_id)
     except DuffelAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.errors)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise duffel_http_exception(e)
 
     offer_data = priced["data"]
     duffel_amount = offer_data["total_amount"]
     currency = offer_data["total_currency"]
-    amount = marked_up_amount(duffel_amount)
+    markup_rate = get_active_markup_rate(session)
+    original_amount = marked_up_amount(duffel_amount, markup_rate)
 
-    return create_payment(
-        session,
-        current_user.id,
-        request,
-        amount,
-        duffel_amount,
-        currency,
-        provider=provider,
+    try:
+        discount = validate_discount_code(session, request.discount_code)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    discounted_amount = apply_discount(
+        original_amount, discount.discount_percentage, floor_amount=duffel_amount
+    )
+    return DiscountPreviewResponse(
+        original_amount=original_amount,
+        discounted_amount=discounted_amount,
+        currency=currency,
+        discount_percentage=discount.discount_percentage,
     )
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
+@guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
 async def checkout(
     request: CheckoutRequest,
     current_user: UserInDB = Depends(get_current_user),
@@ -96,9 +126,14 @@ async def checkout(
     purchase the customer doesn't complete.
     """
     offer_id = request.selected_offers[0]
-    payment = await _reconfirm_price_and_create_payment(
-        session, current_user, request, PaymentProvider.PESAPAL
-    )
+    try:
+        payment = await reconfirm_price_and_create_payment(
+            session, current_user.id, request, PaymentProvider.PESAPAL
+        )
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     primary_passenger = request.passengers[0]
     billing_address = PesapalBillingAddress(
@@ -113,7 +148,7 @@ async def checkout(
             merchant_reference=payment.merchant_reference,
             amount=float(payment.amount),
             currency=payment.currency,
-            description=f"flyt.io flight booking ({offer_id})",
+            description=f"flyt flight booking ({offer_id})",
             callback_url=f"{FRONTEND_URL}/booking/payment-callback?payment_id={payment.id}",
             cancellation_url=(
                 f"{FRONTEND_URL}/booking/payment-callback"
@@ -122,14 +157,13 @@ async def checkout(
             billing_address=billing_address,
         )
     except (PesapalAPIError, ValueError) as e:
+        print("DEBUG PESAPAL ERROR: ", e)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Payment provider error: {e}",
         )
 
-    payment.pesapal_order_tracking_id = pesapal_order.order_tracking_id
-    session.add(payment)
-    session.commit()
+    attach_pesapal_tracking_id(session, payment, pesapal_order.order_tracking_id)
 
     return CheckoutResponse(
         payment_id=payment.id, redirect_url=pesapal_order.redirect_url
@@ -137,6 +171,7 @@ async def checkout(
 
 
 @router.post("/checkout/card", response_model=CardCheckoutResponse)
+@guard_deco.rate_limit(requests=CHECKOUT_IP_LIMIT, window=CHECKOUT_WINDOW_SECONDS)
 async def checkout_card(
     request: CheckoutRequest,
     current_user: UserInDB = Depends(get_current_user),
@@ -150,21 +185,24 @@ async def checkout_card(
     never reach our backend. See POST /payments/{payment_id}/confirm-card
     for what happens once the customer submits their card.
     """
-    payment = await _reconfirm_price_and_create_payment(
-        session, current_user, request, PaymentProvider.DUFFEL
-    )
+    try:
+        payment = await reconfirm_price_and_create_payment(
+            session, current_user.id, request, PaymentProvider.DUFFEL
+        )
+    except DuffelAPIError as e:
+        raise duffel_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     try:
         intent = await duffel_flight_service.create_payment_intent(
             payment.amount, payment.currency
         )
     except DuffelAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.errors)
+        raise duffel_http_exception(e)
 
     intent_data = intent["data"]
-    payment.duffel_payment_intent_id = intent_data["id"]
-    session.add(payment)
-    session.commit()
+    attach_duffel_payment_intent(session, payment, intent_data["id"])
 
     return CardCheckoutResponse(
         payment_id=payment.id, client_token=intent_data["client_token"]
@@ -253,14 +291,16 @@ async def pesapal_ipn(
     where the customer closes their browser before returning from Pesapal.
     Must respond with this exact JSON echo per Pesapal's IPN spec.
     """
-    payment = session.exec(
-        select(Payment).where(Payment.pesapal_order_tracking_id == OrderTrackingId)
-    ).first()
+    payment = get_payment_by_pesapal_tracking_id(session, OrderTrackingId)
     if payment is not None:
         try:
             await finalize_payment(session, payment)
-        except PesapalAPIError:
-            pass  # Pesapal retries the IPN on failure; nothing more to do here
+        except PesapalAPIError as e:
+            # Pesapal retries the IPN on failure; nothing more to do here
+            # beyond a record of it, since this is expected to self-heal.
+            logger.info(
+                "IPN-triggered status check failed for payment %s: %s", payment.id, e
+            )
 
     return {
         "orderNotificationType": OrderNotificationType,

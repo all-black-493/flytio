@@ -27,10 +27,10 @@ export default function AudienceSplit() {
           <ul className="space-y-3 leading-relaxed text-board-muted">
             <li>Book for teams and clients from one account.</li>
             <li>Consolidated payments and clean invoices.</li>
-            <li>API access to the same search that powers flyt.io.</li>
+            <li>API access to the same search that powers flyt.</li>
           </ul>
           <a
-            href="mailto:partners@flyt.io"
+            href="mailto:partners@flyt.africa"
             className="mt-6 inline-block font-semibold text-signal hover:text-board-ink"
           >
             Talk to us →

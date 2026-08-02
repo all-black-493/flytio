@@ -1,8 +1,20 @@
 """Import every table model here so SQLModel.metadata knows about all of
-them before crud.db.init_db() calls create_all() at app startup."""
+them - needed before alembic/env.py's autogenerate can see them, and by
+each test file's own create_all() against its isolated SQLite engine."""
 
 from backend.models.bookings import Booking, BookingPassenger, BookingSlice  # noqa: F401
+from backend.models.destinations import DestinationImage  # noqa: F401
 from backend.models.flights import Flight  # noqa: F401
+from backend.models.notifications import Notification  # noqa: F401
 from backend.models.payments import Payment  # noqa: F401
+from backend.models.pricing import DiscountCode, PricingSale  # noqa: F401
+from backend.models.refunds import Refund  # noqa: F401
+from backend.models.rbac import (  # noqa: F401
+    Group,
+    GroupPermission,
+    Permission,
+    UserGroup,
+    UserPermission,
+)
 from backend.models.tickets import Ticket  # noqa: F401
 from backend.models.users import UserInDB  # noqa: F401

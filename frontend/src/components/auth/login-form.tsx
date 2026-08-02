@@ -4,18 +4,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
 
 import { AuthCard } from "@/components/auth/auth-card";
-import { friendlyAuthError } from "@/components/auth/form-error";
+import { AuthDivider } from "@/components/auth/auth-divider";
+import { friendlyAuthError, googleAuthErrorMessage } from "@/components/auth/form-error";
+import { GoogleSignInButton } from "@/components/auth/google-signin-button";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { loginUser } from "@/lib/api/client";
-
-const labelClass = "font-mono text-[11px] tracking-widest text-muted-foreground";
+import { formLabelClass as labelClass } from "@/lib/utils";
 
 const loginSchema = z.object({
   email: z.email("Enter a valid email"),
@@ -24,12 +26,22 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
-export function LoginForm({ next }: { next?: string }) {
+export function LoginForm({ next, error }: { next?: string; error?: string }) {
   const router = useRouter();
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
   });
+
+  // Google sign-in failures land here as a full-page redirect (backend/
+  // routers/oauth.py's callback), not a mutation this component
+  // triggered itself - surfaced once on arrival, then the param is
+  // stripped so refreshing the page doesn't re-toast it.
+  useEffect(() => {
+    if (!error) return;
+    toast.error(googleAuthErrorMessage(error));
+    router.replace("/login");
+  }, [error, router]);
 
   const mutation = useMutation({
     mutationFn: (values: LoginValues) => loginUser(values.email, values.password),
@@ -101,6 +113,10 @@ export function LoginForm({ next }: { next?: string }) {
           {mutation.isPending ? "Signing in…" : "Sign in"}
         </Button>
       </form>
+      <div className="mt-4 grid gap-4">
+        <AuthDivider label="or continue with" />
+        <GoogleSignInButton />
+      </div>
     </AuthCard>
   );
 }

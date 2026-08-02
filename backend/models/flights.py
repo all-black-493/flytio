@@ -24,8 +24,10 @@ class Flight(SQLModel, table=True):
 
     origin_iata_code: str = Field(nullable=False)
     origin_name: str | None = None
+    origin_terminal: str | None = None
     destination_iata_code: str = Field(nullable=False)
     destination_name: str | None = None
+    destination_terminal: str | None = None
 
     departing_at: datetime = Field(nullable=False)
     arriving_at: datetime = Field(nullable=False)
@@ -39,6 +41,7 @@ class Flight(SQLModel, table=True):
     marketing_carrier_flight_number: str | None = None
     operating_carrier_iata_code: str | None = None
     operating_carrier_name: str | None = None
+    operating_carrier_flight_number: str | None = None
     aircraft_name: str | None = None
 
     slice: "BookingSlice" = Relationship(back_populates="flights")

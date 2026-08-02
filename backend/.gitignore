@@ -12,4 +12,12 @@ wheels/
 # env vars
 .env
 
+# rotating app logs (utils/log_manager.py) - dated rotations don't end in
+# .log (e.g. backend.log.2026-07-29), so match the base name with a
+# wildcard suffix too.
+*.log
+backend.log.*
+
 flytio_keypair.pem
+
+.logs/

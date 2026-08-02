@@ -6,7 +6,7 @@ import { paymentStatusQuery } from "@/app/(app)/booking/payment-callback/_lib/qu
 import { isAuthenticated } from "@/lib/auth/session";
 import { getQueryClient } from "@/lib/query/get-query-client";
 
-export const metadata = { title: "Confirming your payment - flyt.io" };
+export const metadata = { title: "Confirming your payment - flyt" };
 
 interface PageProps {
   searchParams: Promise<{ payment_id?: string; cancelled?: string }>;

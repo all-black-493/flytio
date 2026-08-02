@@ -1,16 +1,16 @@
-from sqlmodel import Session, create_engine, SQLModel
+from sqlmodel import Session, create_engine
 
 from backend.config import settings
 
-engine = create_engine(settings.DATABASE_URL, echo=True)
+# echo=False: SQLAlchemy's own query-echo attaches its own handler to the
+# "sqlalchemy.engine" logger independent of utils/log_manager.py's root
+# logger config, which - now that both exist - doubled up every SQL
+# statement as two differently-formatted lines. Blasting every query to
+# logs at INFO is also not something you want unconditionally in
+# production. Flip this to True locally if you need to see raw SQL.
+engine = create_engine(settings.DATABASE_URL, echo=False)
 
 
 def get_session():
     with Session(engine) as session:
         yield session
-
-
-def init_db():
-    import backend.models  # noqa: F401  (registers all tables on SQLModel.metadata)
-
-    SQLModel.metadata.create_all(engine)

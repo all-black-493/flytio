@@ -14,7 +14,7 @@ from backend.models.bookings import (
 from backend.models.flights import Flight
 from backend.models.tickets import Ticket
 from backend.models.users import UserInDB
-from backend.utils.email import send_html_email_async
+from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
 
 
@@ -113,6 +113,7 @@ def seed():
                 f"You're booked! Reference {booking.booking_reference}",
                 [user.email],
                 html,
+                from_address=SENDER_BOOKINGS,
             )
 
         asyncio.run(send())

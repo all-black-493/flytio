@@ -153,6 +153,67 @@ class DuffelFlightService:
             f"/air/order_cancellations/{order_cancellation_id}/actions/confirm",
         )
 
+    async def update_offer_passenger(
+        self, offer_id: str, offer_passenger_id: str, update: dict
+    ) -> dict:
+        """Attaches loyalty programme accounts (and re-confirms the
+        passenger's name) to a specific passenger on an already-created
+        offer - may reveal a loyalty-discounted fare, only reflected by
+        re-fetching the offer afterward (see confirm_price)."""
+        return await self._request(
+            "PATCH",
+            f"/air/offers/{offer_id}/passengers/{offer_passenger_id}",
+            json_body={"data": update},
+        )
+
+    async def create_order_change_request(self, order_id: str, slices: dict) -> dict:
+        """Step 1 of changing an order: describe which slice(s) to remove
+        and what new slice(s) to search for in their place. Doesn't touch
+        the order yet - returns candidate offers to review next."""
+        return await self._request(
+            "POST",
+            "/air/order_change_requests",
+            json_body={"data": {"order_id": order_id, "slices": slices}},
+        )
+
+    async def list_order_change_offers(self, order_change_request_id: str) -> dict:
+        """Step 2: the priced ways to satisfy a change request."""
+        return await self._request(
+            "GET",
+            "/air/order_change_offers",
+            params={"order_change_request_id": order_change_request_id},
+        )
+
+    async def create_order_change(self, selected_order_change_offer: str) -> dict:
+        """Step 3: creates a pending change from a chosen offer - not
+        confirmed/charged yet."""
+        return await self._request(
+            "POST",
+            "/air/order_changes",
+            json_body={
+                "data": {"selected_order_change_offer": selected_order_change_offer}
+            },
+        )
+
+    async def confirm_order_change(self, order_change_id: str, payment: dict) -> dict:
+        """Step 4: pays for and finalizes a pending order change."""
+        return await self._request(
+            "POST",
+            f"/air/order_changes/{order_change_id}/confirm",
+            json_body={"data": {"payment": payment}},
+        )
+
+    async def create_webhook(self, url: str, events: list[str]) -> dict:
+        """Registers a webhook endpoint with Duffel - the returned `secret`
+        is shown exactly once and must be saved as DUFFEL_WEBHOOK_SECRET;
+        see backend/scripts/register_duffel_webhook.py, the one-off script
+        that calls this."""
+        return await self._request(
+            "POST",
+            "/air/webhooks",
+            json_body={"data": {"url": url, "events": events}},
+        )
+
     async def search_places(self, params: dict) -> dict:
         """Search airports and cities via Duffel's places suggestions
         endpoint, in either text-query or lat/lng/rad mode."""

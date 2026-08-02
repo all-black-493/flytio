@@ -17,29 +17,54 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { OfferPassenger } from "@/lib/api/schemas";
-import type { OrderPassenger } from "@/lib/api/types";
-
-const labelClass = "font-mono text-[10px] tracking-[0.2em] text-muted-foreground";
+import type { LoyaltyProgrammeAccount, OrderPassenger } from "@/lib/api/types";
+import { compactLabelClass as labelClass } from "@/lib/utils";
 
 export type PassengerDetails = Omit<OrderPassenger, "id" | "seat_designator">;
 
-const passengerSchema = z.object({
-  title: z.string().min(1, "Required"),
-  gender: z.string().min(1, "Required"),
-  given_name: z.string().min(1, "Required"),
-  family_name: z.string().min(1, "Required"),
-  born_on: z.string().min(1, "Required"),
-  email: z.email("Enter a valid email"),
-  phone_number: z.string().refine(isValidPhoneNumber, "Enter a valid phone number"),
+const passportSchema = z.object({
+  unique_identifier: z.string().min(1, "Required"),
+  issuing_country_code: z
+    .string()
+    .length(2, "2-letter country code, e.g. KE")
+    .transform((v) => v.toUpperCase()),
+  expires_on: z.string().min(1, "Required"),
 });
 
-const passengersFormSchema = z.object({
-  passengers: z.array(passengerSchema),
+const passportOptionalSchema = z.object({
+  unique_identifier: z.string().optional(),
+  issuing_country_code: z.string().optional(),
+  expires_on: z.string().optional(),
 });
 
-type PassengersFormValues = z.infer<typeof passengersFormSchema>;
+const loyaltySchema = z.object({
+  airline_iata_code: z.string().optional(),
+  account_number: z.string().optional(),
+});
 
-const EMPTY_DETAILS: PassengerDetails = {
+function buildPassengerSchema(identityDocumentRequired: boolean) {
+  return z.object({
+    title: z.string().min(1, "Required"),
+    gender: z.string().min(1, "Required"),
+    given_name: z.string().min(1, "Required"),
+    family_name: z.string().min(1, "Required"),
+    born_on: z.string().min(1, "Required"),
+    email: z.email("Enter a valid email"),
+    phone_number: z.string().refine(isValidPhoneNumber, "Enter a valid phone number"),
+    passport: identityDocumentRequired ? passportSchema : passportOptionalSchema,
+    loyalty: loyaltySchema,
+  });
+}
+
+function buildPassengersFormSchema(identityDocumentRequired: boolean) {
+  return z.object({
+    passengers: z.array(buildPassengerSchema(identityDocumentRequired)),
+  });
+}
+
+type PassengersFormValues = z.infer<ReturnType<typeof buildPassengersFormSchema>>;
+
+const EMPTY_DETAILS: PassengersFormValues["passengers"][number] = {
   title: "mr",
   gender: "m",
   given_name: "",
@@ -47,34 +72,72 @@ const EMPTY_DETAILS: PassengerDetails = {
   born_on: "",
   email: "",
   phone_number: "",
+  passport: { unique_identifier: "", issuing_country_code: "", expires_on: "" },
+  loyalty: { airline_iata_code: "", account_number: "" },
 };
 
 export interface PassengerFormProps {
   passengers: OfferPassenger[];
+  /** From Offer.passenger_identity_documents_required - some itineraries
+   * require passport details before Duffel will accept the order. */
+  identityDocumentRequired: boolean;
   onBack: () => void;
-  onSubmit: (passengers: PassengerDetails[]) => void;
+  /** loyaltyAccounts is one entry per passenger (null if they left the
+   * frequent-flyer fields blank), same order as `passengers` - the
+   * caller (BookingFlow) attaches these to the offer before final
+   * pricing, since Duffel only reflects a loyalty discount that way. */
+  onSubmit: (
+    passengers: PassengerDetails[],
+    loyaltyAccounts: (LoyaltyProgrammeAccount | null)[],
+  ) => void;
   isSubmitting: boolean;
   submitLabel: string;
 }
 
 export function PassengerForm({
   passengers,
+  identityDocumentRequired,
   onBack,
   onSubmit,
   isSubmitting,
   submitLabel,
 }: PassengerFormProps) {
   const form = useForm<PassengersFormValues>({
-    resolver: zodResolver(passengersFormSchema),
+    resolver: zodResolver(buildPassengersFormSchema(identityDocumentRequired)),
     defaultValues: { passengers: passengers.map(() => EMPTY_DETAILS) },
   });
   const { fields } = useFieldArray({ control: form.control, name: "passengers" });
 
+  function handleSubmit(values: PassengersFormValues) {
+    const loyaltyAccounts = values.passengers.map(({ loyalty }) =>
+      loyalty.airline_iata_code && loyalty.account_number
+        ? {
+            airline_iata_code: loyalty.airline_iata_code.toUpperCase(),
+            account_number: loyalty.account_number,
+          }
+        : null,
+    );
+    onSubmit(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- loyalty is only needed above, excluded from PassengerDetails
+      values.passengers.map(({ passport, loyalty, ...rest }) => ({
+        ...rest,
+        identity_documents: identityDocumentRequired
+          ? [
+              {
+                unique_identifier: passport.unique_identifier ?? "",
+                type: "passport",
+                issuing_country_code: passport.issuing_country_code ?? "",
+                expires_on: passport.expires_on ?? "",
+              },
+            ]
+          : undefined,
+      })),
+      loyaltyAccounts,
+    );
+  }
+
   return (
-    <form
-      onSubmit={form.handleSubmit((values) => onSubmit(values.passengers))}
-      className="space-y-6"
-    >
+    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
       {fields.map((field, index) => {
         const passenger = passengers[index];
         const errors = form.formState.errors.passengers?.[index];
@@ -174,6 +237,63 @@ export function PassengerForm({
               <Input type="email" {...form.register(`passengers.${index}.email`)} />
               <FieldError errors={[errors?.email]} />
             </Field>
+
+            {identityDocumentRequired && (
+              <div className="space-y-3 rounded-lg border border-dashed p-3">
+                <p className="text-xs text-muted-foreground">
+                  This itinerary requires passport details for every passenger.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <Field>
+                    <FieldLabel className={labelClass}>PASSPORT NUMBER</FieldLabel>
+                    <Input
+                      {...form.register(`passengers.${index}.passport.unique_identifier`)}
+                    />
+                    <FieldError errors={[errors?.passport?.unique_identifier]} />
+                  </Field>
+                  <Field>
+                    <FieldLabel className={labelClass}>ISSUING COUNTRY</FieldLabel>
+                    <Input
+                      placeholder="KE"
+                      maxLength={2}
+                      {...form.register(
+                        `passengers.${index}.passport.issuing_country_code`,
+                      )}
+                    />
+                    <FieldError errors={[errors?.passport?.issuing_country_code]} />
+                  </Field>
+                  <Field>
+                    <FieldLabel className={labelClass}>EXPIRY DATE</FieldLabel>
+                    <Input
+                      type="date"
+                      {...form.register(`passengers.${index}.passport.expires_on`)}
+                    />
+                    <FieldError errors={[errors?.passport?.expires_on]} />
+                  </Field>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel className={labelClass}>
+                  FREQUENT FLYER AIRLINE (OPTIONAL)
+                </FieldLabel>
+                <Input
+                  placeholder="e.g. QF"
+                  maxLength={2}
+                  {...form.register(`passengers.${index}.loyalty.airline_iata_code`)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel className={labelClass}>
+                  FREQUENT FLYER NUMBER (OPTIONAL)
+                </FieldLabel>
+                <Input
+                  {...form.register(`passengers.${index}.loyalty.account_number`)}
+                />
+              </Field>
+            </div>
           </div>
         );
       })}
@@ -188,7 +308,7 @@ export function PassengerForm({
           className="flex-1 font-semibold"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Redirecting to payment…" : submitLabel}
+          {isSubmitting ? "Please wait…" : submitLabel}
         </Button>
       </div>
     </form>

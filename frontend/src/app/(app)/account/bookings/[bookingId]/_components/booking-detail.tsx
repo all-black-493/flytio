@@ -2,80 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, Download, PlaneTakeoff, Ticket as TicketIcon } from "lucide-react";
+import { ArrowLeft, Download, Ticket as TicketIcon, TriangleAlert } from "lucide-react";
 
 import { bookingDetailQuery } from "@/app/(app)/account/bookings/[bookingId]/_lib/queries";
 import { CancelBookingDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/cancel-booking-dialog";
+import { CancellationRefundNotice } from "@/app/(app)/account/bookings/[bookingId]/_components/cancellation-refund-notice";
+import { ChangeFlightDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/change-flight-dialog";
 import { AirlineLogo } from "@/components/AirlineLogo";
+import { BaggageSummary, FareRulesCard, SliceCard } from "@/components/booking/BookingDetailParts";
+import { PriceBreakdown } from "@/components/PriceBreakdown";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_URL } from "@/lib/api/client";
-import { formatMoney, formatShortDate, formatTime } from "@/lib/api/format";
-import type { BookingSlicePublic } from "@/lib/api/schemas";
-
-function SliceCard({ slice }: { slice: BookingSlicePublic }) {
-  const first = slice.flights[0];
-  const last = slice.flights[slice.flights.length - 1];
-  if (!first || !last) return null;
-
-  return (
-    <div className="overflow-hidden rounded-xl border">
-      <div className="flex items-center gap-4 bg-board px-4 py-3 text-board-ink">
-        <AirlineLogo
-          logoUrl={first.marketing_carrier_logo_url}
-          iataCode={first.marketing_carrier_iata_code}
-          name={first.marketing_carrier_name}
-          fallbackClassName="bg-board-ink/10 text-board-ink"
-        />
-        <div>
-          <p className="text-lg font-bold tabular-nums leading-none">
-            {formatTime(first.departing_at)}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-board-muted">
-            {slice.origin_iata_code} · {formatShortDate(first.departing_at)}
-          </p>
-        </div>
-        <div className="flex flex-1 flex-col items-center px-2">
-          <div className="flex w-full items-center gap-1">
-            <span className="h-px flex-1 bg-board-muted/40" />
-            <PlaneTakeoff className="size-3.5 rotate-45 text-signal" />
-            <span className="h-px flex-1 bg-board-muted/40" />
-          </div>
-          {slice.flights.length > 1 && (
-            <span className="mt-1 font-mono text-[10px] text-board-muted">
-              {slice.flights.length - 1} stop{slice.flights.length - 1 > 1 ? "s" : ""}
-            </span>
-          )}
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-bold tabular-nums leading-none">
-            {formatTime(last.arriving_at)}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-board-muted">
-            {slice.destination_iata_code} · {formatShortDate(last.arriving_at)}
-          </p>
-        </div>
-      </div>
-      <div className="divide-y">
-        {slice.flights.map((flight) => (
-          <div
-            key={flight.id}
-            className="flex items-center justify-between px-4 py-2 text-sm text-muted-foreground"
-          >
-            <span>
-              {flight.origin_iata_code} → {flight.destination_iata_code}
-            </span>
-            <span>
-              {flight.marketing_carrier_name ?? flight.marketing_carrier_iata_code ?? ""}{" "}
-              {flight.marketing_carrier_flight_number ?? ""}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+import { formatShortDate } from "@/lib/api/format";
 
 export function BookingDetail({ bookingId }: { bookingId: string }) {
   const { data: booking, isPending, isError } = useQuery(bookingDetailQuery(bookingId));
@@ -136,13 +76,33 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
                   <p className="font-mono text-[11px] tracking-widest text-muted-foreground">
                     TOTAL PAID
                   </p>
-                  <p className="font-semibold">
-                    {formatMoney(booking.total_amount, booking.total_currency)}
-                  </p>
+                  <PriceBreakdown
+                    baseAmount={booking.base_amount}
+                    baseCurrency={booking.base_currency}
+                    taxAmount={booking.tax_amount}
+                    taxCurrency={booking.tax_currency}
+                    totalAmount={booking.total_amount}
+                    totalCurrency={booking.total_currency}
+                  />
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {booking.airline_initiated_change_detected_at && (
+            <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                The airline changed this booking&apos;s schedule on{" "}
+                {formatShortDate(booking.airline_initiated_change_detected_at)}. Review your
+                itinerary below, or{" "}
+                <Link href="/contact" className="underline underline-offset-2">
+                  contact support
+                </Link>{" "}
+                if it no longer works for you.
+              </span>
+            </p>
+          )}
 
           <a
             href={`${API_URL}/booking/flight-orders/by-id/${booking.id}/itinerary.pdf`}
@@ -152,7 +112,16 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
             Download itinerary (PDF)
           </a>
 
-          {booking.status === "confirmed" && <CancelBookingDialog booking={booking} />}
+          {booking.status === "confirmed" && (
+            <>
+              <ChangeFlightDialog booking={booking} />
+              <CancelBookingDialog booking={booking} />
+            </>
+          )}
+
+          {/* Self-gating on booking.status, so it sits here
+           * unconditionally rather than duplicating that check. */}
+          <CancellationRefundNotice booking={booking} />
 
           <div className="space-y-3">
             <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
@@ -162,6 +131,8 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
               <SliceCard key={slice.id} slice={slice} />
             ))}
           </div>
+
+          <FareRulesCard booking={booking} />
 
           <div className="space-y-3">
             <p className="font-mono text-[11px] tracking-[0.2em] text-muted-foreground">
@@ -177,6 +148,7 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
                     SEAT {passenger.seat_designator ?? "TBD"}
                   </span>
                 </div>
+                <BaggageSummary passenger={passenger} />
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <TicketIcon className="size-3.5" />
                   {passenger.tickets.length > 0 ? (

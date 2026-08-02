@@ -1,0 +1,11 @@
+{% extends "_shell.html" %}
+
+{% block content %}
+<h2 style="margin:0 0 4px;font-size:20px;">New support request</h2>
+<p style="margin:0 0 20px;color:#55677c;">From {{ name }} &lt;{{ email }}&gt;</p>
+{% if booking_reference %}
+<p style="margin:0 0 16px;">Booking reference: <strong>{{ booking_reference }}</strong></p>
+{% endif %}
+<p style="margin:0 0 4px;font-weight:bold;">{{ subject }}</p>
+<div style="white-space:pre-wrap;border-left:3px solid #d8e0e8;padding-left:12px;">{{ message }}</div>
+{% endblock %}

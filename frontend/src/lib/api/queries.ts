@@ -6,11 +6,17 @@
 
 import { queryOptions } from "@tanstack/react-query";
 
-import { searchOffers } from "./client";
+import { getPopularDestinations, searchOffers } from "./client";
 
 const TEASER_ROUTE = { origin: "OSL", destination: "JFK" } as const;
 
-function thirtyDaysFromNow(): string {
+/** Default departure origin for entry points that don't have one of
+ * their own yet (e.g. clicking a popular destination) - matches this
+ * app's Kenya-outbound framing; the traveler can change it once they
+ * land on /search, same as every other entry point into search. */
+export const DEFAULT_ORIGIN_IATA_CODE = "NBO";
+
+export function thirtyDaysFromNow(): string {
   const date = new Date();
   date.setDate(date.getDate() + 30);
   return date.toISOString().slice(0, 10);
@@ -38,5 +44,16 @@ export function departureBoardQuery() {
       ),
     // the board's own footer says "fares refresh every 60 seconds"
     refetchInterval: 60 * 1000,
+  });
+}
+
+/** Real bookings only - the backend already filters out anything below
+ * its real-signal threshold (routers/flights.py's
+ * PUBLIC_POPULAR_ROUTE_MIN_BOOKINGS), so an empty array here is a normal
+ * "not enough data yet" response, not an error. */
+export function popularDestinationsQuery() {
+  return queryOptions({
+    queryKey: ["popular-destinations"] as const,
+    queryFn: () => getPopularDestinations(),
   });
 }

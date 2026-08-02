@@ -9,10 +9,9 @@ attributes instead.
 import uuid
 from datetime import date, datetime
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import SQLModel
 
 from backend.models.bookings import BookingStatus, CabinClass, PassengerType
-from backend.schemas.common import PaginationMeta
 from backend.schemas.tickets import TicketPublic
 
 
@@ -21,8 +20,10 @@ class FlightPublic(SQLModel):
     duffel_segment_id: str
     origin_iata_code: str
     origin_name: str | None = None
+    origin_terminal: str | None = None
     destination_iata_code: str
     destination_name: str | None = None
+    destination_terminal: str | None = None
     departing_at: datetime
     arriving_at: datetime
     duration: str | None = None
@@ -32,6 +33,7 @@ class FlightPublic(SQLModel):
     marketing_carrier_flight_number: str | None = None
     operating_carrier_iata_code: str | None = None
     operating_carrier_name: str | None = None
+    operating_carrier_flight_number: str | None = None
     aircraft_name: str | None = None
 
 
@@ -59,6 +61,8 @@ class BookingPassengerPublic(SQLModel):
     phone_number: str | None = None
     seat_designator: str | None = None
     cabin_class: CabinClass | None = None
+    checked_bags: int = 0
+    carry_on_bags: int = 0
     tickets: list[TicketPublic] = []
 
 
@@ -69,27 +73,44 @@ class BookingPublic(SQLModel):
     status: BookingStatus
     total_amount: str
     total_currency: str
+    base_amount: str | None = None
+    base_currency: str | None = None
+    tax_amount: str | None = None
+    tax_currency: str | None = None
     owner_iata_code: str | None = None
     owner_name: str | None = None
+    refund_allowed: bool | None = None
+    refund_penalty_amount: str | None = None
+    refund_penalty_currency: str | None = None
+    change_allowed: bool | None = None
+    change_penalty_amount: str | None = None
+    change_penalty_currency: str | None = None
     created_at: datetime
     cancelled_at: datetime | None = None
+    airline_initiated_change_detected_at: datetime | None = None
     slices: list[BookingSlicePublic] = []
     passengers: list[BookingPassengerPublic] = []
 
 
-class BookingListQueryParams(SQLModel):
-    """Query params for listing the current user's bookings from our own
-    DB (not Duffel's cursor-paginated /air/orders), so plain offset/limit
-    pagination is used instead of Duffel's opaque before/after cursors."""
+class PopularRoute(SQLModel):
+    """Aggregated from BookingSlice (crud/bookings.py's
+    get_popular_routes) - shared by the staff dashboard
+    (routers/admin.py) and the public destinations endpoint
+    (routers/flights.py), which differ only in their min_bookings
+    threshold, not in shape."""
 
-    booking_reference: str | None = None
-    origin: str | None = Field(default=None, min_length=3, max_length=3)
-    destination: str | None = Field(default=None, min_length=3, max_length=3)
-    status: BookingStatus | None = None
-    limit: int = Field(default=50, ge=1, le=200)
-    offset: int = Field(default=0, ge=0)
+    origin_iata_code: str
+    origin_city_name: str | None = None
+    destination_iata_code: str
+    destination_city_name: str | None = None
+    booking_count: int
 
-
-class BookingListResponse(SQLModel):
-    data: list[BookingPublic]
-    meta: PaginationMeta
+    # Unsplash photo for the destination city (crud/destinations.py,
+    # scripts/backfill_destination_images.py) - all three are None
+    # together whenever no photo has been cached yet, never partially
+    # populated. destination_image_attribution_name/_url must be rendered
+    # as a visible credit next to the image wherever it's shown, per
+    # Unsplash's API guidelines.
+    destination_image_url: str | None = None
+    destination_image_attribution_name: str | None = None
+    destination_image_attribution_url: str | None = None

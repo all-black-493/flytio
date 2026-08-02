@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { FilterSidebar } from "@/app/(app)/search/_components/filter-sidebar";
@@ -19,6 +19,10 @@ export interface ResultsExplorerProps {
 
 export function ResultsExplorer({ pages, onLoadMore, hasMore, isLoadingMore }: ResultsExplorerProps) {
   const router = useRouter();
+  // Present only when an admin is booking on a customer's behalf
+  // (/admin/bookings/new) - carried into /booking/[offerId] so that page
+  // knows to show its admin "mark as paid" flow instead of real checkout.
+  const bookForUserId = useSearchParams().get("bookForUserId");
   const [compareOffer, setCompareOffer] = useState<Offer | null>(null);
 
   // Filtering, sorting, route-grouping and faceting all happen server-side
@@ -60,7 +64,13 @@ export function ResultsExplorer({ pages, onLoadMore, hasMore, isLoadingMore }: R
                 offer={primary}
                 alternates={alternates}
                 onViewFares={setCompareOffer}
-                onSelect={(offer) => router.push(`/booking/${offer.id}`)}
+                onSelect={(offer) =>
+                  router.push(
+                    bookForUserId
+                      ? `/booking/${offer.id}?bookForUserId=${bookForUserId}`
+                      : `/booking/${offer.id}`,
+                  )
+                }
               />
             ))}
           </div>
