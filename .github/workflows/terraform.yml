@@ -204,10 +204,6 @@ jobs:
             cd backend
 
             cat <<EOF > .env
-          PRIVATE_KEY=${PRIVATE_KEY}
-          HOST=${HOST}
-          USER=${USER}
-          GH_PAT=${GH_PAT}
           RESEND_API_KEY=${RESEND_API_KEY}
           MAIL_DOMAIN=${MAIL_DOMAIN}
           MAIL_FROM_NAME=${MAIL_FROM_NAME}
