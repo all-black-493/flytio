@@ -38,8 +38,20 @@ async def main() -> None:
 
     data = response["data"]
     print(f"Registered webhook: {data['url']} for events {data['events']}")
-    print("\nAdd this to backend/.env (shown once - save it now):")
+    # The id is printed because it is the only handle Duffel gives you for
+    # this endpoint afterwards - pinging it (POST /air/webhooks/id/{id}/
+    # actions/ping) and deleting it both need it, and the creation
+    # response is the one place it is handed over. There is no documented
+    # "list my webhooks" call to recover it from later.
+    print(f"Webhook id:         {data['id']}")
+    print("\nSave BOTH of these now - the secret is shown exactly once:")
     print(f"DUFFEL_WEBHOOK_SECRET={data['secret']}")
+    print(
+        f"\nTest it reaches you:\n"
+        f"  curl -X POST 'https://api.duffel.com/air/webhooks/id/{data['id']}/actions/ping' \\\n"
+        f"    -H 'Accept: application/json' -H 'Content-Type: application/json' \\\n"
+        f"    -H 'Duffel-Version: v2' -H \"Authorization: Bearer $DUFFEL_API_TOKEN\" -d '{{}}'"
+    )
 
 
 if __name__ == "__main__":
