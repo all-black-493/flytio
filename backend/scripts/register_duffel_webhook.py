@@ -5,12 +5,24 @@ Run once per environment (test/live) after DUFFEL_API_TOKEN is set:
 
     python -m backend.scripts.register_duffel_webhook
 
-The secret is shown by Duffel exactly once, at creation time - if it's
-lost, this script must be re-run, which registers a SECOND webhook
-endpoint (Duffel has no "get existing secret" call, unlike Pesapal's IPN
-registration, so there's no dedup check here the way
-register_pesapal_ipn.py has). Delete the stale endpoint from the Duffel
-dashboard after re-running to avoid duplicate deliveries.
+Duffel allows exactly ONE webhook per organisation per mode, so re-running
+this against an environment that already has one fails outright with:
+
+    Field 'identity_organisation_id' a webhook for this organisation and
+    mode already exists
+
+That is a guardrail, not a problem: duplicate deliveries are impossible.
+But it does mean rotating the secret is delete-then-create, never
+create-then-swap - there is no way to have the old and new endpoint
+coexist, and the secret is shown exactly once at creation, with no call
+to read it back.
+
+To inspect or remove what is already registered:
+
+    GET    https://api.duffel.com/air/webhooks          # id, url, events
+    DELETE https://api.duffel.com/air/webhooks/{id}
+
+both with `Duffel-Version: v2` and a Bearer DUFFEL_API_TOKEN.
 
 BACKEND_PUBLIC_URL must be reachable from the public internet for Duffel
 to actually deliver webhooks later (use ngrok/cloudflared for local
