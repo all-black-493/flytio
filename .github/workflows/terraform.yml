@@ -172,7 +172,7 @@ jobs:
         run: |
           echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
 
-          ssh -o StrictHostKeyChecking=no -o -i private_key ${USER}@${HOST} "
+          ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} "
 
             export DEBIAN_FRONTEND=noninteractive
 
@@ -190,29 +190,6 @@ jobs:
             sudo id
             sudo docker info
 
-            run_compose() {
-              if docker compose version &> /dev/null; then
-                sudo --preserve-env=DOPPLER_TOKEN doppler run -- docker compose "$@"
-              else
-                sudo --preserve-env=DOPPLER_TOKEN doppler run -- docker-compose "$@"
-              fi
-            }
-
-            cleanup_docker_disk() {
-              echo 'Docker disk usage before cleanup:'
-              sudo docker system df || true
-
-              echo 'Cleaning Docker build cache, stopped containers, dangling volumes, and unused images...'
-              sudo docker builder prune -af || true
-              sudo docker container prune -f || true
-              sudo docker volume prune -f || true
-              sudo docker image prune -af || true
-
-              echo 'Docker disk usage after cleanup:'
-              sudo docker system df || true
-              df -h / /var/lib/docker 2>/dev/null || df -h /
-            }
-
             if [ -d 'flytio' ]; then
               echo 'Repo exists, pulling...'
               cd flytio
@@ -226,92 +203,78 @@ jobs:
 
             cd backend
 
-            cat<<EOF >.env
-
-            PRIVATE_KEY=${PRIVATE_KEY}
-            HOST=${HOST}
-            USER=${USER}
-            GH_PAT=${GH_PAT}
-            RESEND_API_KEY=${RESEND_API_KEY}
-            MAIL_DOMAIN=${MAIL_DOMAIN}
-            MAIL_FROM_NAME=${MAIL_FROM_NAME}
-
-            ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
-            SECRET_KEY=${SECRET_KEY}
-            ALGORITHM=${ALGORITHM}
-
-            DATABASE_URL=${DATABASE_URL}
-            REDIS_HOST=${REDIS_HOST}
-            REDIS_PORT=${REDIS_PORT}
-            REDIS_URL=${REDIS_URL}
-
-            DUFFEL_API_TOKEN=${DUFFEL_API_TOKEN}
-            CORS_ORIGINS=${CORS_ORIGINS}
-
-            PESAPAL_CONSUMER_KEY=${PESAPAL_CONSUMER_KEY}
-            PESAPAL_CONSUMER_SECRET=${PESAPAL_CONSUMER_SECRET}
-            PESAPAL_ENV=${PESAPAL_ENV}
-            PESAPAL_IPN_ID=${PESAPAL_IPN_ID}
-
-            FRONTEND_URL=${FRONTEND_URL}
-            BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL}
-
-            COOKIE_DOMAIN=${COOKIE_DOMAIN}
-            COOKIE_SECURE=${COOKIE_SECURE}
-
-            OPENAI_API_KEY=${OPENAI_API_KEY}
-            CONCIERGE_MODEL=${CONCIERGE_MODEL}
-
-            UNSPLASH_APP_ID=${UNSPLASH_APP_ID}
-            UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
-            UNSPLASH_SECRET_KEY=${UNSPLASH_SECRET_KEY}
-
-            KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
-            BLOCKED_USER_AGENTS=${BLOCKED_USER_AGENTS}
-            AUTO_BAN_DURATION=${AUTO_BAN_DURATION}
-            AUTO_BAN_THRESHOLD=${AUTO_BAN_THRESHOLD}
-
-            GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-            GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-            GOOGLE_AUTH_URL=${GOOGLE_AUTH_URL}
-            GOOGLE_TOKEN_URL=${GOOGLE_TOKEN_URL}
-            GOOGLE_USERINFO_URL=${GOOGLE_USERINFO_URL}
-
-            EOF
+            cat <<EOF > .env
+          PRIVATE_KEY=${PRIVATE_KEY}
+          HOST=${HOST}
+          USER=${USER}
+          GH_PAT=${GH_PAT}
+          RESEND_API_KEY=${RESEND_API_KEY}
+          MAIL_DOMAIN=${MAIL_DOMAIN}
+          MAIL_FROM_NAME=${MAIL_FROM_NAME}
+          ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+          SECRET_KEY=${SECRET_KEY}
+          ALGORITHM=${ALGORITHM}
+          DATABASE_URL=${DATABASE_URL}
+          REDIS_HOST=${REDIS_HOST}
+          REDIS_PORT=${REDIS_PORT}
+          REDIS_URL=${REDIS_URL}
+          DUFFEL_API_TOKEN=${DUFFEL_API_TOKEN}
+          CORS_ORIGINS=${CORS_ORIGINS}
+          PESAPAL_CONSUMER_KEY=${PESAPAL_CONSUMER_KEY}
+          PESAPAL_CONSUMER_SECRET=${PESAPAL_CONSUMER_SECRET}
+          PESAPAL_ENV=${PESAPAL_ENV}
+          PESAPAL_IPN_ID=${PESAPAL_IPN_ID}
+          FRONTEND_URL=${FRONTEND_URL}
+          BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL}
+          COOKIE_DOMAIN=${COOKIE_DOMAIN}
+          COOKIE_SECURE=${COOKIE_SECURE}
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          CONCIERGE_MODEL=${CONCIERGE_MODEL}
+          UNSPLASH_APP_ID=${UNSPLASH_APP_ID}
+          UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
+          UNSPLASH_SECRET_KEY=${UNSPLASH_SECRET_KEY}
+          KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
+          BLOCKED_USER_AGENTS=${BLOCKED_USER_AGENTS}
+          AUTO_BAN_DURATION=${AUTO_BAN_DURATION}
+          AUTO_BAN_THRESHOLD=${AUTO_BAN_THRESHOLD}
+          GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+          GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+          GOOGLE_AUTH_URL=${GOOGLE_AUTH_URL}
+          GOOGLE_TOKEN_URL=${GOOGLE_TOKEN_URL}
+          GOOGLE_USERINFO_URL=${GOOGLE_USERINFO_URL}
+          EOF
 
             if docker compose version &> /dev/null; then
               echo 'Using docker compose v2'
-              run_compose down --remove-orphans
-              cleanup_docker_disk
-              run_compose up -d --build
+              sudo docker compose down
+              sudo docker compose up -d --build
             else
               echo 'Using legacy docker-compose'
-              run_compose down --remove-orphans
-              cleanup_docker_disk
-              run_compose up -d --build
+              sudo docker-compose down
+              sudo docker-compose up -d --build
             fi
 
 
             echo '--- Setting up Nginx reverse proxy ---'
-                    
+
             # Install Nginx and Certbot if not present
             if ! command -v nginx &> /dev/null; then
               echo 'Installing Nginx...'
               sudo apt-get update -y
               sudo apt-get install -y nginx
             fi
-                    
+
             if ! command -v certbot &> /dev/null; then
               echo 'Installing Certbot...'
               sudo apt-get install -y certbot python3-certbot-nginx
             fi
-                    
+
             # Write Nginx config for api subdomain
             sudo tee /etc/nginx/sites-available/api.flyt.africa > /dev/null <<'NGINX_CONF'
             server {
                 listen 80;
                 server_name api.flyt.africa;
-                    
+
                 location / {
                     client_max_body_size 2M;
                     proxy_pass http://127.0.0.1:8000;
@@ -324,15 +287,15 @@ jobs:
                 }
             }
             NGINX_CONF
-              
+
             # Enable the site (idempotent)
             sudo ln -sf /etc/nginx/sites-available/api.flyt.africa /etc/nginx/sites-enabled/
             sudo rm -f /etc/nginx/sites-enabled/default
-              
+
             # Test and reload Nginx
             sudo nginx -t && sudo systemctl reload nginx
             echo 'Nginx is running on port 80'
-              
+
             # Attempt SSL certificate (non-blocking — will fail gracefully if DNS not ready)
             echo '--- Attempting SSL certificate ---'
             sudo certbot --nginx \
@@ -343,9 +306,12 @@ jobs:
               --cert-name flyt-africa-api \
               --redirect \
               || echo 'WARNING: Certbot failed. DNS may not be pointing to this server yet. Nginx is still running on HTTP.'
-              
+
             echo '--- Nginx setup complete ---'
             sudo systemctl status nginx --no-pager
+
+            "
+            
 
 
 
