@@ -1,6 +1,12 @@
 services:
   fastapi-app:
     build: .
+    # depends_on only waits for the containers to *start*, not for
+    # Postgres to accept connections, so on a cold boot this can lose the
+    # race and exit during init_db/alembic. Without a restart policy it
+    # would then stay dead - the API simply never comes up, with a green
+    # deploy step.
+    restart: unless-stopped
     ports:
       - "8000:80"
     environment:
@@ -20,10 +26,17 @@ services:
     volumes:
       - .:/backend
       - /backend/.venv
-    command: ["sh", "-c", "uv run alembic upgrade head && uv run fastapi run main.py --port 80 --host 0.0.0.0"]
+    # init_db runs first: the migration chain cannot build a schema from
+    # nothing (see scripts/init_db.py), so against a fresh database
+    # Alembic fails on its very first statement and takes the container
+    # down with it.
+    command: ["sh", "-c", "uv run python -m backend.scripts.init_db && uv run alembic upgrade head && uv run fastapi run main.py --port 80 --host 0.0.0.0"]
     
   kafka-consumer:
     build: .
+    # Same race, quieter failure: nothing user-facing breaks immediately,
+    # but cancellation refunds and notification fan-out stop happening.
+    restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
       - REDIS_HOST=redis
