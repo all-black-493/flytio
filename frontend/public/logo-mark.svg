@@ -1,6 +1,16 @@
+<!-- Kept in sync by hand with LogoMark in src/components/Logo.tsx and
+     src/app/icon.svg — edit all three together. Uses the literal signal
+     orange rather than var(--signal): this file is loaded standalone by
+     email clients and social crawlers, where no stylesheet defines it. -->
 <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="48" height="48" rx="11" fill="#0B1526"/>
-  <circle cx="12" cy="35" r="2.5" fill="#C9D4DF"/>
-  <path d="M12 35 C 21 35.5, 27.5 29, 33 15.5" stroke="#F6F8FA" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="4 4"/>
-  <circle cx="34.8" cy="11.6" r="3.4" fill="#FF4F00"/>
+  <g fill="#FF4F00">
+    <circle cx="24" cy="24" r="5"/>
+    <circle cx="24" cy="12" r="5"/>
+    <circle cx="34.4" cy="18" r="5"/>
+    <circle cx="34.4" cy="30" r="5"/>
+    <circle cx="24" cy="36" r="5"/>
+    <circle cx="13.6" cy="30" r="5"/>
+    <circle cx="13.6" cy="18" r="5"/>
+  </g>
 </svg>
