@@ -77,7 +77,7 @@ def test_create_order_change_request_rejects_unowned_order(session, db_client):
     _, headers = _make_booking_and_auth(session)
 
     response = db_client.post(
-        "/booking/flight-orders/ord_not_mine/change-requests",
+        "/api/v1/booking/flight-orders/ord_not_mine/change-requests",
         json={
             "remove": [{"slice_id": "sli_test123"}],
             "add": [
@@ -116,7 +116,7 @@ def test_create_order_change_request_proxies_to_duffel(session, db_client, monke
     )
 
     response = db_client.post(
-        f"/booking/flight-orders/{booking.duffel_order_id}/change-requests",
+        f"/api/v1/booking/flight-orders/{booking.duffel_order_id}/change-requests",
         json={
             "remove": [{"slice_id": "sli_test123"}],
             "add": [
@@ -186,7 +186,7 @@ def test_confirm_order_change_resyncs_booking_slices(session, db_client, monkeyp
     )
 
     response = db_client.post(
-        f"/booking/flight-orders/{booking.duffel_order_id}/changes/oce_test123/confirm",
+        f"/api/v1/booking/flight-orders/{booking.duffel_order_id}/changes/oce_test123/confirm",
         json={"payment": {"type": "balance", "currency": "USD", "amount": "25.00"}},
         headers=headers,
     )
@@ -232,7 +232,7 @@ def test_confirm_order_change_publishes_event(session, db_client, monkeypatch):
     )
 
     response = db_client.post(
-        f"/booking/flight-orders/{booking.duffel_order_id}/changes/oce_test123/confirm",
+        f"/api/v1/booking/flight-orders/{booking.duffel_order_id}/changes/oce_test123/confirm",
         json={"payment": {"type": "balance", "currency": "USD", "amount": "25.00"}},
         headers=headers,
     )

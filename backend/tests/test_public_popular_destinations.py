@@ -80,14 +80,14 @@ def _make_route_bookings(
 
 
 def test_requires_no_authentication(db_client):
-    response = db_client.get("/flights/popular-destinations")
+    response = db_client.get("/api/v1/flights/popular-destinations")
     assert response.status_code == 200
 
 
 def test_empty_when_no_route_clears_the_threshold(session, db_client):
     _make_route_bookings(session, "NBO", "DXB", count=2)  # below the threshold of 5
 
-    response = db_client.get("/flights/popular-destinations")
+    response = db_client.get("/api/v1/flights/popular-destinations")
     assert response.status_code == 200
     assert response.json() == []
 
@@ -96,7 +96,7 @@ def test_returns_routes_clearing_the_threshold(session, db_client):
     _make_route_bookings(session, "NBO", "DXB", count=5)
     _make_route_bookings(session, "NBO", "LHR", count=2)  # stays hidden
 
-    response = db_client.get("/flights/popular-destinations")
+    response = db_client.get("/api/v1/flights/popular-destinations")
     assert response.status_code == 200
     routes = response.json()
     assert len(routes) == 1
@@ -107,7 +107,7 @@ def test_returns_routes_clearing_the_threshold(session, db_client):
 def test_route_has_no_image_fields_when_nothing_cached(session, db_client):
     _make_route_bookings(session, "NBO", "DXB", count=5)
 
-    response = db_client.get("/flights/popular-destinations")
+    response = db_client.get("/api/v1/flights/popular-destinations")
     route = response.json()[0]
 
     assert route["destination_image_url"] is None
@@ -129,7 +129,7 @@ def test_route_includes_cached_destination_image(session, db_client):
     )
     session.commit()
 
-    response = db_client.get("/flights/popular-destinations")
+    response = db_client.get("/api/v1/flights/popular-destinations")
     route = response.json()[0]
 
     assert (

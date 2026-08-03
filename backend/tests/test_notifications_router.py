@@ -79,7 +79,7 @@ def _make_user(session: Session, **overrides) -> UserInDB:
 
 
 def test_list_notifications_rejects_unauthenticated(db_client):
-    response = db_client.get("/notifications")
+    response = db_client.get("/api/v1/notifications")
     assert response.status_code == 401
 
 
@@ -103,7 +103,7 @@ def test_list_notifications_returns_only_the_signed_in_users_own(session, db_cli
         )
     )
 
-    response = db_client.get("/notifications", headers=_auth_headers(owner))
+    response = db_client.get("/api/v1/notifications", headers=_auth_headers(owner))
 
     assert response.status_code == 200
     body = response.json()
@@ -123,7 +123,9 @@ def test_unread_count_endpoint(session, db_client):
         )
     )
 
-    response = db_client.get("/notifications/unread-count", headers=_auth_headers(user))
+    response = db_client.get(
+        "/api/v1/notifications/unread-count", headers=_auth_headers(user)
+    )
 
     assert response.status_code == 200
     assert response.json() == {"unread_count": 1}
@@ -142,7 +144,7 @@ def test_mark_notification_read_rejects_someone_elses_notification(session, db_c
     )
 
     response = db_client.post(
-        f"/notifications/{notification.id}/read", headers=_auth_headers(other)
+        f"/api/v1/notifications/{notification.id}/read", headers=_auth_headers(other)
     )
 
     assert response.status_code == 404
@@ -160,12 +162,14 @@ def test_mark_notification_read_end_to_end(session, db_client):
     )
 
     response = db_client.post(
-        f"/notifications/{notification.id}/read", headers=_auth_headers(user)
+        f"/api/v1/notifications/{notification.id}/read", headers=_auth_headers(user)
     )
 
     assert response.status_code == 200
     assert response.json()["read_at"] is not None
-    unread = db_client.get("/notifications/unread-count", headers=_auth_headers(user))
+    unread = db_client.get(
+        "/api/v1/notifications/unread-count", headers=_auth_headers(user)
+    )
     assert unread.json() == {"unread_count": 0}
 
 
@@ -181,10 +185,14 @@ def test_mark_all_read_end_to_end(session, db_client):
             )
         )
 
-    response = db_client.post("/notifications/read-all", headers=_auth_headers(user))
+    response = db_client.post(
+        "/api/v1/notifications/read-all", headers=_auth_headers(user)
+    )
 
     assert response.status_code == 200
-    unread = db_client.get("/notifications/unread-count", headers=_auth_headers(user))
+    unread = db_client.get(
+        "/api/v1/notifications/unread-count", headers=_auth_headers(user)
+    )
     assert unread.json() == {"unread_count": 0}
 
 
@@ -201,7 +209,7 @@ def test_delete_notification_rejects_someone_elses_notification(session, db_clie
     )
 
     response = db_client.delete(
-        f"/notifications/{notification.id}", headers=_auth_headers(other)
+        f"/api/v1/notifications/{notification.id}", headers=_auth_headers(other)
     )
 
     assert response.status_code == 404
@@ -219,16 +227,16 @@ def test_delete_notification_end_to_end(session, db_client):
     )
 
     response = db_client.delete(
-        f"/notifications/{notification.id}", headers=_auth_headers(user)
+        f"/api/v1/notifications/{notification.id}", headers=_auth_headers(user)
     )
     assert response.status_code == 200
 
-    listing = db_client.get("/notifications", headers=_auth_headers(user))
+    listing = db_client.get("/api/v1/notifications", headers=_auth_headers(user))
     assert listing.json()["items"] == []
 
     # Deleting again 404s - it's already gone.
     again = db_client.delete(
-        f"/notifications/{notification.id}", headers=_auth_headers(user)
+        f"/api/v1/notifications/{notification.id}", headers=_auth_headers(user)
     )
     assert again.status_code == 404
 
@@ -262,7 +270,7 @@ def test_cursor_paging_visits_every_row_exactly_once(session, db_client):
     for _ in range(10):  # bounded so a paging bug fails instead of hanging
         query = f"?size=3&cursor={cursor}" if cursor else "?size=3"
         body = db_client.get(
-            f"/notifications{query}", headers=_auth_headers(user)
+            f"/api/v1/notifications{query}", headers=_auth_headers(user)
         ).json()
         assert body["total"] == 7
         seen.extend(n["title"] for n in body["items"])

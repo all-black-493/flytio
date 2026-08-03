@@ -7,14 +7,31 @@ data "aws_vpc" "default" {
 }
 
 resource "aws_security_group" "app_server_sg" {
-  name        = "app-server-sg"
-  description = "Allow inbound traffic on port 80"
+  name        = "flyt-africa-sg"
+  description = "Allow inbound traffic on port 8000 and 22"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    from_port   = 8000
-    to_port     = 8000
+    description = "HTTP for Nginx and Certbot"
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS for Nginx"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress{
+    description = "SSH access for debugging"
+    from_port = 22
+    to_port = 22
+    protocol = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -41,41 +58,28 @@ data "aws_ami" "ubuntu" {
 resource "aws_instance" "app_server" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
-  user_data = templatefile("./setup.sh", {
+  key_name      = var.key_pair_name
 
-    repo_url                    = var.repo_url,
-    gh_pat                      = var.gh_pat,
-    mail_username               = var.mail_username,
-    mail_password               = var.mail_password,
-    mail_from                   = var.mail_from,
-    mail_port                   = var.mail_port,
-    mail_server                 = var.mail_server,
-    access_token_expire_minutes = var.access_token_expire_minutes,
-    secret_key                  = var.secret_key,
-    algorithm                   = var.algorithm,
-    duffel_api_token            = var.duffel_api_token
-  })
+  root_block_device {
+    volume_size = 16
+  }
 
   vpc_security_group_ids = [aws_security_group.app_server_sg.id]
 
   tags = {
     Name = var.instance_name
   }
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
-/*
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "5.19.0"
-
-  name = "flytio-vpc"
-  cidr = "10.0.0.0/16"
-
-  azs             = ["us-east-2a", "us-east-2b", "us-east-2c"]
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
-  public_subnets  = ["10.0.101.0/24"]
-
-  enable_dns_hostnames    = true
+resource "aws_eip" "app_eip" {
+  instance = aws_instance.app_server.id
+  domain   = "vpc"
+  
+  tags = {
+    Name = "${var.instance_name}-eip"
+  }
 }
-*/
-

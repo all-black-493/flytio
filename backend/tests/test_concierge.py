@@ -214,7 +214,7 @@ def test_build_agent_constructs_when_api_key_set(monkeypatch):
 
 
 def test_chat_rejects_unauthenticated(db_client):
-    response = db_client.post("/concierge/chat", json={"messages": []})
+    response = db_client.post("/api/v1/concierge/chat", json={"messages": []})
     assert response.status_code == 401
 
 
@@ -224,7 +224,7 @@ def test_chat_returns_503_when_unconfigured(session, db_client, monkeypatch):
     token = create_access_token(data={"sub": user.email, "purpose": "access"})
 
     response = db_client.post(
-        "/concierge/chat",
+        "/api/v1/concierge/chat",
         json={"messages": []},
         headers={"Authorization": f"Bearer {token}"},
     )

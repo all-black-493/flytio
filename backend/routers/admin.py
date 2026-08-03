@@ -104,7 +104,7 @@ logger = get_app_logger(__name__)
 # (require_superuser, applied per-route below) - see utils/rbac.py's
 # require_superuser docstring for why granting permissions can't itself
 # require a permission.
-router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_staff)])
+router = APIRouter(prefix="/admin", dependencies=[Depends(require_staff)])
 
 
 def _group_read(session: Session, group: Group) -> GroupRead:

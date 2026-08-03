@@ -12,6 +12,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from backend.config import settings
+from backend.utils.constants import API_V1_PREFIX
 from backend.models.bookings import Booking
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "emails"
@@ -99,8 +100,11 @@ def booking_confirmation_email_html(booking: Booking) -> str:
         route_summary=_route_summary(booking),
         departure_date=booking.slices[0].flights[0].departing_at.strftime("%d %b %Y"),
         booking_url=f"{settings.FRONTEND_URL}/account/bookings/{booking.id}",
+        # Lands in a customer's inbox and stays there indefinitely, so it
+        # has to name the API version explicitly - an email sent today is
+        # still clicked long after /api/v2 exists.
         pdf_url=(
-            f"{settings.BACKEND_PUBLIC_URL}"
+            f"{settings.BACKEND_PUBLIC_URL}{API_V1_PREFIX}"
             f"/booking/flight-orders/by-id/{booking.id}/itinerary.pdf"
         ),
     )

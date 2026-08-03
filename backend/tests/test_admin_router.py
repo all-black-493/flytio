@@ -80,21 +80,21 @@ def _make_booking(session: Session, user: UserInDB, reference: str) -> Booking:
 
 
 def test_admin_bookings_rejects_unauthenticated(db_client):
-    response = db_client.get("/api/admin/bookings")
+    response = db_client.get("/api/v1/admin/bookings")
     assert response.status_code == 401
 
 
 def test_admin_bookings_rejects_non_staff(session, db_client):
     user = _make_user(session)
 
-    response = db_client.get("/api/admin/bookings", headers=_auth_headers(user))
+    response = db_client.get("/api/v1/admin/bookings", headers=_auth_headers(user))
     assert response.status_code == 403
 
 
 def test_admin_bookings_rejects_staff_without_permission(session, db_client):
     user = _make_user(session, is_staff=True)
 
-    response = db_client.get("/api/admin/bookings", headers=_auth_headers(user))
+    response = db_client.get("/api/v1/admin/bookings", headers=_auth_headers(user))
     assert response.status_code == 403
 
 
@@ -119,7 +119,7 @@ def test_admin_bookings_allows_staff_with_permission_via_group(session, db_clien
     session.add(GroupPermission(group_id=group.id, permission_id=permission.id))
     session.commit()
 
-    response = db_client.get("/api/admin/bookings", headers=_auth_headers(staffer))
+    response = db_client.get("/api/v1/admin/bookings", headers=_auth_headers(staffer))
 
     assert response.status_code == 200
     references = [b["booking_reference"] for b in response.json()["items"]]
@@ -132,7 +132,7 @@ def test_admin_bookings_allows_superuser_without_any_grant(session, db_client):
         session, email="root@example.com", is_staff=True, is_superuser=True
     )
 
-    response = db_client.get("/api/admin/bookings", headers=_auth_headers(superuser))
+    response = db_client.get("/api/v1/admin/bookings", headers=_auth_headers(superuser))
     assert response.status_code == 200
 
 
@@ -140,7 +140,7 @@ def test_group_management_rejects_non_superuser_staff(session, db_client):
     staffer = _make_user(session, is_staff=True)
 
     response = db_client.post(
-        "/api/admin/groups", json={"name": "ops"}, headers=_auth_headers(staffer)
+        "/api/v1/admin/groups", json={"name": "ops"}, headers=_auth_headers(staffer)
     )
     assert response.status_code == 403
 
@@ -159,13 +159,13 @@ def test_group_management_end_to_end_for_superuser(session, db_client):
     headers = _auth_headers(superuser)
 
     create_response = db_client.post(
-        "/api/admin/groups", json={"name": "support"}, headers=headers
+        "/api/v1/admin/groups", json={"name": "support"}, headers=headers
     )
     assert create_response.status_code == 200
     group_id = create_response.json()["id"]
 
     assign_perm_response = db_client.post(
-        f"/api/admin/groups/{group_id}/permissions",
+        f"/api/v1/admin/groups/{group_id}/permissions",
         json={"codenames": ["view_booking"]},
         headers=headers,
     )
@@ -173,7 +173,7 @@ def test_group_management_end_to_end_for_superuser(session, db_client):
     assert assign_perm_response.json()["permissions"] == ["view_booking"]
 
     assign_user_response = db_client.post(
-        f"/api/admin/users/{target.id}/groups",
+        f"/api/v1/admin/users/{target.id}/groups",
         json={"group_ids": [group_id]},
         headers=headers,
     )
@@ -181,17 +181,19 @@ def test_group_management_end_to_end_for_superuser(session, db_client):
 
     # The freshly-assigned group's permission now works for `target`.
     target_response = db_client.get(
-        "/api/admin/bookings", headers=_auth_headers(target)
+        "/api/v1/admin/bookings", headers=_auth_headers(target)
     )
     assert target_response.status_code == 200
 
     remove_response = db_client.delete(
-        f"/api/admin/users/{target.id}/groups/{group_id}", headers=headers
+        f"/api/v1/admin/users/{target.id}/groups/{group_id}", headers=headers
     )
     assert remove_response.status_code == 200
 
     # The permission no longer applies once removed from the group.
-    after_remove = db_client.get("/api/admin/bookings", headers=_auth_headers(target))
+    after_remove = db_client.get(
+        "/api/v1/admin/bookings", headers=_auth_headers(target)
+    )
     assert after_remove.status_code == 403
 
 
@@ -203,14 +205,14 @@ def test_get_booking_detail_returns_owner_and_404s_for_missing(session, db_clien
     )
     headers = _auth_headers(superuser)
 
-    ok_response = db_client.get(f"/api/admin/bookings/{booking.id}", headers=headers)
+    ok_response = db_client.get(f"/api/v1/admin/bookings/{booking.id}", headers=headers)
     assert ok_response.status_code == 200
     body = ok_response.json()
     assert body["booking_reference"] == "ABC123"
     assert body["user_email"] == "traveler@example.com"
 
     missing_response = db_client.get(
-        "/api/admin/bookings/00000000-0000-0000-0000-000000000000", headers=headers
+        "/api/v1/admin/bookings/00000000-0000-0000-0000-000000000000", headers=headers
     )
     assert missing_response.status_code == 404
 
@@ -229,7 +231,7 @@ def test_get_user_detail_includes_group_ids(session, db_client):
     )
 
     response = db_client.get(
-        f"/api/admin/users/{target.id}", headers=_auth_headers(superuser)
+        f"/api/v1/admin/users/{target.id}", headers=_auth_headers(superuser)
     )
 
     assert response.status_code == 200
@@ -243,7 +245,7 @@ def test_ban_requires_delete_user_permission(session, db_client):
     staffer = _make_user(session, email="staffer2@example.com", is_staff=True)
 
     response = db_client.post(
-        f"/api/admin/users/{target.id}/ban",
+        f"/api/v1/admin/users/{target.id}/ban",
         json={"reason": "spam"},
         headers=_auth_headers(staffer),
     )
@@ -256,7 +258,7 @@ def test_ban_blocks_self_ban(session, db_client):
     )
 
     response = db_client.post(
-        f"/api/admin/users/{superuser.id}/ban",
+        f"/api/v1/admin/users/{superuser.id}/ban",
         json={"reason": "oops"},
         headers=_auth_headers(superuser),
     )
@@ -271,18 +273,18 @@ def test_ban_then_unban_end_to_end(session, db_client):
     headers = _auth_headers(superuser)
 
     ban_response = db_client.post(
-        f"/api/admin/users/{target.id}/ban",
+        f"/api/v1/admin/users/{target.id}/ban",
         json={"reason": "abusive support calls"},
         headers=headers,
     )
     assert ban_response.status_code == 200
     assert ban_response.json()["banned_reason"] == "abusive support calls"
 
-    detail_response = db_client.get(f"/api/admin/users/{target.id}", headers=headers)
+    detail_response = db_client.get(f"/api/v1/admin/users/{target.id}", headers=headers)
     assert detail_response.json()["banned_by_email"] == "root6@example.com"
 
     unban_response = db_client.post(
-        f"/api/admin/users/{target.id}/unban", headers=headers
+        f"/api/v1/admin/users/{target.id}/unban", headers=headers
     )
     assert unban_response.status_code == 200
     assert unban_response.json()["banned_at"] is None
@@ -362,7 +364,7 @@ def test_create_admin_booking_rejects_staff_without_permission(session, db_clien
     staffer = _make_user(session, email="staffer3@example.com", is_staff=True)
 
     response = db_client.post(
-        "/api/admin/bookings",
+        "/api/v1/admin/bookings",
         json=_admin_booking_request(target.id),
         headers=_auth_headers(staffer),
     )
@@ -377,7 +379,7 @@ def test_create_admin_booking_404s_for_unknown_user(session, db_client):
     )
 
     response = db_client.post(
-        "/api/admin/bookings",
+        "/api/v1/admin/bookings",
         json=_admin_booking_request("00000000-0000-0000-0000-000000000000"),
         headers=_auth_headers(superuser),
     )
@@ -402,7 +404,7 @@ def test_create_admin_booking_end_to_end(session, db_client, monkeypatch):
     )
 
     response = db_client.post(
-        "/api/admin/bookings",
+        "/api/v1/admin/bookings",
         json=_admin_booking_request(customer.id),
         headers=_auth_headers(superuser),
     )
@@ -435,7 +437,7 @@ def test_create_admin_booking_returns_502_when_duffel_fails(
     )
 
     response = db_client.post(
-        "/api/admin/bookings",
+        "/api/v1/admin/bookings",
         json=_admin_booking_request(customer.id),
         headers=_auth_headers(superuser),
     )
@@ -447,7 +449,7 @@ def test_pricing_sales_rejects_staff_without_permission(session, db_client):
     staffer = _make_user(session, email="staffer4@example.com", is_staff=True)
 
     response = db_client.post(
-        "/api/admin/pricing/sales",
+        "/api/v1/admin/pricing/sales",
         json={
             "name": "Black Friday",
             "markup_rate": 0.03,
@@ -466,7 +468,7 @@ def test_create_and_list_pricing_sale_end_to_end(session, db_client):
     headers = _auth_headers(superuser)
 
     create_response = db_client.post(
-        "/api/admin/pricing/sales",
+        "/api/v1/admin/pricing/sales",
         json={
             "name": "Black Friday",
             "markup_rate": 0.03,
@@ -480,7 +482,7 @@ def test_create_and_list_pricing_sale_end_to_end(session, db_client):
     assert body["name"] == "Black Friday"
     assert body["markup_rate"] == 0.03
 
-    list_response = db_client.get("/api/admin/pricing/sales", headers=headers)
+    list_response = db_client.get("/api/v1/admin/pricing/sales", headers=headers)
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
 
@@ -491,7 +493,7 @@ def test_create_pricing_sale_rejects_overlap_via_api(session, db_client):
     )
     headers = _auth_headers(superuser)
     db_client.post(
-        "/api/admin/pricing/sales",
+        "/api/v1/admin/pricing/sales",
         json={
             "name": "First",
             "markup_rate": 0.03,
@@ -502,7 +504,7 @@ def test_create_pricing_sale_rejects_overlap_via_api(session, db_client):
     )
 
     response = db_client.post(
-        "/api/admin/pricing/sales",
+        "/api/v1/admin/pricing/sales",
         json={
             "name": "Overlapping",
             "markup_rate": 0.05,
@@ -520,7 +522,7 @@ def test_delete_pricing_sale_end_to_end(session, db_client):
     )
     headers = _auth_headers(superuser)
     created = db_client.post(
-        "/api/admin/pricing/sales",
+        "/api/v1/admin/pricing/sales",
         json={
             "name": "Temp sale",
             "markup_rate": 0.03,
@@ -531,11 +533,11 @@ def test_delete_pricing_sale_end_to_end(session, db_client):
     ).json()
 
     delete_response = db_client.delete(
-        f"/api/admin/pricing/sales/{created['id']}", headers=headers
+        f"/api/v1/admin/pricing/sales/{created['id']}", headers=headers
     )
     assert delete_response.status_code == 200
 
-    list_response = db_client.get("/api/admin/pricing/sales", headers=headers)
+    list_response = db_client.get("/api/v1/admin/pricing/sales", headers=headers)
     assert list_response.json() == []
 
 
@@ -546,7 +548,7 @@ def test_create_and_list_discount_code_end_to_end(session, db_client):
     headers = _auth_headers(superuser)
 
     create_response = db_client.post(
-        "/api/admin/pricing/discount-codes",
+        "/api/v1/admin/pricing/discount-codes",
         json={"code": "flyt10", "discount_percentage": 10, "max_redemptions": 50},
         headers=headers,
     )
@@ -555,7 +557,9 @@ def test_create_and_list_discount_code_end_to_end(session, db_client):
     assert body["code"] == "FLYT10"
     assert body["times_redeemed"] == 0
 
-    list_response = db_client.get("/api/admin/pricing/discount-codes", headers=headers)
+    list_response = db_client.get(
+        "/api/v1/admin/pricing/discount-codes", headers=headers
+    )
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
 
@@ -566,13 +570,13 @@ def test_create_discount_code_rejects_duplicate_via_api(session, db_client):
     )
     headers = _auth_headers(superuser)
     db_client.post(
-        "/api/admin/pricing/discount-codes",
+        "/api/v1/admin/pricing/discount-codes",
         json={"code": "DUPE", "discount_percentage": 10},
         headers=headers,
     )
 
     response = db_client.post(
-        "/api/admin/pricing/discount-codes",
+        "/api/v1/admin/pricing/discount-codes",
         json={"code": "dupe", "discount_percentage": 20},
         headers=headers,
     )
@@ -585,13 +589,13 @@ def test_set_discount_code_active_end_to_end(session, db_client):
     )
     headers = _auth_headers(superuser)
     created = db_client.post(
-        "/api/admin/pricing/discount-codes",
+        "/api/v1/admin/pricing/discount-codes",
         json={"code": "TOGGLE", "discount_percentage": 10},
         headers=headers,
     ).json()
 
     response = db_client.post(
-        f"/api/admin/pricing/discount-codes/{created['id']}/active",
+        f"/api/v1/admin/pricing/discount-codes/{created['id']}/active",
         json={"is_active": False},
         headers=headers,
     )
@@ -626,7 +630,7 @@ def test_backfill_tickets_rejects_staff_without_permission(session, db_client):
     staffer = _make_user(session, email="ticketstaff1@example.com", is_staff=True)
 
     response = db_client.post(
-        f"/api/admin/bookings/{booking.id}/backfill-tickets",
+        f"/api/v1/admin/bookings/{booking.id}/backfill-tickets",
         headers=_auth_headers(staffer),
     )
     assert response.status_code == 403
@@ -650,7 +654,7 @@ def test_backfill_tickets_fetches_and_persists_from_duffel(
     )
 
     response = db_client.post(
-        f"/api/admin/bookings/{booking.id}/backfill-tickets",
+        f"/api/v1/admin/bookings/{booking.id}/backfill-tickets",
         headers=_auth_headers(superuser),
     )
 
@@ -678,10 +682,10 @@ def test_backfill_tickets_is_a_noop_when_booking_already_has_tickets(
 
     headers = _auth_headers(superuser)
     first = db_client.post(
-        f"/api/admin/bookings/{booking.id}/backfill-tickets", headers=headers
+        f"/api/v1/admin/bookings/{booking.id}/backfill-tickets", headers=headers
     )
     second = db_client.post(
-        f"/api/admin/bookings/{booking.id}/backfill-tickets", headers=headers
+        f"/api/v1/admin/bookings/{booking.id}/backfill-tickets", headers=headers
     )
 
     assert first.status_code == 200
@@ -698,7 +702,7 @@ def test_resend_confirmation_rejects_staff_without_permission(session, db_client
     staffer = _make_user(session, email="ticketstaff2@example.com", is_staff=True)
 
     response = db_client.post(
-        f"/api/admin/bookings/{booking.id}/resend-confirmation",
+        f"/api/v1/admin/bookings/{booking.id}/resend-confirmation",
         headers=_auth_headers(staffer),
     )
     assert response.status_code == 403
@@ -748,7 +752,7 @@ def test_resend_confirmation_end_to_end(session, db_client, monkeypatch):
     )
 
     response = db_client.post(
-        f"/api/admin/bookings/{booking.id}/resend-confirmation",
+        f"/api/v1/admin/bookings/{booking.id}/resend-confirmation",
         headers=_auth_headers(superuser),
     )
 

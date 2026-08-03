@@ -91,7 +91,7 @@ def test_confirm_order_cancellation_publishes_event(
     )
 
     response = db_client.post(
-        "/booking/flight-orders/ord_test123/cancellations/orc_test123/confirm",
+        "/api/v1/booking/flight-orders/ord_test123/cancellations/orc_test123/confirm",
         headers=headers,
     )
 
@@ -140,7 +140,7 @@ def test_confirm_order_cancellation_rejects_already_cancelled(
     )
 
     response = db_client.post(
-        "/booking/flight-orders/ord_test123/cancellations/orc_test123/confirm",
+        "/api/v1/booking/flight-orders/ord_test123/cancellations/orc_test123/confirm",
         headers=headers,
     )
 
@@ -204,7 +204,7 @@ def test_quote_reports_what_the_customer_gets_not_duffels_refund(
     _mock_quote(monkeypatch, "10000.00")
 
     response = db_client.post(
-        "/booking/flight-orders/ord_test123/cancellations", headers=headers
+        "/api/v1/booking/flight-orders/ord_test123/cancellations", headers=headers
     )
 
     assert response.status_code == 200
@@ -224,7 +224,7 @@ def test_quote_warns_when_the_refund_cannot_go_back_automatically(
     _mock_quote(monkeypatch, "8000.00")
 
     response = db_client.post(
-        "/booking/flight-orders/ord_test123/cancellations", headers=headers
+        "/api/v1/booking/flight-orders/ord_test123/cancellations", headers=headers
     )
 
     body = response.json()

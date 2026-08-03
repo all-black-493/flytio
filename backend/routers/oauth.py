@@ -19,6 +19,7 @@ from fastapi.responses import RedirectResponse
 from sqlmodel import Session
 
 from backend.config import settings
+from backend.utils.constants import API_V1_PREFIX
 from backend.crud.db import get_session
 from backend.crud.users import OAuthEmailConflictError, get_or_create_oauth_user
 from backend.external_services.google_oauth import (
@@ -50,7 +51,7 @@ def _redirect_uri() -> str:
     # Cloud Console and to what's sent in the token exchange - built from
     # BACKEND_PUBLIC_URL so it's automatically correct per environment
     # instead of a second place to keep in sync (see config.py).
-    return f"{settings.BACKEND_PUBLIC_URL}/auth/google/callback"
+    return f"{settings.BACKEND_PUBLIC_URL}{API_V1_PREFIX}/auth/google/callback"
 
 
 @router.get("/login")

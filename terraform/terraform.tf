@@ -18,7 +18,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "flytio-terraform-state-bucket"
+    bucket       = "flyt-africa-terraform-state-bucket"
     key          = "prod/terraform.tfstate"
     region       = "us-east-2"
     use_lockfile = true

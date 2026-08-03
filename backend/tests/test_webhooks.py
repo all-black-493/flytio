@@ -137,7 +137,7 @@ def test_duffel_webhook_records_change_and_publishes_event(
     signature = _sign(secret, body, timestamp)
 
     response = client.post(
-        "/webhooks/duffel",
+        "/api/v1/webhooks/duffel",
         content=body,
         headers={"X-Duffel-Signature": signature, "Content-Type": "application/json"},
     )
@@ -168,7 +168,7 @@ def test_duffel_webhook_rejects_bad_signature_without_touching_booking(
     bad_signature = _sign("whsec_wrong", body, str(int(time.time())))
 
     response = client.post(
-        "/webhooks/duffel",
+        "/api/v1/webhooks/duffel",
         content=body,
         headers={
             "X-Duffel-Signature": bad_signature,
@@ -193,7 +193,7 @@ def test_duffel_webhook_ignores_unhandled_event_types(session, client, monkeypat
     signature = _sign(secret, body, str(int(time.time())))
 
     response = client.post(
-        "/webhooks/duffel",
+        "/api/v1/webhooks/duffel",
         content=body,
         headers={"X-Duffel-Signature": signature, "Content-Type": "application/json"},
     )

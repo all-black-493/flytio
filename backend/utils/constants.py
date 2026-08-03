@@ -1,3 +1,16 @@
+"""Cross-cutting constants shared by routers, workers and scripts."""
+
+# Mount point for the versioned API (see main.py). Anything that has to
+# name a full API path lives downstream of this: the OAuth redirect URI
+# handed to Google, and the webhook/IPN URLs registered with Duffel and
+# Pesapal. Those three are held by *external* systems, so a version bump
+# is not just a code change - each has to be re-registered, and a stale
+# one fails silently (Pesapal simply stops confirming payments). Keeping
+# the prefix in one place at least means the code can't disagree with
+# itself about where the API lives.
+API_V1_PREFIX = "/api/v1"
+
+
 class KafkaTopics:
     USER_EVENTS = "user.events"
     SUPPORT_EVENTS = "support.events"

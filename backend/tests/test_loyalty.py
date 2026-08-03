@@ -112,7 +112,7 @@ def test_update_offer_passenger_endpoint(db_client, monkeypatch):
     monkeypatch.setattr(duffel_flight_service, "confirm_price", fake_confirm_price)
 
     response = db_client.patch(
-        "/shopping/flight-offers/off_test123/passengers/pas_test123",
+        "/api/v1/shopping/flight-offers/off_test123/passengers/pas_test123",
         json={
             "given_name": "Amelia",
             "family_name": "Earhart",

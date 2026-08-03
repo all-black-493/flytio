@@ -113,7 +113,7 @@ import type {
   PlaceSuggestionsQuery,
 } from "./types";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+export const API_URL = `${process.env.NEXT_PUBLIC_API_URL!}/api/v1`;
 
 /** Must match backend/utils/security.py's COOKIE_NAME. */
 const AUTH_COOKIE_NAME = "flyt_token";
@@ -140,7 +140,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
 /** POST /api/register/ — create an account. */
 export async function registerUser(email: string, password: string): Promise<UserRead> {
-  const res = await fetch(`${API_URL}/api/register/`, {
+  const res = await fetch(`${API_URL}/register/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -152,7 +152,7 @@ export async function registerUser(email: string, password: string): Promise<Use
 /** POST /api/token — OAuth2 password flow; backend sets the auth cookie. */
 export async function loginUser(email: string, password: string): Promise<Token> {
   const body = new URLSearchParams({ grant_type: "password", username: email, password });
-  const res = await fetch(`${API_URL}/api/token`, {
+  const res = await fetch(`${API_URL}/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     credentials: "include",
@@ -164,7 +164,7 @@ export async function loginUser(email: string, password: string): Promise<Token>
 
 /** POST /api/logout — clears the auth cookie server-side. */
 export async function logoutUser(): Promise<void> {
-  const res = await fetch(`${API_URL}/api/logout`, {
+  const res = await fetch(`${API_URL}/logout`, {
     method: "POST",
     credentials: "include",
   });
@@ -173,7 +173,7 @@ export async function logoutUser(): Promise<void> {
 
 /** GET /api/me — the signed-in user's own account. */
 export async function getCurrentUser(): Promise<UserRead> {
-  const res = await fetch(`${API_URL}/api/me`, {
+  const res = await fetch(`${API_URL}/me`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -184,7 +184,7 @@ export async function getCurrentUser(): Promise<UserRead> {
 /** POST /api/forgot-password — always resolves the same way whether or
  * not the email is registered (the backend doesn't reveal which). */
 export async function forgotPassword(email: string): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/forgot-password`, {
+  const res = await fetch(`${API_URL}/forgot-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -198,7 +198,7 @@ export async function resetPassword(
   token: string,
   newPassword: string,
 ): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/reset-password`, {
+  const res = await fetch(`${API_URL}/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, new_password: newPassword }),
@@ -214,7 +214,7 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/change-password`, {
+  const res = await fetch(`${API_URL}/change-password`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -228,7 +228,7 @@ export async function changePassword(
  * account; booking/payment history is preserved. Requires the current
  * password, same reasoning as changePassword. */
 export async function deleteAccount(password: string): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/me`, {
+  const res = await fetch(`${API_URL}/me`, {
     method: "DELETE",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -560,7 +560,7 @@ export async function createOrderChange(
 
 /** GET /api/admin/dashboard/summary */
 export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary> {
-  const res = await fetch(`${API_URL}/api/admin/dashboard/summary`, {
+  const res = await fetch(`${API_URL}/admin/dashboard/summary`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -571,7 +571,7 @@ export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary>
 /** GET /api/admin/dashboard/popular-routes */
 export async function getAdminPopularRoutes(limit?: number): Promise<PopularRoute[]> {
   const params = limit !== undefined ? `?limit=${limit}` : "";
-  const res = await fetch(`${API_URL}/api/admin/dashboard/popular-routes${params}`, {
+  const res = await fetch(`${API_URL}/admin/dashboard/popular-routes${params}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -585,7 +585,7 @@ export async function listAdminBookings(
   params: AdminListQueryParams = {},
 ): Promise<AdminBookingPage> {
   const search = listSearchParams(params);
-  const res = await fetch(`${API_URL}/api/admin/bookings?${search}`, {
+  const res = await fetch(`${API_URL}/admin/bookings?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -598,7 +598,7 @@ export async function listAdminUsers(
   params: AdminListQueryParams = {},
 ): Promise<AdminUserPage> {
   const search = listSearchParams(params);
-  const res = await fetch(`${API_URL}/api/admin/users?${search}`, {
+  const res = await fetch(`${API_URL}/admin/users?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -612,7 +612,7 @@ export async function getAdminUserBookings(
   params: CursorPageQueryParams = {},
 ): Promise<BookingPage> {
   const search = listSearchParams(params);
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/bookings?${search}`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/bookings?${search}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -622,7 +622,7 @@ export async function getAdminUserBookings(
 
 /** POST /api/admin/users/{userId}/staff — superuser-only on the backend. */
 export async function setUserStaff(userId: string, isStaff: boolean): Promise<AdminUserRead> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/staff`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/staff`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -635,7 +635,7 @@ export async function setUserStaff(userId: string, isStaff: boolean): Promise<Ad
 /** POST /api/admin/users/{userId}/deactivate — soft-delete, same
  * mechanism as the self-service DELETE /api/me. */
 export async function deactivateUser(userId: string): Promise<AdminUserRead> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/deactivate`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/deactivate`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
@@ -648,7 +648,7 @@ export async function deactivateUser(userId: string): Promise<AdminUserRead> {
  * user detail page. Not the same shape listAdminUsers rows use, see
  * adminUserDetailSchema. */
 export async function getAdminUserDetail(userId: string): Promise<AdminUserDetail> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -659,7 +659,7 @@ export async function getAdminUserDetail(userId: string): Promise<AdminUserDetai
 /** GET /api/admin/bookings/{bookingId} — one booking, with the owning
  * user's id/email attached (same shape as a listAdminBookings row). */
 export async function getAdminBookingDetail(bookingId: string): Promise<AdminBookingRead> {
-  const res = await fetch(`${API_URL}/api/admin/bookings/${bookingId}`, {
+  const res = await fetch(`${API_URL}/admin/bookings/${bookingId}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -673,7 +673,7 @@ export async function getAdminBookingDetail(bookingId: string): Promise<AdminBoo
 export async function createAdminBooking(
   request: AdminCreateBookingRequest,
 ): Promise<AdminBookingRead> {
-  const res = await fetch(`${API_URL}/api/admin/bookings`, {
+  const res = await fetch(`${API_URL}/admin/bookings`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -686,7 +686,7 @@ export async function createAdminBooking(
 /** POST /api/admin/users/{userId}/ban — reversible (see unbanUser),
  * unlike deactivateUser: never scrubs the account's email. */
 export async function banUser(userId: string, reason: string): Promise<AdminUserRead> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/ban`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/ban`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -698,7 +698,7 @@ export async function banUser(userId: string, reason: string): Promise<AdminUser
 
 /** POST /api/admin/users/{userId}/unban */
 export async function unbanUser(userId: string): Promise<AdminUserRead> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/unban`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/unban`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
@@ -712,7 +712,7 @@ export async function unbanUser(userId: string): Promise<AdminUserRead> {
  * after the automatic booking-time retry window. Safe to call more than
  * once - a no-op once the booking has tickets. */
 export async function backfillBookingTickets(bookingId: string): Promise<AdminBookingRead> {
-  const res = await fetch(`${API_URL}/api/admin/bookings/${bookingId}/backfill-tickets`, {
+  const res = await fetch(`${API_URL}/admin/bookings/${bookingId}/backfill-tickets`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
@@ -726,7 +726,7 @@ export async function resendBookingConfirmation(
   bookingId: string,
 ): Promise<MessageResponse> {
   const res = await fetch(
-    `${API_URL}/api/admin/bookings/${bookingId}/resend-confirmation`,
+    `${API_URL}/admin/bookings/${bookingId}/resend-confirmation`,
     { method: "POST", credentials: "include", headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(await errorDetail(res));
@@ -739,7 +739,7 @@ export async function resendBookingConfirmation(
 
 /** GET /api/admin/pricing/sales */
 export async function listAdminPricingSales(): Promise<PricingSaleRead[]> {
-  const res = await fetch(`${API_URL}/api/admin/pricing/sales`, {
+  const res = await fetch(`${API_URL}/admin/pricing/sales`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -752,7 +752,7 @@ export async function listAdminPricingSales(): Promise<PricingSaleRead[]> {
 export async function createAdminPricingSale(
   request: CreatePricingSaleRequest,
 ): Promise<PricingSaleRead> {
-  const res = await fetch(`${API_URL}/api/admin/pricing/sales`, {
+  const res = await fetch(`${API_URL}/admin/pricing/sales`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -764,7 +764,7 @@ export async function createAdminPricingSale(
 
 /** DELETE /api/admin/pricing/sales/{saleId} */
 export async function deleteAdminPricingSale(saleId: string): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/admin/pricing/sales/${saleId}`, {
+  const res = await fetch(`${API_URL}/admin/pricing/sales/${saleId}`, {
     method: "DELETE",
     credentials: "include",
     headers: await authHeaders(),
@@ -775,7 +775,7 @@ export async function deleteAdminPricingSale(saleId: string): Promise<MessageRes
 
 /** GET /api/admin/pricing/discount-codes */
 export async function listAdminDiscountCodes(): Promise<DiscountCodeRead[]> {
-  const res = await fetch(`${API_URL}/api/admin/pricing/discount-codes`, {
+  const res = await fetch(`${API_URL}/admin/pricing/discount-codes`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -787,7 +787,7 @@ export async function listAdminDiscountCodes(): Promise<DiscountCodeRead[]> {
 export async function createAdminDiscountCode(
   request: CreateDiscountCodeRequest,
 ): Promise<DiscountCodeRead> {
-  const res = await fetch(`${API_URL}/api/admin/pricing/discount-codes`, {
+  const res = await fetch(`${API_URL}/admin/pricing/discount-codes`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -804,7 +804,7 @@ export async function setAdminDiscountCodeActive(
   isActive: boolean,
 ): Promise<DiscountCodeRead> {
   const res = await fetch(
-    `${API_URL}/api/admin/pricing/discount-codes/${discountCodeId}/active`,
+    `${API_URL}/admin/pricing/discount-codes/${discountCodeId}/active`,
     {
       method: "POST",
       credentials: "include",
@@ -823,7 +823,7 @@ export async function setAdminDiscountCodeActive(
 /** GET /api/admin/permissions — the full, fixed set (utils/rbac.py's
  * MANAGED_MODELS x ACTIONS grid), for the group-permission editor. */
 export async function listAdminPermissions(): Promise<AdminPermissionRead[]> {
-  const res = await fetch(`${API_URL}/api/admin/permissions`, {
+  const res = await fetch(`${API_URL}/admin/permissions`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -833,7 +833,7 @@ export async function listAdminPermissions(): Promise<AdminPermissionRead[]> {
 
 /** GET /api/admin/groups */
 export async function listAdminGroups(): Promise<AdminGroupRead[]> {
-  const res = await fetch(`${API_URL}/api/admin/groups`, {
+  const res = await fetch(`${API_URL}/admin/groups`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -843,7 +843,7 @@ export async function listAdminGroups(): Promise<AdminGroupRead[]> {
 
 /** POST /api/admin/groups */
 export async function createAdminGroup(name: string): Promise<AdminGroupRead> {
-  const res = await fetch(`${API_URL}/api/admin/groups`, {
+  const res = await fetch(`${API_URL}/admin/groups`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -861,7 +861,7 @@ export async function assignGroupPermissions(
   groupId: number,
   codenames: string[],
 ): Promise<AdminGroupRead> {
-  const res = await fetch(`${API_URL}/api/admin/groups/${groupId}/permissions`, {
+  const res = await fetch(`${API_URL}/admin/groups/${groupId}/permissions`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -877,7 +877,7 @@ export async function revokeGroupPermission(
   codename: string,
 ): Promise<AdminGroupRead> {
   const res = await fetch(
-    `${API_URL}/api/admin/groups/${groupId}/permissions/${codename}`,
+    `${API_URL}/admin/groups/${groupId}/permissions/${codename}`,
     { method: "DELETE", credentials: "include", headers: await authHeaders() },
   );
   if (!res.ok) throw new Error(await errorDetail(res));
@@ -890,7 +890,7 @@ export async function assignUserGroups(
   userId: string,
   groupIds: number[],
 ): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/groups`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/groups`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -905,7 +905,7 @@ export async function removeUserGroup(
   userId: string,
   groupId: number,
 ): Promise<MessageResponse> {
-  const res = await fetch(`${API_URL}/api/admin/users/${userId}/groups/${groupId}`, {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/groups/${groupId}`, {
     method: "DELETE",
     credentials: "include",
     headers: await authHeaders(),
@@ -1021,7 +1021,7 @@ export async function getBookingRefund(bookingId: string): Promise<CustomerRefun
 export async function listAdminRefunds(
   params: CursorPageQueryParams & { status?: RefundStatus } = {},
 ): Promise<RefundPage> {
-  const res = await fetch(`${API_URL}/api/admin/refunds?${listSearchParams(params)}`, {
+  const res = await fetch(`${API_URL}/admin/refunds?${listSearchParams(params)}`, {
     credentials: "include",
     headers: await authHeaders(),
   });
@@ -1031,7 +1031,7 @@ export async function listAdminRefunds(
 
 /** POST /api/admin/refunds/{refundId}/retry — re-send a failed refund. */
 export async function retryAdminRefund(refundId: string): Promise<RefundRead> {
-  const res = await fetch(`${API_URL}/api/admin/refunds/${refundId}/retry`, {
+  const res = await fetch(`${API_URL}/admin/refunds/${refundId}/retry`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
@@ -1043,7 +1043,7 @@ export async function retryAdminRefund(refundId: string): Promise<RefundRead> {
 /** POST /api/admin/refunds/{refundId}/complete — mark a refund as actually
  * paid out. Pesapal never tells flyt this, so it's always a human call. */
 export async function completeAdminRefund(refundId: string): Promise<RefundRead> {
-  const res = await fetch(`${API_URL}/api/admin/refunds/${refundId}/complete`, {
+  const res = await fetch(`${API_URL}/admin/refunds/${refundId}/complete`, {
     method: "POST",
     credentials: "include",
     headers: await authHeaders(),
