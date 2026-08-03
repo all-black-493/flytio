@@ -25,9 +25,31 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  // Required for og:image to be emitted as an absolute URL - crawlers
+  // (WhatsApp, Slack, iMessage) reject relative ones, which is why link
+  // previews showed only title and description with no thumbnail. The
+  // canonical host is www: the apex 308-redirects here, so the www form
+  // is what people actually share.
+  metadataBase: new URL("https://www.flyt.africa"),
   title: "flyt — flight booking in full flow",
   description:
     "Search, book, and manage flights for yourself or your whole business. flyt is Norwegian for flow — and that's how booking should feel.",
+  openGraph: {
+    type: "website",
+    siteName: "flyt",
+    url: "/",
+    title: "flyt — flight booking in full flow",
+    // Deliberately shorter than the SEO description above: chat clients
+    // hard-truncate, and the full sentence was being cut mid-word.
+    description: "Every airline, one search. The exact fare, locked before you pay.",
+  },
+  // Makes X/Twitter use the wide card and reuse the Open Graph image
+  // rather than falling back to a small thumbnail.
+  twitter: {
+    card: "summary_large_image",
+    title: "flyt — flight booking in full flow",
+    description: "Every airline, one search. The exact fare, locked before you pay.",
+  },
 };
 
 export default function RootLayout({

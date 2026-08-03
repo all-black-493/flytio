@@ -37,6 +37,8 @@ router = APIRouter(prefix="/auth/google", tags=["Auth"])
 OAUTH_PROVIDER = "google"
 
 STATE_COOKIE_NAME = "flyt_oauth_state"
+# Scoped to this router's real mount point - see the set_cookie call below.
+STATE_COOKIE_PATH = f"{API_V1_PREFIX}/auth/google"
 # Long enough to click through Google's consent screen, short enough that
 # a leaked/replayed cookie value is useless well before anyone would find
 # it - the state cookie is single-purpose CSRF protection, not a session.
@@ -73,7 +75,13 @@ async def google_login(request: Request):
         # cross-site navigation "strict" would block, but "lax" allows.
         samesite="lax",
         max_age=STATE_COOKIE_MAX_AGE_SECONDS,
-        path="/auth/google",
+        # Must match where this router is actually mounted. A browser
+        # only returns a cookie to paths under its Path attribute, so a
+        # bare "/auth/google" is never sent to the real callback at
+        # /api/v1/auth/google/callback - state validation then fails and
+        # sign-in breaks, while every server-side test that sets the
+        # cookie directly still passes.
+        path=STATE_COOKIE_PATH,
     )
     return response
 
@@ -94,7 +102,7 @@ async def google_callback(
     ) -> RedirectResponse:
         logger.warning("Google OAuth callback failed: %s", reason)
         response = RedirectResponse(f"{login_page}?error={error_code}", 302)
-        response.delete_cookie(STATE_COOKIE_NAME, path="/auth/google")
+        response.delete_cookie(STATE_COOKIE_NAME, path=STATE_COOKIE_PATH)
         return response
 
     # Google itself reports a failure (most commonly the user clicking
@@ -143,5 +151,5 @@ async def google_callback(
     access_token = create_access_token(data={"sub": user.email, "purpose": "access"})
     response = RedirectResponse(f"{settings.FRONTEND_URL}/account", status_code=302)
     set_auth_cookie(response, access_token)
-    response.delete_cookie(STATE_COOKIE_NAME, path="/auth/google")
+    response.delete_cookie(STATE_COOKIE_NAME, path=STATE_COOKIE_PATH)
     return response

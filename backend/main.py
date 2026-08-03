@@ -55,7 +55,16 @@ Instrumentator().instrument(app).expose(app)
 # The frontend authenticates via an httpOnly cookie, so allow_credentials
 # must be True for the browser to send/receive it cross-origin. Origins must
 # be an explicit list (not "*") whenever allow_credentials is True.
-_cors_origins = settings.CORS_ORIGINS.split(",")
+#
+# Entries are stripped, because CORS matching is exact string equality: a
+# CORS_ORIGINS of "https://a.com, https://b.com" - written the way anyone
+# naturally writes a list - yields " https://b.com" with a leading space,
+# which silently matches no browser Origin ever. The failure surfaces only
+# in a browser, as "CORS Missing Allow Origin", with the server otherwise
+# healthy and curl (which sends no Origin) perfectly happy.
+_cors_origins = [
+    origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,

@@ -9,6 +9,7 @@ import pytest
 from sqlmodel import Session
 
 import backend.routers.oauth as oauth_module
+from backend.utils.constants import API_V1_PREFIX
 from backend.crud.db import get_session
 from backend.crud.users import (
     OAuthEmailConflictError,
@@ -296,3 +297,51 @@ def test_google_callback_rejects_unverified_email_collision(
     assert response.status_code == 302
     assert "error=email_already_registered" in response.headers["location"]
     assert "flyt_token" not in response.cookies
+
+
+def test_state_cookie_is_scoped_to_a_path_the_callback_actually_lives_under(
+    db_client, monkeypatch
+):
+    """The state cookie has to come back on the callback request, and a
+    browser only returns a cookie to paths under its Path attribute.
+
+    Every other test here injects flyt_oauth_state straight into the
+    cookie jar, which has no path and is therefore sent everywhere - so
+    they all passed while the real flow was broken: the cookie was
+    scoped to "/auth/google" but the callback is mounted at
+    /api/v1/auth/google/callback, so no browser ever sent it back and
+    sign-in failed on state validation. This drives the real jar instead,
+    letting Set-Cookie's own Path decide whether it reaches the callback.
+    """
+    login = db_client.get(f"{API_V1_PREFIX}/auth/google/login", follow_redirects=False)
+    assert login.status_code == 302
+
+    state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
+
+    async def fake_exchange(*, code, redirect_uri):
+        return {"access_token": "google-access-token"}
+
+    async def fake_userinfo(access_token):
+        return {
+            "id": "google-uid-pathtest",
+            "email": "pathtest@example.com",
+            "verified_email": True,
+        }
+
+    monkeypatch.setattr(
+        oauth_module.google_oauth_service, "exchange_code_for_token", fake_exchange
+    )
+    monkeypatch.setattr(
+        oauth_module.google_oauth_service, "fetch_userinfo", fake_userinfo
+    )
+
+    response = db_client.get(
+        f"{API_V1_PREFIX}/auth/google/callback?code=abc&state={state}",
+        follow_redirects=False,
+    )
+
+    # A mismatched/absent state bounces to the login page with an error;
+    # reaching /account means the cookie made it back.
+    assert response.status_code == 302
+    assert "error=" not in response.headers["location"]
+    assert response.headers["location"].endswith("/account")
