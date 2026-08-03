@@ -246,14 +246,12 @@ jobs:
 
             if docker compose version &> /dev/null; then
               echo 'Using docker compose v2'
-              run_compose down --remove-orphans
-              cleanup_docker_disk
-              run_compose up -d --build
+              sudo docker compose down
+              sudo docker compose up -d --build
             else
               echo 'Using legacy docker-compose'
-              run_compose down --remove-orphans
-              cleanup_docker_disk
-              run_compose up -d --build
+              sudo docker-compose down
+              sudo docker-compose up -d --build
             fi
 
 
