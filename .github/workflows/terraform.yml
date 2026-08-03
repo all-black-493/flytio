@@ -293,25 +293,25 @@ jobs:
 
 
             echo '--- Setting up Nginx reverse proxy ---'
-                    
+
             # Install Nginx and Certbot if not present
             if ! command -v nginx &> /dev/null; then
               echo 'Installing Nginx...'
               sudo apt-get update -y
               sudo apt-get install -y nginx
             fi
-                    
+
             if ! command -v certbot &> /dev/null; then
               echo 'Installing Certbot...'
               sudo apt-get install -y certbot python3-certbot-nginx
             fi
-                    
+
             # Write Nginx config for api subdomain
             sudo tee /etc/nginx/sites-available/api.flyt.africa > /dev/null <<'NGINX_CONF'
             server {
                 listen 80;
                 server_name api.flyt.africa;
-                    
+
                 location / {
                     client_max_body_size 2M;
                     proxy_pass http://127.0.0.1:8000;
@@ -324,15 +324,15 @@ jobs:
                 }
             }
             NGINX_CONF
-              
+
             # Enable the site (idempotent)
             sudo ln -sf /etc/nginx/sites-available/api.flyt.africa /etc/nginx/sites-enabled/
             sudo rm -f /etc/nginx/sites-enabled/default
-              
+
             # Test and reload Nginx
             sudo nginx -t && sudo systemctl reload nginx
             echo 'Nginx is running on port 80'
-              
+
             # Attempt SSL certificate (non-blocking — will fail gracefully if DNS not ready)
             echo '--- Attempting SSL certificate ---'
             sudo certbot --nginx \
@@ -343,9 +343,12 @@ jobs:
               --cert-name flyt-africa-api \
               --redirect \
               || echo 'WARNING: Certbot failed. DNS may not be pointing to this server yet. Nginx is still running on HTTP.'
-              
+
             echo '--- Nginx setup complete ---'
             sudo systemctl status nginx --no-pager
+
+            "
+            
 
 
 
