@@ -21,8 +21,12 @@ To inspect or remove what is already registered:
 
     GET    https://api.duffel.com/air/webhooks          # id, url, events
     DELETE https://api.duffel.com/air/webhooks/{id}
+    POST   https://api.duffel.com/air/webhooks/{id}/actions/ping
 
-both with `Duffel-Version: v2` and a Bearer DUFFEL_API_TOKEN.
+all with `Duffel-Version: v2` and a Bearer DUFFEL_API_TOKEN. Note the
+ping path carries no literal "id" segment: Duffel's guide writes it as
+.../webhooks/id/$WEBHOOK_ID/actions/ping, which 404s. The working call
+is .../webhooks/{id}/actions/ping, which returns 204 No Content.
 
 BACKEND_PUBLIC_URL must be reachable from the public internet for Duffel
 to actually deliver webhooks later (use ngrok/cloudflared for local
@@ -60,7 +64,7 @@ async def main() -> None:
     print(f"DUFFEL_WEBHOOK_SECRET={data['secret']}")
     print(
         f"\nTest it reaches you:\n"
-        f"  curl -X POST 'https://api.duffel.com/air/webhooks/id/{data['id']}/actions/ping' \\\n"
+        f"  curl -X POST 'https://api.duffel.com/air/webhooks/{data['id']}/actions/ping' \\\n"
         f"    -H 'Accept: application/json' -H 'Content-Type: application/json' \\\n"
         f"    -H 'Duffel-Version: v2' -H \"Authorization: Bearer $DUFFEL_API_TOKEN\" -d '{{}}'"
     )
