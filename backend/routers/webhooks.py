@@ -17,7 +17,18 @@ router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 # endpoint is actually registered for today. Anything else Duffel might
 # someday deliver to this same URL (a broadened registration, a dashboard
 # change) is safely ignored below rather than assumed handled.
-_HANDLED_EVENT_TYPES = {"order.airline_initiated_change_detected"}
+_HANDLED_EVENT_TYPES = {
+    "order.created",
+    "order.creation_failed",
+    "order_cancellation.created",
+    "order_cancellation.confirmed",
+    "payment.created",
+    "order.airline_initiated_change_detected",
+    "air.payment.failed",
+    "air.payment.succeeded",
+    "air.payment.cancelled",
+    "air.payment.pending",
+}
 
 
 @router.post("/duffel", status_code=status.HTTP_200_OK, include_in_schema=False)
