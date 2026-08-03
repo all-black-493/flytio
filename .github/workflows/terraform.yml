@@ -175,6 +175,12 @@ jobs:
 
           ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} "
 
+          # Without this the remote shell runs every command regardless of
+          # failures, and ssh exits with the status of the LAST one - so a
+          # failed git pull and a failed image build both reported success
+          # because 'systemctl status nginx' at the end happened to work.
+          set -e
+
           export DEBIAN_FRONTEND=noninteractive
 
           if [ ! -f /swapfile ]; then
@@ -210,7 +216,12 @@ jobs:
             echo 'Repo exists, pulling...'
             cd flytio
             git remote set-url origin https://x-access-token:${GH_PAT}@github.com/all-black-493/flytio.git
-            git pull origin main
+            # Not 'git pull': the checkout had diverged from origin/main, and
+            # with no pull strategy configured git refuses outright ('Need to
+            # specify how to reconcile divergent branches'). A deploy target
+            # has no local work worth keeping, so take origin verbatim.
+            git fetch --prune origin main
+            git reset --hard origin/main
           else
             echo 'Repo missing, cloning...'
             git clone https://x-access-token:${GH_PAT}@github.com/all-black-493/flytio.git
@@ -256,13 +267,27 @@ jobs:
           GOOGLE_USERINFO_URL=${GOOGLE_USERINFO_URL}
           EOF
 
+          # The build writes a fresh image layer each deploy and nothing
+          # ever removed the old ones, which filled the 16GB root volume
+          # ('no space left on device' while extracting a layer). Reclaim
+          # before building, not after, so the space is there when needed.
+          echo '--- Disk before cleanup ---'
+          df -h / | tail -1
+
           if docker compose version &> /dev/null; then
             echo 'Using docker compose v2'
             sudo docker compose down
+            sudo docker builder prune -af || true
+            sudo docker image prune -af || true
+            sudo docker container prune -f || true
+            echo '--- Disk after cleanup ---'
+            df -h / | tail -1
             sudo docker compose up -d --build
           else
             echo 'Using legacy docker-compose'
             sudo docker-compose down
+            sudo docker image prune -af || true
+            sudo docker container prune -f || true
             sudo docker-compose up -d --build
           fi
 
@@ -319,5 +344,25 @@ jobs:
           echo '--- Nginx setup complete ---'
 
           sudo systemctl status nginx --no-pager
+
+          # Prove the API is actually serving before calling this a deploy.
+          # nginx and certbot succeeding says nothing about the app: with the
+          # containers down, every one of those steps still passes and the
+          # site returns 502. Dollar signs below are backslash-escaped so the
+          # REMOTE shell expands them, not the runner building this string.
+          echo '--- Verifying the API responds ---'
+          for i in \$(seq 1 24); do
+            if curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8000/health; then
+              echo \"API is up after \${i} attempt(s)\"
+              break
+            fi
+            if [ \${i} -eq 24 ]; then
+              echo 'ERROR: API never became healthy - container state and logs:'
+              sudo docker compose ps || true
+              sudo docker compose logs --tail=60 fastapi-app || true
+              exit 1
+            fi
+            sleep 5
+          done
 
           "
