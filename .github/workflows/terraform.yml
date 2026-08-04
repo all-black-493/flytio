@@ -279,9 +279,17 @@ jobs:
           if docker compose version &> /dev/null; then
             echo 'Using docker compose v2'
             sudo docker compose down
-            sudo docker builder prune -af || true
-            sudo docker image prune -af || true
+            # Order matters. An anonymous volume stays 'in use' while any
+            # container - even a stopped one - still references it, so
+            # pruning volumes before containers reclaims nothing. The
+            # .venv mount creates one such volume per build, and they had
+            # piled up 24 deep.
             sudo docker container prune -f || true
+            # No -a: that would take NAMED volumes too, which includes
+            # postgres_data. Without it, only anonymous volumes go.
+            sudo docker volume prune -f || true
+            sudo docker image prune -af || true
+            sudo docker builder prune -af || true
             echo '--- Disk after cleanup ---'
             df -h / | tail -1
             sudo docker compose up -d --build
