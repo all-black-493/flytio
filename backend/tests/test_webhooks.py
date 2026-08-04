@@ -201,3 +201,44 @@ def test_duffel_webhook_ignores_unhandled_event_types(session, client, monkeypat
     assert response.status_code == 200
     session.refresh(booking)
     assert booking.airline_initiated_change_detected_at is None
+
+
+def test_order_created_does_not_flag_an_airline_change(session, client, monkeypatch):
+    """Only the airline-change event may take the airline-change path.
+
+    Everything after the event-type check reads data.object.id as an
+    ORDER id and stamps the booking, so admitting order.created here
+    means every newly created booking is marked as airline-changed and
+    the customer is emailed "your flight may have changed" - on the happy
+    path of every booking, with a real order id that really does resolve
+    to one of ours.
+    """
+    booking = _make_booking(session)
+    secret = "whsec_test"
+    monkeypatch.setattr(settings, "DUFFEL_WEBHOOK_SECRET", secret)
+
+    published = []
+    monkeypatch.setattr(
+        webhooks_module.kafka_producer,
+        "publish_event",
+        lambda topic, event_type, data: published.append((topic, event_type, data)),
+    )
+
+    body = json.dumps(
+        {"type": "order.created", "data": {"object": {"id": "ord_test123"}}}
+    ).encode()
+    timestamp = str(int(time.time()))
+
+    response = client.post(
+        "/api/v1/webhooks/duffel",
+        content=body,
+        headers={
+            "X-Duffel-Signature": _sign(secret, body, timestamp),
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 200
+    session.refresh(booking)
+    assert booking.airline_initiated_change_detected_at is None
+    assert published == []

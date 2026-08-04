@@ -13,11 +13,29 @@ logger = get_app_logger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 
-# See backend/scripts/register_duffel_webhook.py - the only event type this
-# endpoint is actually registered for today. Anything else Duffel might
-# someday deliver to this same URL (a broadened registration, a dashboard
-# change) is safely ignored below rather than assumed handled.
-_HANDLED_EVENT_TYPES = {"order.airline_initiated_change_detected"}
+# The one event this endpoint acts on. Everything below the event-type
+# check treats data.object.id as an ORDER id and stamps the booking as
+# airline-changed, so widening this to any other type silently misroutes
+# it: an order.created delivery would mark a brand new booking as having
+# an airline change and email the customer "your flight may have changed"
+# on the happy path of every single booking.
+_AIRLINE_CHANGE_EVENT = "order.airline_initiated_change_detected"
+
+# Types the Duffel subscription may deliver that this app knowingly does
+# nothing with - listed so they're logged as recognised-but-unhandled
+# rather than as a surprise, and so adding one here can never be mistaken
+# for adding handling for it.
+_UNHANDLED_EVENT_TYPES = {
+    "order.created",
+    "order.creation_failed",
+    "order_cancellation.created",
+    "order_cancellation.confirmed",
+    "payment.created",
+    "air.payment.failed",
+    "air.payment.succeeded",
+    "air.payment.cancelled",
+    "air.payment.pending",
+}
 
 
 @router.post("/duffel", status_code=status.HTTP_200_OK, include_in_schema=False)
@@ -51,8 +69,13 @@ async def duffel_webhook(request: Request, session: Session = Depends(get_sessio
         return Response(status_code=status.HTTP_200_OK)
 
     event_type = event.get("type")
-    if event_type not in _HANDLED_EVENT_TYPES:
-        logger.info("Ignoring Duffel webhook event type: %s", event_type)
+    if event_type != _AIRLINE_CHANGE_EVENT:
+        # Deliberately not a pass-through: everything below assumes an
+        # airline-initiated change, so anything else must stop here.
+        if event_type in _UNHANDLED_EVENT_TYPES:
+            logger.info("Duffel webhook %s recognised but not acted on", event_type)
+        else:
+            logger.info("Ignoring unknown Duffel webhook event type: %s", event_type)
         return Response(status_code=status.HTTP_200_OK)
 
     # Duffel's v2 AIC payload nests the changed order under data.object,
