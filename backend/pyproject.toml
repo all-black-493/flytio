@@ -29,3 +29,8 @@ dependencies = [
     "sqlmodel>=0.0.39",
     "typer>=0.26.8",
 ]
+
+[dependency-groups]
+dev = [
+    "pypdf>=6.15.0",
+]
