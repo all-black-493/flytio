@@ -15,6 +15,7 @@ import re
 
 from backend.schemas.common import PaginationMeta
 from backend.schemas.duffel_flights import (
+    DepartureWindow,
     AirlineFacet,
     FlightSearchResponse,
     Offer,
@@ -116,6 +117,15 @@ def apply_filters(offers: list[dict], params: OfferListQueryParams) -> list[dict
             and float(offer["total_amount"]) > params.price_max
         ):
             return False
+        if params.depart_windows and not any(
+            in_departure_window(offer, w) for w in params.depart_windows
+        ):
+            return False
+        if (
+            params.max_duration_minutes is not None
+            and offer_duration_minutes(offer) > params.max_duration_minutes
+        ):
+            return False
         return True
 
     return [o for o in offers if matches(o)]
@@ -126,7 +136,97 @@ def _first_slice_segments(offer: dict) -> list[dict]:
     return (slices[0].get("segments") or []) if slices else []
 
 
+def _departure_hour(offer: dict) -> int | None:
+    """Local hour of the outbound leg's first departure. Duffel returns a
+    naive local timestamp per airport, which is what we want here - a
+    traveller means 08:00 where they're standing, not UTC."""
+    segments = _first_slice_segments(offer)
+    departs = (segments or [{}])[0].get("departing_at") or ""
+    try:
+        return int(departs[11:13])
+    except (ValueError, IndexError):
+        return None
+
+
+_WINDOW_HOURS = {
+    DepartureWindow.MORNING: range(5, 12),
+    DepartureWindow.AFTERNOON: range(12, 18),
+    DepartureWindow.EVENING: range(18, 22),
+}
+
+
+def in_departure_window(offer: dict, window: DepartureWindow) -> bool:
+    hour = _departure_hour(offer)
+    if hour is None:
+        return False
+    if window is DepartureWindow.NIGHT:
+        # The only window that wraps midnight, so it can't be a range.
+        return hour >= 22 or hour < 5
+    return hour in _WINDOW_HOURS[window]
+
+
+def _total_stops(offer: dict) -> int:
+    return sum(
+        max(len(s.get("segments") or []) - 1, 0) for s in (offer.get("slices") or [])
+    )
+
+
+# Weights for the BEST ranking. Price dominates because it is why people
+# use a comparison site at all, but not so heavily that a 20-hour
+# two-stop itinerary wins on being $5 cheaper.
+_BEST_PRICE_WEIGHT = 0.6
+_BEST_DURATION_WEIGHT = 0.3
+_BEST_STOPS_WEIGHT = 0.1
+
+
+def _best_value_scores(offers: list[dict]) -> dict[str, float]:
+    """Lower is better. Each axis scores how much WORSE an offer is than
+    the best offer on that axis, proportionally: 0.5 means "half again as
+    expensive (or as long) as the cheapest (or quickest) option here".
+
+    Proportional rather than min-max normalised, which was the first
+    attempt and was wrong: min-max makes the spread 0-1 regardless of
+    magnitude, so a $20 price gap and a $500 one both score a full 1.0.
+    That ranked a $380 twenty-hour two-stop above a $400 five-hour direct,
+    because $20 of price looked as decisive as fifteen hours of flying.
+
+    Penalties are capped at 1.0 so a single absurd outlier - the
+    three-stop itinerary at four times the price - can't drag the whole
+    scale with it.
+    """
+    if not offers:
+        return {}
+
+    prices = [float(o["total_amount"]) for o in offers]
+    durations = [max(offer_duration_minutes(o), 1) for o in offers]
+
+    best_price = min(prices) or 1.0
+    best_duration = min(durations)
+
+    def penalty(value: float, best: float) -> float:
+        return min(value / best - 1.0, 1.0)
+
+    return {
+        offer["id"]: (
+            _BEST_PRICE_WEIGHT * penalty(prices[i], best_price)
+            + _BEST_DURATION_WEIGHT * penalty(float(durations[i]), float(best_duration))
+            # Stops are a small absolute count, so they're scored against a
+            # fixed scale rather than the result set - two stops is a bad
+            # itinerary whether or not something worse exists alongside it.
+            + _BEST_STOPS_WEIGHT * min(_total_stops(offer) / 3.0, 1.0)
+        )
+        for i, offer in enumerate(offers)
+    }
+
+
 def sort_offers(offers: list[dict], sort: OfferSortKey) -> list[dict]:
+    if sort == OfferSortKey.BEST:
+        scores = _best_value_scores(offers)
+        # Price breaks ties so equal-scoring itineraries stay in a
+        # predictable, defensible order.
+        return sorted(
+            offers, key=lambda o: (scores.get(o["id"], 0.0), float(o["total_amount"]))
+        )
     if sort == OfferSortKey.PRICE:
         return sorted(offers, key=lambda o: float(o["total_amount"]))
     if sort == OfferSortKey.DURATION:

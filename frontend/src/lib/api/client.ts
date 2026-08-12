@@ -259,6 +259,9 @@ function offerListSearchParams(params: OfferListQueryParams): URLSearchParams {
   const search = new URLSearchParams();
   if (params.sort) search.set("sort", params.sort);
   for (const code of params.airlines ?? []) search.append("airlines", code);
+  // Repeated per value, matching FastAPI's default for list[str] query
+  // params - same convention as `airlines` above.
+  for (const w of params.depart_windows ?? []) search.append("depart_windows", w);
   if (params.max_stops != null) search.set("max_stops", String(params.max_stops));
   if (params.price_max != null) search.set("price_max", String(params.price_max));
   if (params.limit != null) search.set("limit", String(params.limit));

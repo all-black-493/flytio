@@ -16,6 +16,7 @@ import {
 } from "@/app/(app)/search/_lib/pagination-params";
 
 const OPTIONS: { value: OfferSortKey; label: string }[] = [
+  { value: "best", label: "Best value" },
   { value: "price", label: "Cheapest price" },
   { value: "duration", label: "Fastest" },
   { value: "departure", label: "Earliest departure" },
