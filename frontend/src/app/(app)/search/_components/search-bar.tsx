@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
-import { ArrowLeftRight, MapPin, PlaneTakeoff } from "lucide-react";
+import { useState, useTransition } from "react";
+import { ArrowLeftRight, Loader2, MapPin, PlaneTakeoff } from "lucide-react";
 
 import { PassengerCountPicker, type PassengerCounts } from "@/components/PassengerCountPicker";
 import { PlaceAutocomplete } from "@/components/PlaceAutocomplete";
@@ -45,6 +45,7 @@ export function SearchBar({
   defaultCabinClass = "economy",
 }: SearchBarProps) {
   const router = useRouter();
+  const [isSearching, startTransition] = useTransition();
   // Carried through so an admin booking on a customer's behalf
   // (/admin/bookings/new) doesn't lose that context on re-search - this
   // component is also rendered plainly on the homepage, where the param
@@ -66,10 +67,13 @@ export function SearchBar({
     setDestination(origin);
   }
 
+  // See SearchCard: the push re-runs a live Duffel search server-side, so
+  // it needs a visible pending state rather than appearing to do nothing.
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const href = searchHrefFromForm(new FormData(event.currentTarget), origin, destination);
-    router.push(bookForUserId ? `${href}&bookForUserId=${bookForUserId}` : href);
+    const target = bookForUserId ? `${href}&bookForUserId=${bookForUserId}` : href;
+    startTransition(() => router.push(target));
   }
 
   return (
@@ -215,8 +219,19 @@ export function SearchBar({
             />
           </div>
 
-          <Button type="submit" className="bg-signal font-semibold hover:bg-signal/90 lg:col-span-6">
-            Search flights
+          <Button
+            type="submit"
+            disabled={isSearching}
+            className="bg-signal font-semibold hover:bg-signal/90 lg:col-span-6"
+          >
+            {isSearching ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Searching…
+              </>
+            ) : (
+              "Search flights"
+            )}
           </Button>
         </div>
       </form>

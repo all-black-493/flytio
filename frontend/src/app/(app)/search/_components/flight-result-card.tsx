@@ -16,6 +16,14 @@ import { SelfTransferNotice } from "@/components/SelfTransferNotice";
 import { formatDuration, formatMoney, formatTime, stopsLabel } from "@/lib/api/format";
 import type { Offer, OfferSlice } from "@/lib/api/schemas";
 
+/** Distinct aircraft types flown on a slice, in order, e.g. "Boeing 777-300ER"
+ * or "Boeing 737 · Airbus A320" for a two-leg trip on different equipment.
+ * Empty when the airline reports no aircraft, which Duffel leaves nullable. */
+function aircraftLabel(slice: OfferSlice): string {
+  const names = slice.segments.map((s) => s.aircraft?.name).filter((n): n is string => !!n);
+  return [...new Set(names)].join(" · ");
+}
+
 function SliceRow({ slice }: { slice: OfferSlice }) {
   const first = slice.segments[0];
   const last = slice.segments[slice.segments.length - 1];
@@ -64,6 +72,16 @@ function SliceRow({ slice }: { slice: OfferSlice }) {
               return `${s.destination.iata_code} (${formatLayoverDuration(minutes)})`;
             })
             .join(", ")}
+        </p>
+      )}
+
+      {/* Aircraft per leg - travellers do choose on equipment (a 777 over a
+       * regional jet on a long haul), and Duffel already returns it on every
+       * segment. Deduplicated so a two-leg hop on the same type reads
+       * "Boeing 737" rather than repeating itself. */}
+      {aircraftLabel(slice) && (
+        <p className="col-span-3 -mt-0.5 font-mono text-[11px] text-muted-foreground/80">
+          {aircraftLabel(slice)}
         </p>
       )}
     </div>
