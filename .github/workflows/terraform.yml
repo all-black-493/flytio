@@ -123,7 +123,10 @@ jobs:
           HOST: ${{ needs.deploy-infrastructure.outputs.ec2_public_ip }}
           USER: ubuntu
           GH_PAT: ${{ secrets.GH_PAT }}
-          # DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          # A Doppler SERVICE token (dp.st....), read-only and scoped to
+          # one project+config. Optional: with it unset, the containers
+          # fall back to the .env written below, exactly as before.
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MAIL_DOMAIN: ${{ secrets.MAIL_DOMAIN }}
           MAIL_FROM_NAME: ${{ secrets.MAIL_FROM_NAME }}
@@ -244,6 +247,7 @@ jobs:
           ALGORITHM=${ALGORITHM}
           DATABASE_URL=${DATABASE_URL}
           DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL}
+          DOPPLER_TOKEN=${DOPPLER_TOKEN}
           REDIS_HOST=${REDIS_HOST}
           REDIS_PORT=${REDIS_PORT}
           REDIS_URL=${REDIS_URL}

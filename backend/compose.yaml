@@ -22,6 +22,11 @@ services:
       - DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Optional. When set, the entrypoint runs the process under
+      # `doppler run` and secrets arrive as environment variables,
+      # overriding anything below except the container-topology vars the
+      # entrypoint pins. Unset (local dev), everything falls back to .env.
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN:-}
       # `fastapi dev`/`fastapi run` have their own sys.path auto-detection
       # (triggered by backend/__init__.py existing) that makes `from
       # backend.x import y` resolve everywhere in this codebase - but that
@@ -34,12 +39,12 @@ services:
     volumes:
       - .:/backend
       - /backend/.venv
-    # init_db runs first: the migration chain cannot build a schema from
-    # nothing (see scripts/init_db.py), so against a fresh database
-    # Alembic fails on its very first statement and takes the container
-    # down with it.
-    command: ["sh", "-c", "python -m backend.scripts.init_db && alembic upgrade head && fastapi run main.py --port 80 --host 0.0.0.0"]
+    # No `command:` - the API is this image's CMD (see Dockerfile), so the
+    # startup chain is defined once. Only the consumer below overrides it.
     
+  # Same image as the API, deliberately different process - which is the
+  # one reason a `command:` override belongs here rather than in the
+  # Dockerfile.
   kafka-consumer:
     build: .
     # Same race, quieter failure: nothing user-facing breaks immediately,
@@ -54,6 +59,11 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Optional. When set, the entrypoint runs the process under
+      # `doppler run` and secrets arrive as environment variables,
+      # overriding anything below except the container-topology vars the
+      # entrypoint pins. Unset (local dev), everything falls back to .env.
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN:-}
       - PYTHONPATH=/
     depends_on:
       redis:
