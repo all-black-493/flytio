@@ -123,60 +123,16 @@ jobs:
           HOST: ${{ needs.deploy-infrastructure.outputs.ec2_public_ip }}
           USER: ubuntu
           GH_PAT: ${{ secrets.GH_PAT }}
+          # Bootstrap credentials only. These cannot come from Doppler:
+          # they are what gets us TO the environment in the first place -
+          # the runner needs AWS to provision, SSH to connect, and a PAT
+          # to clone, all before anything can talk to Doppler.
+          #
           # A Doppler SERVICE token (dp.st....), read-only and scoped to
-          # one project+config. Optional: with it unset, the containers
-          # fall back to the .env written below, exactly as before.
+          # one project+config. Every application secret now lives there,
+          # not here: rotation happens in Doppler, and nothing lands on
+          # the server's disk.
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MAIL_DOMAIN: ${{ secrets.MAIL_DOMAIN }}
-          MAIL_FROM_NAME: ${{ secrets.MAIL_FROM_NAME }}
-          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
-
-          ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          ALGORITHM: ${{ secrets.ALGORITHM }}
-
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # Neon's direct (non-pooled) endpoint. DATABASE_URL is the
-          # pooled one the app runs on; a transaction-mode pooler can't
-          # run migrations, so Alembic needs this separately.
-          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
-          REDIS_HOST: ${{ secrets.REDIS_HOST }}
-          REDIS_PORT: ${{ secrets.REDIS_PORT }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-
-          DUFFEL_API_TOKEN: ${{ secrets.DUFFEL_API_TOKEN }}
-          DUFFEL_WEBHOOK_SECRET: ${{ secrets.DUFFEL_WEBHOOK_SECRET }}
-          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-
-          PESAPAL_CONSUMER_KEY: ${{ secrets.PESAPAL_CONSUMER_KEY }}
-          PESAPAL_CONSUMER_SECRET: ${{ secrets.PESAPAL_CONSUMER_SECRET }}
-          PESAPAL_ENV: ${{ secrets.PESAPAL_ENV }}
-          PESAPAL_IPN_ID: ${{ secrets.PESAPAL_IPN_ID }}
-
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          BACKEND_PUBLIC_URL: ${{ secrets.BACKEND_PUBLIC_URL }}
-
-          COOKIE_DOMAIN: ${{ secrets.COOKIE_DOMAIN }}
-          COOKIE_SECURE: ${{ secrets.COOKIE_SECURE }}
-
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CONCIERGE_MODEL: ${{ secrets.CONCIERGE_MODEL }}
-
-          UNSPLASH_APP_ID: ${{ secrets.UNSPLASH_APP_ID }}
-          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
-          UNSPLASH_SECRET_KEY: ${{ secrets.UNSPLASH_SECRET_KEY }}
-
-          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
-          BLOCKED_USER_AGENTS: ${{ secrets.BLOCKED_USER_AGENTS }}
-          AUTO_BAN_DURATION: ${{ secrets.AUTO_BAN_DURATION }}
-          AUTO_BAN_THRESHOLD: ${{ secrets.AUTO_BAN_THRESHOLD }}
-
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_AUTH_URL: ${{ secrets.GOOGLE_AUTH_URL }}
-          GOOGLE_TOKEN_URL: ${{ secrets.GOOGLE_TOKEN_URL }}
-          GOOGLE_USERINFO_URL: ${{ secrets.GOOGLE_USERINFO_URL }}
 
         run: |
           echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
@@ -190,6 +146,9 @@ jobs:
           set -e
 
           export DEBIAN_FRONTEND=noninteractive
+          # Single-quoted so the remote shell takes it verbatim - the value
+          # is substituted here by the runner, not there.
+          export DOPPLER_TOKEN='${DOPPLER_TOKEN}'
 
           if [ ! -f /swapfile ]; then
             echo 'Creating 2GB swap file...'
@@ -238,45 +197,30 @@ jobs:
 
           cd backend
 
-          cat > .env <<'EOF'
-          RESEND_API_KEY=${RESEND_API_KEY}
-          MAIL_DOMAIN=${MAIL_DOMAIN}
-          MAIL_FROM_NAME=${MAIL_FROM_NAME}
-          ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
-          SECRET_KEY=${SECRET_KEY}
-          ALGORITHM=${ALGORITHM}
-          DATABASE_URL=${DATABASE_URL}
-          DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL}
-          DOPPLER_TOKEN=${DOPPLER_TOKEN}
-          REDIS_HOST=${REDIS_HOST}
-          REDIS_PORT=${REDIS_PORT}
-          REDIS_URL=${REDIS_URL}
-          DUFFEL_API_TOKEN=${DUFFEL_API_TOKEN}
-          DUFFEL_WEBHOOK_SECRET=${DUFFEL_WEBHOOK_SECRET}
-          CORS_ORIGINS=${CORS_ORIGINS}
-          PESAPAL_CONSUMER_KEY=${PESAPAL_CONSUMER_KEY}
-          PESAPAL_CONSUMER_SECRET=${PESAPAL_CONSUMER_SECRET}
-          PESAPAL_ENV=${PESAPAL_ENV}
-          PESAPAL_IPN_ID=${PESAPAL_IPN_ID}
-          FRONTEND_URL=${FRONTEND_URL}
-          BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL}
-          COOKIE_DOMAIN=${COOKIE_DOMAIN}
-          COOKIE_SECURE=${COOKIE_SECURE}
-          OPENAI_API_KEY=${OPENAI_API_KEY}
-          CONCIERGE_MODEL=${CONCIERGE_MODEL}
-          UNSPLASH_APP_ID=${UNSPLASH_APP_ID}
-          UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
-          UNSPLASH_SECRET_KEY=${UNSPLASH_SECRET_KEY}
-          KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
-          BLOCKED_USER_AGENTS=${BLOCKED_USER_AGENTS}
-          AUTO_BAN_DURATION=${AUTO_BAN_DURATION}
-          AUTO_BAN_THRESHOLD=${AUTO_BAN_THRESHOLD}
-          GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-          GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-          GOOGLE_AUTH_URL=${GOOGLE_AUTH_URL}
-          GOOGLE_TOKEN_URL=${GOOGLE_TOKEN_URL}
-          GOOGLE_USERINFO_URL=${GOOGLE_USERINFO_URL}
-          EOF
+          # No .env is written any more - every application secret comes
+          # from Doppler at container start (see backend/docker-entrypoint.sh).
+          # Any file left by an earlier deploy is deleted rather than left
+          # to rot: it is bind-mounted into the containers, it would still
+          # feed Compose's own variable interpolation, and it is exactly the
+          # on-disk copy this migration exists to get rid of.
+          if [ -f .env ]; then
+            echo 'Removing .env left by a pre-Doppler deploy'
+            shred -u .env 2>/dev/null || rm -f .env
+          fi
+
+          if ! command -v doppler &> /dev/null; then
+            echo 'Installing Doppler CLI...'
+            curl -sLf --retry 3 --tlsv1.2 --proto '=https' \
+              'https://packages.doppler.com/public/cli/install.sh' | sudo sh
+          fi
+
+          # Fail here, loudly, rather than four steps later with a container
+          # in a restart loop and a green deploy.
+          if ! doppler secrets --only-names > /dev/null 2>&1; then
+            echo 'ERROR: DOPPLER_TOKEN is missing or invalid - cannot fetch secrets.'
+            exit 1
+          fi
+          echo \"Doppler reachable: \$(doppler secrets --only-names | wc -l) secrets in scope\"
 
           # The build writes a fresh image layer each deploy and nothing
           # ever removed the old ones, which filled the 16GB root volume
@@ -287,7 +231,7 @@ jobs:
 
           if docker compose version &> /dev/null; then
             echo 'Using docker compose v2'
-            sudo docker compose down
+            sudo env DOPPLER_TOKEN=\"\$DOPPLER_TOKEN\" doppler run -- docker compose down
             # Order matters. An anonymous volume stays 'in use' while any
             # container - even a stopped one - still references it, so
             # pruning volumes before containers reclaims nothing. The
@@ -301,13 +245,15 @@ jobs:
             sudo docker builder prune -af || true
             echo '--- Disk after cleanup ---'
             df -h / | tail -1
-            sudo docker compose up -d --build
+            sudo env DOPPLER_TOKEN=\"\$DOPPLER_TOKEN\" doppler run -- docker compose up -d --build
           else
-            echo 'Using legacy docker-compose'
-            sudo docker-compose down
-            sudo docker image prune -af || true
-            sudo docker container prune -f || true
-            sudo docker-compose up -d --build
+            # Deliberately fatal. This branch predates Doppler and would
+            # bring the stack up with no secrets at all - an API that boots
+            # and then 500s on every request, behind a green deploy. v1 is
+            # also long EOL; install the v2 plugin instead of reviving it.
+            echo 'ERROR: docker compose v2 not found. Install docker-compose-v2; the'
+            echo '       legacy v1 path cannot inject Doppler secrets.'
+            exit 1
           fi
 
           echo '--- Setting up Nginx reverse proxy ---'
@@ -355,7 +301,7 @@ jobs:
             -d api.flyt.africa \
             --non-interactive \
             --agree-tos \
-            --email "${CERTBOT_EMAIL}" \
+            --email \"\$(doppler secrets get CERTBOT_EMAIL --plain)\" \
             --cert-name flyt-africa-api \
             --redirect \
             || echo 'WARNING: Certbot failed. DNS may not be pointing to this server yet.'
