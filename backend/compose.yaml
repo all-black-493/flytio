@@ -38,7 +38,7 @@ services:
     # nothing (see scripts/init_db.py), so against a fresh database
     # Alembic fails on its very first statement and takes the container
     # down with it.
-    command: ["sh", "-c", "uv run python -m backend.scripts.init_db && uv run alembic upgrade head && uv run fastapi run main.py --port 80 --host 0.0.0.0"]
+    command: ["sh", "-c", "python -m backend.scripts.init_db && alembic upgrade head && fastapi run main.py --port 80 --host 0.0.0.0"]
     
   kafka-consumer:
     build: .
@@ -63,7 +63,7 @@ services:
     volumes:
       - .:/backend
       - /backend/.venv
-    command: ["uv", "run", "python", "-m", "backend.workers.kafka_consumer"]
+    command: ["python", "-m", "backend.workers.kafka_consumer"]
 
   redis:
     image: redis:latest
