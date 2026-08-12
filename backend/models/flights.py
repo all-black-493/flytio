@@ -29,8 +29,17 @@ class Flight(SQLModel, table=True):
     destination_name: str | None = None
     destination_terminal: str | None = None
 
+    # Local times at their respective airports, exactly as Duffel returns
+    # them - no offset, no UTC. Rendering them is fine (a traveller wants
+    # the local clock time); comparing them to "now" is not, which is what
+    # origin_time_zone below is for.
     departing_at: datetime = Field(nullable=False)
     arriving_at: datetime = Field(nullable=False)
+    # IANA zone of the origin airport (Duffel's segment.origin.time_zone).
+    # None on any flight booked before this was persisted; utils/
+    # flight_times.py treats that as "instant unknown" rather than guessing,
+    # because a guess here means a departure reminder at the wrong hour.
+    origin_time_zone: str | None = None
     duration: str | None = Field(
         default=None, description="ISO 8601 duration, e.g. PT7H58M"
     )

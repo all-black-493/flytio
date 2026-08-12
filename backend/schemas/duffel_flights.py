@@ -196,6 +196,15 @@ class Airport(BaseSchema):
     iata_code: str | None = None
     name: str | None = None
     city_name: str | None = None
+    time_zone: str | None = Field(
+        default=None,
+        description=(
+            "IANA name, e.g. Africa/Nairobi. Duffel's departing_at/arriving_at "
+            "are LOCAL times at their airport with no offset attached, so this "
+            "is the only thing that turns one into an actual instant - see "
+            "utils/flight_times.py."
+        ),
+    )
 
 
 class Carrier(BaseSchema):

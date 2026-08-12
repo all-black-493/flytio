@@ -9,7 +9,8 @@ import uuid
 
 from sqlmodel import Session, func, select
 
-from backend.models.notifications import Notification, NotificationType, utcnow
+from backend.models.notifications import Notification, NotificationType
+from backend.utils.time import utcnow
 from backend.models.users import UserInDB
 from backend.utils.log_manager import get_app_logger
 from backend.utils.redis_client import publish_notification

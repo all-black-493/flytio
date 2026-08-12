@@ -13,7 +13,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from backend.config import settings
 from backend.utils.constants import API_V1_PREFIX
-from backend.models.bookings import Booking
+from backend.models.bookings import Booking, BookingSlice
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "emails"
 
@@ -86,6 +86,20 @@ def _render(template_name: str, **context) -> str:
     )
 
 
+def booking_url(booking: Booking) -> str:
+    return f"{settings.FRONTEND_URL}/account/bookings/{booking.id}"
+
+
+def booking_pdf_url(booking: Booking) -> str:
+    """Lands in a customer's inbox and stays there indefinitely, so it has
+    to name the API version explicitly - an email sent today is still
+    clicked long after /api/v2 exists."""
+    return (
+        f"{settings.BACKEND_PUBLIC_URL}{API_V1_PREFIX}"
+        f"/booking/flight-orders/by-id/{booking.id}/itinerary.pdf"
+    )
+
+
 def booking_confirmation_email_html(booking: Booking) -> str:
     """A full manifest inline in the email body - flight-by-flight
     itinerary, passengers with cabin/baggage/seat, and the fare breakdown
@@ -99,14 +113,8 @@ def booking_confirmation_email_html(booking: Booking) -> str:
         booking=booking,
         route_summary=_route_summary(booking),
         departure_date=booking.slices[0].flights[0].departing_at.strftime("%d %b %Y"),
-        booking_url=f"{settings.FRONTEND_URL}/account/bookings/{booking.id}",
-        # Lands in a customer's inbox and stays there indefinitely, so it
-        # has to name the API version explicitly - an email sent today is
-        # still clicked long after /api/v2 exists.
-        pdf_url=(
-            f"{settings.BACKEND_PUBLIC_URL}{API_V1_PREFIX}"
-            f"/booking/flight-orders/by-id/{booking.id}/itinerary.pdf"
-        ),
+        booking_url=booking_url(booking),
+        pdf_url=booking_pdf_url(booking),
     )
 
 
@@ -121,7 +129,36 @@ def airline_change_email_html(booking: Booking) -> str:
         "airline_change.html",
         preheader=f"{booking.owner_name or 'The airline'} changed your itinerary {booking.booking_reference}.",
         booking=booking,
-        booking_url=f"{settings.FRONTEND_URL}/account/bookings/{booking.id}",
+        booking_url=booking_url(booking),
+    )
+
+
+def departure_reminder_email_html(
+    booking: Booking, slice_: BookingSlice, hours_until: int
+) -> str:
+    """Sent by the departure-reminder sweep (workers/reminders.py) a few
+    hours before one leg departs. Scoped to that leg, not the whole
+    booking: on a round trip the return leg gets its own reminder days
+    later, and showing both here would bury the one that matters today.
+
+    It leads with what the traveller has to act on now - the departure
+    time, the terminal, and the fact that check-in is the airline's, not
+    flyt's - rather than restating the receipt they already got at
+    booking."""
+    first_flight = slice_.flights[0]
+    return _render(
+        "departure_reminder.html",
+        preheader=(
+            f"{slice_.origin_iata_code} → {slice_.destination_iata_code} departs "
+            f"{format_flight_time(first_flight.departing_at)}."
+        ),
+        booking=booking,
+        slice_=slice_,
+        hours_until=hours_until,
+        departure_time=format_flight_time(first_flight.departing_at),
+        terminal=first_flight.origin_terminal,
+        booking_url=booking_url(booking),
+        pdf_url=booking_pdf_url(booking),
     )
 
 

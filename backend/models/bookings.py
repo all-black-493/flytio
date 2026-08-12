@@ -3,6 +3,7 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy import DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -115,6 +116,15 @@ class BookingSlice(SQLModel, table=True):
     destination_city_name: str | None = None
     duration: str | None = Field(
         default=None, description="ISO 8601 duration, e.g. PT7H58M"
+    )
+
+    # Claimed by the departure-reminder sweep (workers/reminders.py) before
+    # it sends, so a second sweep - a restarted consumer, a second replica -
+    # can't send the same traveller a second reminder. Per SLICE, not per
+    # booking: a return leg departs days after the outbound one and needs
+    # its own reminder.
+    departure_reminder_sent_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
     )
 
     booking: Booking = Relationship(back_populates="slices")

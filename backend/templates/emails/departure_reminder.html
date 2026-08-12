@@ -1,0 +1,44 @@
+{% extends "_shell.html" %}
+{% from "_macros.html" import location_label, segment_row %}
+
+{% block content %}
+<h2 style="margin:0 0 4px;font-size:20px;">Your flight leaves in about {{ hours_until }} hours</h2>
+<p style="margin:0 0 20px;color:#55677c;">Booking reference <strong style="color:#0b1526;">{{ booking.booking_reference }}</strong></p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;border:1px solid #d8e0e8;margin-bottom:24px;">
+  <tr>
+    <td style="padding:16px 20px;">
+      <p style="margin:0;font-size:16px;font-weight:bold;">
+        {{ location_label(slice_.origin_iata_code, slice_.origin_city_name or slice_.origin_name) }}
+        →
+        {{ location_label(slice_.destination_iata_code, slice_.destination_city_name or slice_.destination_name) }}
+      </p>
+      <p style="margin:4px 0 0;color:#55677c;">
+        Departs {{ departure_time }} local time{% if terminal %} · Terminal {{ terminal }}{% endif %}
+      </p>
+    </td>
+  </tr>
+</table>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  {% for flight in slice_.flights %}{{ segment_row(flight) }}{% endfor %}
+</table>
+
+<h3 style="margin:24px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">Before you go</h3>
+<ul style="margin:0 0 24px;padding-left:20px;color:#55677c;">
+  <li style="margin-bottom:6px;">Check in with {{ booking.owner_name or "the airline" }} if you haven't - that's where your boarding pass, seat and gate come from.</li>
+  <li style="margin-bottom:6px;">Carry the passport or ID you booked with.</li>
+  <li>Airlines usually close check-in 45-60 minutes before departure, and earlier for international flights.</li>
+</ul>
+
+<table role="presentation" cellpadding="0" cellspacing="0">
+  <tr>
+    <td style="background:#ff4f00;">
+      <a href="{{ booking_url }}" style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;text-decoration:none;">View my ticket</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:16px 0 0;">
+  <a href="{{ pdf_url }}" style="color:#ff4f00;">Download my ticket (PDF)</a> - one per traveller, with a QR code.
+</p>
+{% endblock %}

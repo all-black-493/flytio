@@ -850,6 +850,7 @@ export const notificationTypeSchema = z.enum([
   "airline_change",
   "cancellation_confirmed",
   "change_confirmed",
+  "departure_reminder",
   "support_request",
   "discount_redemption_failed",
 ]);
