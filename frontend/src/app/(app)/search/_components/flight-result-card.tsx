@@ -102,15 +102,54 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
   const airline = offer.owner?.name ?? firstSegmentCarrier?.name ?? "Airline";
   const airlineIataCode = offer.owner?.iata_code ?? firstSegmentCarrier?.iata_code;
   const airlineLogoUrl = offer.owner?.logo_symbol_url ?? firstSegmentCarrier?.logo_symbol_url;
+  // e.g. "KQ310 · EK722" - the operating detail people check against a
+  // booking, deduplicated so a same-flight connection isn't repeated.
+  const flightNumbers = [
+    ...new Set(
+      offer.slices.flatMap((s) =>
+        s.segments.map((seg) =>
+          `${seg.marketing_carrier?.iata_code ?? ""}${seg.marketing_carrier_flight_number ?? ""}`.trim(),
+        ),
+      ),
+    ),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <Card className="overflow-hidden p-0">
       <div className="flex flex-col sm:flex-row">
         {/* itinerary — clean, scannable, light surface */}
-        <div className="min-w-0 flex-1 divide-y divide-dashed p-4 sm:p-5">
-          {offer.slices.map((slice) => (
-            <SliceRow key={slice.id} slice={slice} />
-          ))}
+        <div className="min-w-0 flex-1 p-4 sm:p-5">
+          {/* Airline first, and in the body rather than the stub. It used
+              to appear only on the dark stub, which stacks BELOW the
+              itinerary on a phone - so a reviewer scanning results on
+              mobile scrolled past times, route and price before seeing any
+              logo, and reported the logos as missing. Carriers are the
+              first thing people filter on mentally; this is where the eye
+              lands. */}
+          <div className="flex items-center gap-2.5 pb-3">
+            <AirlineLogo
+              logoUrl={airlineLogoUrl}
+              iataCode={airlineIataCode}
+              name={airline}
+              className="size-9 shrink-0"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{airline}</p>
+              {flightNumbers && (
+                <p className="truncate font-mono text-[11px] text-muted-foreground">
+                  {flightNumbers}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="divide-y divide-dashed border-t border-dashed">
+            {offer.slices.map((slice) => (
+              <SliceRow key={slice.id} slice={slice} />
+            ))}
+          </div>
           {offer.partial && <SelfTransferNotice className="mt-3" />}
         </div>
 
@@ -118,17 +157,6 @@ export function FlightResultCard({ offer, alternates = [], onViewFares, onSelect
             search card and auth card, so a result reads as "your ticket"
             rather than a generic list row */}
         <div className="flex shrink-0 flex-col gap-3 bg-board p-4 text-board-ink sm:w-48 sm:p-5">
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            <AirlineLogo
-              logoUrl={airlineLogoUrl}
-              iataCode={airlineIataCode}
-              name={airline}
-              className="size-12"
-              fallbackClassName="bg-board-ink/10 text-sm text-board-ink"
-            />
-            <span className="line-clamp-2 text-sm font-medium text-board-ink">{airline}</span>
-          </div>
-
           <p className="text-2xl font-bold tabular-nums text-board-ink">
             {formatMoney(offer.total_amount, offer.total_currency)}
           </p>

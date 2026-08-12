@@ -41,13 +41,23 @@ def _passenger_row(passenger) -> list[str]:
     return [name, seat, ticket_numbers]
 
 
-def _booking_qr_image(booking: Booking) -> io.BytesIO:
-    verification_url = (
+def booking_verification_url(booking: Booking) -> str:
+    """What the QR resolves to: the live booking. Scanning it shows the
+    booking's CURRENT state, so a printed ticket can't contradict a
+    schedule change or a cancellation that happened after it was
+    printed."""
+    return (
         f"{settings.FRONTEND_URL}/account/bookings/{booking.id}"
         f"?ref={booking.booking_reference}"
     )
+
+
+def booking_qr_png(booking: Booking) -> io.BytesIO:
+    """The booking's QR as PNG bytes. Shared by the PDF below and by the
+    GET .../qr.png route the on-screen ticket points at, so the code a
+    traveller sees on screen is byte-identical to the printed one."""
     buffer = io.BytesIO()
-    qrcode.make(verification_url, border=2).save(buffer, format="PNG")
+    qrcode.make(booking_verification_url(booking), border=2).save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
 
@@ -108,7 +118,7 @@ def build_itinerary_pdf(booking: Booking) -> bytes:
         pass
     pdf.ln(8)
 
-    qr_image = _booking_qr_image(booking)
+    qr_image = booking_qr_png(booking)
     qr_size = 32
     qr_x = pdf.w - pdf.r_margin - qr_size
     qr_y = pdf.h - pdf.b_margin - qr_size - 8

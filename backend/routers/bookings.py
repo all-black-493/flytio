@@ -47,7 +47,7 @@ from backend.schemas.duffel_orders import (
 )
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.duffel_errors import duffel_http_exception
-from backend.utils.itinerary_pdf import build_itinerary_pdf
+from backend.utils.itinerary_pdf import booking_qr_png, build_itinerary_pdf
 from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pagination import cursor_page
@@ -198,6 +198,36 @@ async def get_flight_order_by_ticket_number(
             status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
         )
     return booking
+
+
+@router.get("/flight-orders/by-id/{booking_id}/qr.png")
+async def get_booking_qr(
+    booking_id: Annotated[uuid.UUID, Path()],
+    current_user: UserInDB = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """The booking's verification QR as a PNG, for the on-screen ticket
+    (components/tickets/TicketDocument.tsx).
+
+    Served rather than generated in the browser so the code on screen is
+    byte-identical to the one on the printed PDF - both call
+    utils/itinerary_pdf.py's booking_qr_png. Owner-scoped like every other
+    booking route here: a QR resolves to a real booking, so it is not
+    public just because it looks like an image.
+    """
+    booking = get_booking(session, booking_id)
+    if booking is None or booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+    return Response(
+        content=booking_qr_png(booking).getvalue(),
+        media_type="image/png",
+        # Regenerated per request but deterministic for a given booking,
+        # so a short private cache saves re-rendering it on every view
+        # without ever being shared between users.
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("/flight-orders/by-id/{booking_id}/itinerary.pdf")
