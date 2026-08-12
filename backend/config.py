@@ -22,6 +22,13 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str
+    # Serverless Postgres (Neon) hands out two connection strings for the
+    # same database: a pooled one (hostname ending `-pooler`) for
+    # application traffic, and a direct one for schema changes. Alembic
+    # must use the direct endpoint - the pooler is PgBouncer in
+    # transaction mode, which breaks migrations. Empty means "same URL for
+    # both", which is correct for a plain Postgres that has no pooler.
+    DATABASE_MIGRATION_URL: str = ""
 
     # Redis cache
     REDIS_HOST: str = "localhost"
@@ -131,6 +138,12 @@ class Settings(BaseSettings):
     # needs ngrok/cloudflared for local testing.
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
+
+    @property
+    def migration_database_url(self) -> str:
+        """What Alembic and scripts/init_db.py connect with. Falls back to
+        DATABASE_URL so a single-endpoint Postgres needs no extra config."""
+        return self.DATABASE_MIGRATION_URL or self.DATABASE_URL
 
 
 settings = Settings()

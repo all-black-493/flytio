@@ -134,6 +134,10 @@ jobs:
           ALGORITHM: ${{ secrets.ALGORITHM }}
 
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Neon's direct (non-pooled) endpoint. DATABASE_URL is the
+          # pooled one the app runs on; a transaction-mode pooler can't
+          # run migrations, so Alembic needs this separately.
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
           REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PORT: ${{ secrets.REDIS_PORT }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
@@ -231,7 +235,7 @@ jobs:
 
           cd backend
 
-          cat > .env <<EOF
+          cat > .env <<'EOF'
           RESEND_API_KEY=${RESEND_API_KEY}
           MAIL_DOMAIN=${MAIL_DOMAIN}
           MAIL_FROM_NAME=${MAIL_FROM_NAME}
@@ -239,6 +243,7 @@ jobs:
           SECRET_KEY=${SECRET_KEY}
           ALGORITHM=${ALGORITHM}
           DATABASE_URL=${DATABASE_URL}
+          DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL}
           REDIS_HOST=${REDIS_HOST}
           REDIS_PORT=${REDIS_PORT}
           REDIS_URL=${REDIS_URL}

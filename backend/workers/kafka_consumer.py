@@ -33,10 +33,15 @@ CONSUMER_GROUP_ID = "flyt-backend-workers"
 
 # How often the departure-reminder sweep runs. This is also the sweep's
 # worst-case lateness: a reminder goes out somewhere in [LEAD_TIME,
-# LEAD_TIME + this] before departure, never after it. Five minutes keeps
-# that vague enough to be honest ("about 3 hours") while leaving the loop
-# overwhelmingly idle.
-REMINDER_SWEEP_INTERVAL_SECONDS = 300
+# LEAD_TIME + this] before departure, never after it - so it still keeps
+# the "at least 3 hours" promise, and "about 3 hours" stays honest.
+#
+# Fifteen minutes rather than five because the database is serverless
+# (Neon), which suspends its compute after ~5 minutes without a query and
+# bills for the time it's awake. A sweep every five minutes would reset
+# that timer forever and hold the compute on 24/7 for the sake of a
+# handful of emails a day.
+REMINDER_SWEEP_INTERVAL_SECONDS = 900
 
 
 def _run_periodic_sweeps(last_run: float) -> float:
