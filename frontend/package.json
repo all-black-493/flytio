@@ -9,13 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.44",
     "@base-ui/react": "^1.6.0",
     "@duffel/components": "^3.17.0",
     "@hookform/resolvers": "^5.4.0",
     "@next/third-parties": "^16.2.10",
+    "@tanstack/ai": "^0.44.0",
+    "@tanstack/ai-client": "^0.23.2",
+    "@tanstack/ai-react": "^0.19.2",
     "@tanstack/react-query": "^5.101.4",
-    "ai": "^7.0.41",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
