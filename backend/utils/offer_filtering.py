@@ -150,34 +150,49 @@ def sort_offers(offers: list[dict], sort: OfferSortKey) -> list[dict]:
     return offers
 
 
-def _route_signature(offer: dict) -> str:
+def _itinerary_signature(offer: dict) -> str:
+    """Identifies the actual flights an offer puts you on: every segment's
+    marketing carrier, flight number and departure time, across every
+    slice.
+
+    This is what a search result *is* to a traveller - "KQ310 at 17:10" -
+    so offers sharing it are the same journey sold under different fare
+    conditions, and belong in one card with the cheapest leading.
+
+    It deliberately replaces a signature of origin/destination per slice.
+    That grouped by ROUTE, which on any point-to-point search is identical
+    for every offer: a live NBO-DXB search returned 89 offers across 8
+    airlines and collapsed them into a single group, of which only the
+    primary and 8 alternates survived. Ethiopian, Turkish, EgyptAir,
+    flydubai and South African were fetched, grouped away and never shown.
+    """
     parts = []
     for s in offer.get("slices") or []:
-        origin = (s.get("origin") or {}).get("iata_code") or ""
-        destination = (s.get("destination") or {}).get("iata_code") or ""
-        parts.append(f"{origin}-{destination}")
-    return "|".join(parts)
+        for seg in s.get("segments") or []:
+            carrier = (seg.get("marketing_carrier") or {}).get("iata_code") or ""
+            number = seg.get("marketing_carrier_flight_number") or ""
+            departs = seg.get("departing_at") or ""
+            parts.append(f"{carrier}{number}@{departs}")
+        parts.append("|")
+    return ",".join(parts)
 
 
-# A route signature is just origin/destination per slice (see
-# _route_signature), so a single popular route can collapse hundreds of
-# offers into one group - without a cap, that one group's `alternates`
-# would carry the entire payload pagination is meant to avoid sending.
-# Real fare-comparison UIs (Google Flights, Skyscanner) only ever show a
-# handful of alternates anyway; nobody compares 300 fares by hand.
+# Alternates are the same flights under different fare conditions (Basic,
+# Flex, and so on), so a handful is plenty - nobody compares 30 fare
+# brands on one flight by hand.
 MAX_ALTERNATES_PER_GROUP = 8
 
 
 def group_by_route(sorted_offers: list[dict]) -> list[OfferGroup]:
-    """Groups offers sharing an origin/destination signature. A group's
-    position in the result follows the first occurrence of its signature in
-    `sorted_offers` (mirrors JS Map insertion-order iteration exactly) - so
-    which route "leads" the list follows the caller's chosen sort, while a
-    group's own primary/alternates split is always cheapest-first, capped
-    at MAX_ALTERNATES_PER_GROUP."""
+    """Groups offers that put you on the exact same flights (see
+    _itinerary_signature). A group's position follows the first occurrence
+    of its signature in `sorted_offers` (mirroring JS Map insertion order),
+    so the caller's chosen sort decides which itinerary leads the list,
+    while a group's own primary/alternates split is always cheapest-first,
+    capped at MAX_ALTERNATES_PER_GROUP."""
     groups: dict[str, list[dict]] = {}
     for offer in sorted_offers:
-        groups.setdefault(_route_signature(offer), []).append(offer)
+        groups.setdefault(_itinerary_signature(offer), []).append(offer)
 
     result = []
     for members in groups.values():
