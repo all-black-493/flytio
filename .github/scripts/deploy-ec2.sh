@@ -16,7 +16,13 @@ HEALTH_URL="http://127.0.0.1:8000/health"
 
 
 run_compose() {
-    sudo env DOPPLER_TOKEN="${DOPPLER_TOKEN}" doppler run -- docker compose "$@"
+    # --preserve-env, NOT `sudo env DOPPLER_TOKEN=...`: arguments are visible
+    # in /proc to every user on the box, so the second form prints a live
+    # service token in `ps aux` for the whole length of a build. Passing it
+    # through the environment keeps it out of argv. This does depend on the
+    # sudoers policy allowing the variable through, which is why the deploy
+    # checks it below rather than assuming it.
+    sudo --preserve-env=DOPPLER_TOKEN doppler run -- docker compose "$@"
 }
 
 reclaim_disk() {
@@ -85,6 +91,16 @@ if ! doppler secrets --only-names > /dev/null 2>&1; then
     exit 1
 fi
 echo "Doppler reachable: $(doppler secrets --only-names | wc -l) secrets in scope"
+
+# run_compose relies on sudo passing DOPPLER_TOKEN through. If the sudoers
+# policy strips it, doppler runs with no token and compose comes up with no
+# secrets - so prove it here rather than discover it as a 500 later.
+if ! sudo --preserve-env=DOPPLER_TOKEN printenv DOPPLER_TOKEN > /dev/null 2>&1; then
+    echo 'ERROR: sudo strips DOPPLER_TOKEN, so the containers would start with' >&2
+    echo '       no secrets. Allow it in sudoers, or run compose as a user in' >&2
+    echo '       the docker group so sudo is not needed at all.' >&2
+    exit 1
+fi
 
 # --- 3. Source -------------------------------------------------------------
 if [ -d "${REPO_DIR}" ]; then
