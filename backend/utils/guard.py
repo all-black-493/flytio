@@ -20,6 +20,7 @@ the app.
 from guard import SecurityConfig, SecurityDecorator
 
 from backend.config import settings
+from backend.utils.constants import HEALTH_PATHS
 from backend.utils.log_manager import get_app_logger
 
 try:
@@ -53,6 +54,18 @@ security_config = SecurityConfig(
     enable_rate_limiting=True,
     enable_redis=True,
     redis_url=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
+    # Health probes bypass every security check, because guard_core is
+    # fail-secure: when Redis is unreachable it answers 500 to everything
+    # rather than let a request through unchecked. That is right for the
+    # API and catastrophic for a liveness probe - an orchestrator would
+    # read "Redis is down" as "this process is wedged" and restart every
+    # replica, none of which can start any faster than Redis recovers.
+    # Excluding these paths keeps liveness answerable from the process
+    # alone, which is the only thing it is meant to measure.
+    #
+    # Safe to leave open: routers/health.py returns dependency reachability
+    # and nothing else, and it is already public and unauthenticated.
+    exclude_paths=HEALTH_PATHS,
     # IP banning stays off deliberately: this API sits behind nginx and
     # serves users on shared/mobile NAT, where banning an address can take
     # out a whole network. Detection still runs (below) - it just reports

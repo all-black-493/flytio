@@ -12,7 +12,11 @@ export DEBIAN_FRONTEND=noninteractive
 REPO_DIR="flytio"
 REPO_URL="https://x-access-token:${GH_PAT}@github.com/all-black-493/flytio.git"
 API_DOMAIN="api.flyt.africa"
-HEALTH_URL="http://127.0.0.1:8000/health"
+# /health/ready, not /health: the latter answers 200 even when a
+# dependency is down ("degraded"), so it would pass a deploy that cannot
+# actually serve. Readiness returns 503 until the database and Redis are
+# reachable, which is the condition worth gating on.
+HEALTH_URL="http://127.0.0.1:8000/health/ready"
 
 
 run_compose() {

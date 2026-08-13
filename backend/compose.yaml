@@ -13,7 +13,9 @@ services:
     # never comes up, with a green deploy step.
     restart: unless-stopped
     ports:
-      - "8000:80"
+      # Container port is 8000 now: the image runs unprivileged and cannot
+      # bind 80. The host port is unchanged, so nginx still proxies to 8000.
+      - "8000:8000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       # Empty locally, where one Postgres serves both purposes; set to
@@ -35,12 +37,34 @@ services:
       # named 'backend'" without this explicitly set.
       - PYTHONPATH=/
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      # The Compose equivalent of a Kubernetes init container: the API does
+      # not start until migrations have exited 0.
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - .:/backend
       - /backend/.venv
     # No `command:` - the API is this image's CMD (see Dockerfile), so the
-    # startup chain is defined once. Only the consumer below overrides it.
+    # serve command is defined once. Only the two services below override it.
+
+  # One-shot. Runs the same `python -m backend.scripts.migrate` a Kubernetes
+  # init container or Job would, so the schema is prepared in exactly one
+  # place regardless of where this is deployed - and exactly once per start,
+  # rather than once per replica.
+  migrate:
+    build: .
+    restart: "no"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL:-}
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN:-}
+      - PYTHONPATH=/
+    volumes:
+      - .:/backend
+      - /backend/.venv
+    command: ["python", "-m", "backend.scripts.migrate"]
     
   # Same image as the API, deliberately different process - which is the
   # one reason a `command:` override belongs here rather than in the
