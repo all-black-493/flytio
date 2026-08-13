@@ -1,20 +1,13 @@
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
 
+from backend.utils.time import utcnow
 
-def utcnow() -> datetime:
-    """`datetime.now(UTC)`, not the deprecated `datetime.utcnow()` (which
-    returns a naive datetime with no tzinfo at all, easy to silently
-    mix up with a local time). Paired with `created_at`/`read_at`'s
-    `sa_type=DateTime(timezone=True)` below, so this is timezone-aware
-    all the way through: stored as `timestamptz` in Postgres, read back
-    as an aware datetime, not just aware in Python before it hits the
-    DB."""
-    return datetime.now(UTC)
+__all__ = ["Notification", "NotificationType", "utcnow"]
 
 
 class NotificationType(str, enum.Enum):
@@ -27,6 +20,7 @@ class NotificationType(str, enum.Enum):
     AIRLINE_CHANGE = "airline_change"
     CANCELLATION_CONFIRMED = "cancellation_confirmed"
     CHANGE_CONFIRMED = "change_confirmed"
+    DEPARTURE_REMINDER = "departure_reminder"
     SUPPORT_REQUEST = "support_request"
     DISCOUNT_REDEMPTION_FAILED = "discount_redemption_failed"
 

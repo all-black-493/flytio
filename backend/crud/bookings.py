@@ -139,6 +139,7 @@ def _add_slices_and_flights(
                     ),
                     departing_at=segment.departing_at,
                     arriving_at=segment.arriving_at,
+                    origin_time_zone=segment.origin.time_zone,
                     duration=segment.duration,
                     marketing_carrier_iata_code=(
                         segment.marketing_carrier.iata_code

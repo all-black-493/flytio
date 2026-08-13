@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ArrowUpDown, MapPin, PlaneTakeoff } from "lucide-react";
+import { useState, useTransition } from "react";
+import { ArrowUpDown, Loader2, MapPin, PlaneTakeoff } from "lucide-react";
 
 import { PassengerCountPicker, type PassengerCounts } from "@/components/PassengerCountPicker";
 import { PlaceAutocomplete } from "@/components/PlaceAutocomplete";
@@ -33,6 +33,7 @@ function defaultDepartureDate(): string {
  * decorative mock. */
 export default function SearchCard() {
   const router = useRouter();
+  const [isSearching, startTransition] = useTransition();
   const [origin, setOrigin] = useState("OSL");
   const [destination, setDestination] = useState("JFK");
   const [tripType, setTripType] = useState<TripType>("one_way");
@@ -47,9 +48,14 @@ export default function SearchCard() {
     setDestination(origin);
   }
 
+  // Wrapped in a transition purely so the button can show progress: the
+  // /search route fetches live Duffel fares during its server render, so
+  // the push routinely takes several seconds. Without isPending the
+  // click produces no visible response at all and reads as a dead button.
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    router.push(searchHrefFromForm(new FormData(event.currentTarget), origin, destination));
+    const href = searchHrefFromForm(new FormData(event.currentTarget), origin, destination);
+    startTransition(() => router.push(href));
   }
 
   return (
@@ -192,8 +198,15 @@ export default function SearchCard() {
 
         {/* ticket perforation before the tear-off action */}
         <div className="col-span-2 border-t border-dashed pt-4">
-          <Button type="submit" size="lg" className="w-full font-semibold">
-            Search flights
+          <Button type="submit" size="lg" disabled={isSearching} className="w-full font-semibold">
+            {isSearching ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Searching live fares…
+              </>
+            ) : (
+              "Search flights"
+            )}
           </Button>
           <p className="mt-3 text-center font-mono text-[10px] tracking-[0.2em] text-muted-foreground">
             LIVE FARES · PRICE CONFIRMED BEFORE PAYMENT

@@ -7,6 +7,7 @@ import {
   Bell,
   CheckCircle2,
   MessageCircle,
+  PlaneTakeoff,
   RefreshCw,
   TicketX,
   X,
@@ -49,6 +50,7 @@ const NOTIFICATION_TYPE_ICON: Record<NotificationType, LucideIcon> = {
   airline_change: AlertTriangle,
   cancellation_confirmed: Ban,
   change_confirmed: RefreshCw,
+  departure_reminder: PlaneTakeoff,
   support_request: MessageCircle,
   discount_redemption_failed: TicketX,
 };
@@ -59,6 +61,7 @@ const NOTIFICATION_TYPE_ICON_CLASS: Record<NotificationType, string> = {
   airline_change: "text-amber-600 dark:text-amber-400",
   cancellation_confirmed: "text-muted-foreground",
   change_confirmed: "text-signal",
+  departure_reminder: "text-signal",
   support_request: "text-sky-600 dark:text-sky-400",
   discount_redemption_failed: "text-destructive",
 };

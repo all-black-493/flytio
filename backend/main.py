@@ -66,6 +66,22 @@ _cors_origins = [
     origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()
 ]
 
+# Announced at startup because an empty or wrong CORS_ORIGINS is invisible
+# from the server's side: every health check passes, curl is happy (it
+# sends no Origin), and only a browser ever sees "CORS Missing Allow
+# Origin". Having bitten twice - once from a stray leading space, once
+# from the variable simply not being set in the new secrets store - the
+# resolved list is now in the logs, where it can be checked without a
+# browser.
+if _cors_origins:
+    logger.info("CORS allows %d origin(s): %s", len(_cors_origins), _cors_origins)
+else:
+    logger.error(
+        "CORS_ORIGINS is empty - EVERY cross-origin browser request will be "
+        "refused, while the API itself stays healthy. Set it to the "
+        "frontend's exact scheme+host, e.g. https://www.flyt.africa"
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

@@ -22,7 +22,12 @@ if config.config_file_name is not None:
 # Real DB URL from our own env-based settings (config.py), not the
 # placeholder in alembic.ini - one source of truth for connection info,
 # same as everywhere else in the app.
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+#
+# The MIGRATION url specifically: on serverless Postgres (Neon) the
+# app-facing URL points at a PgBouncer pooler in transaction mode, which
+# cannot run schema changes. It falls back to DATABASE_URL when no
+# separate endpoint is configured.
+config.set_main_option("sqlalchemy.url", settings.migration_database_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

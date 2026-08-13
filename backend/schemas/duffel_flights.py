@@ -112,10 +112,25 @@ class FlightSearchQueryParams(BaseSchema):
 
 
 class OfferSortKey(str, enum.Enum):
+    # Balances price against how long you're travelling and how many times
+    # you change planes - the cheapest fare is frequently a 20-hour
+    # two-stop itinerary, which is not what most people mean by "best".
+    BEST = "best"
     PRICE = "price"
     DURATION = "duration"
     DEPARTURE = "departure"
     ARRIVAL = "arrival"
+
+
+class DepartureWindow(str, enum.Enum):
+    """Local departure time of the outbound leg. Travellers shop by "I
+    want to leave in the morning" far more often than by an exact time,
+    and it's the filter airline sites lead with."""
+
+    MORNING = "morning"  # 05:00-11:59
+    AFTERNOON = "afternoon"  # 12:00-17:59
+    EVENING = "evening"  # 18:00-21:59
+    NIGHT = "night"  # 22:00-04:59
 
 
 class OfferListQueryParams(BaseSchema):
@@ -129,6 +144,11 @@ class OfferListQueryParams(BaseSchema):
     )
     max_stops: int | None = Field(default=None, ge=0)
     price_max: float | None = Field(default=None, ge=0)
+    depart_windows: list[DepartureWindow] = Field(
+        default_factory=list,
+        description="Keep offers whose outbound leg departs in any of these windows",
+    )
+    max_duration_minutes: int | None = Field(default=None, ge=0)
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
@@ -176,6 +196,15 @@ class Airport(BaseSchema):
     iata_code: str | None = None
     name: str | None = None
     city_name: str | None = None
+    time_zone: str | None = Field(
+        default=None,
+        description=(
+            "IANA name, e.g. Africa/Nairobi. Duffel's departing_at/arriving_at "
+            "are LOCAL times at their airport with no offset attached, so this "
+            "is the only thing that turns one into an actual instant - see "
+            "utils/flight_times.py."
+        ),
+    )
 
 
 class Carrier(BaseSchema):

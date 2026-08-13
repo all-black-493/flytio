@@ -2,19 +2,18 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, Download, Ticket as TicketIcon, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Ticket as TicketIcon, TriangleAlert } from "lucide-react";
 
 import { bookingDetailQuery } from "@/app/(app)/account/bookings/[bookingId]/_lib/queries";
 import { CancelBookingDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/cancel-booking-dialog";
+import { TicketSheet } from "@/components/tickets/TicketSheet";
 import { CancellationRefundNotice } from "@/app/(app)/account/bookings/[bookingId]/_components/cancellation-refund-notice";
 import { ChangeFlightDialog } from "@/app/(app)/account/bookings/[bookingId]/_components/change-flight-dialog";
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { BaggageSummary, FareRulesCard, SliceCard } from "@/components/booking/BookingDetailParts";
 import { PriceBreakdown } from "@/components/PriceBreakdown";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { API_URL } from "@/lib/api/client";
 import { formatShortDate } from "@/lib/api/format";
 
 export function BookingDetail({ bookingId }: { bookingId: string }) {
@@ -104,13 +103,10 @@ export function BookingDetail({ bookingId }: { bookingId: string }) {
             </p>
           )}
 
-          <a
-            href={`${API_URL}/booking/flight-orders/by-id/${booking.id}/itinerary.pdf`}
-            className={buttonVariants({ variant: "outline", className: "w-full" })}
-          >
-            <Download />
-            Download itinerary (PDF)
-          </a>
+          {/* Tickets carry their own print/PDF actions, so the standalone
+              download button that used to sit here would be a third way
+              to do the same thing. */}
+          <TicketSheet booking={booking} />
 
           {booking.status === "confirmed" && (
             <>

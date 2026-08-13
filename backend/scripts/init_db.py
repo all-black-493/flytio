@@ -41,7 +41,9 @@ logger = get_app_logger(__name__)
 
 
 def main() -> int:
-    engine = create_engine(settings.DATABASE_URL)
+    # The direct (non-pooled) endpoint - this creates tables, same as
+    # Alembic, and a transaction-mode pooler can't do that.
+    engine = create_engine(settings.migration_database_url)
 
     existing = inspect(engine).get_table_names()
     if existing:

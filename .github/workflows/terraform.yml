@@ -114,8 +114,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      # - name: Checkout code
-      #   uses: actions/checkout@v4
+      # Required: the deploy step reads .github/scripts/deploy-ec2.sh from
+      # the runner's workspace and pipes it to the server. Without a
+      # checkout that file does not exist and the step dies on stdin.
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Deploy to EC2
         env:
@@ -123,256 +126,20 @@ jobs:
           HOST: ${{ needs.deploy-infrastructure.outputs.ec2_public_ip }}
           USER: ubuntu
           GH_PAT: ${{ secrets.GH_PAT }}
-          # DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MAIL_DOMAIN: ${{ secrets.MAIL_DOMAIN }}
-          MAIL_FROM_NAME: ${{ secrets.MAIL_FROM_NAME }}
-          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
-
-          ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          ALGORITHM: ${{ secrets.ALGORITHM }}
-
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REDIS_HOST: ${{ secrets.REDIS_HOST }}
-          REDIS_PORT: ${{ secrets.REDIS_PORT }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-
-          DUFFEL_API_TOKEN: ${{ secrets.DUFFEL_API_TOKEN }}
-          DUFFEL_WEBHOOK_SECRET: ${{ secrets.DUFFEL_WEBHOOK_SECRET }}
-          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-
-          PESAPAL_CONSUMER_KEY: ${{ secrets.PESAPAL_CONSUMER_KEY }}
-          PESAPAL_CONSUMER_SECRET: ${{ secrets.PESAPAL_CONSUMER_SECRET }}
-          PESAPAL_ENV: ${{ secrets.PESAPAL_ENV }}
-          PESAPAL_IPN_ID: ${{ secrets.PESAPAL_IPN_ID }}
-
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          BACKEND_PUBLIC_URL: ${{ secrets.BACKEND_PUBLIC_URL }}
-
-          COOKIE_DOMAIN: ${{ secrets.COOKIE_DOMAIN }}
-          COOKIE_SECURE: ${{ secrets.COOKIE_SECURE }}
-
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CONCIERGE_MODEL: ${{ secrets.CONCIERGE_MODEL }}
-
-          UNSPLASH_APP_ID: ${{ secrets.UNSPLASH_APP_ID }}
-          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
-          UNSPLASH_SECRET_KEY: ${{ secrets.UNSPLASH_SECRET_KEY }}
-
-          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
-          BLOCKED_USER_AGENTS: ${{ secrets.BLOCKED_USER_AGENTS }}
-          AUTO_BAN_DURATION: ${{ secrets.AUTO_BAN_DURATION }}
-          AUTO_BAN_THRESHOLD: ${{ secrets.AUTO_BAN_THRESHOLD }}
-
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_AUTH_URL: ${{ secrets.GOOGLE_AUTH_URL }}
-          GOOGLE_TOKEN_URL: ${{ secrets.GOOGLE_TOKEN_URL }}
-          GOOGLE_USERINFO_URL: ${{ secrets.GOOGLE_USERINFO_URL }}
+          # Bootstrap credentials only - these are what get us TO the
+          # environment, so they cannot themselves live in Doppler. Every
+          # application secret comes from the Doppler config this token
+          # is scoped to.
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
 
         run: |
           echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
 
-          ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} "
-
-          # Without this the remote shell runs every command regardless of
-          # failures, and ssh exits with the status of the LAST one - so a
-          # failed git pull and a failed image build both reported success
-          # because 'systemctl status nginx' at the end happened to work.
-          set -e
-
-          export DEBIAN_FRONTEND=noninteractive
-
-          if [ ! -f /swapfile ]; then
-            echo 'Creating 2GB swap file...'
-            sudo fallocate -l 2G /swapfile
-            sudo chmod 600 /swapfile
-            sudo mkswap /swapfile
-            sudo swapon /swapfile
-            echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-            echo 'Swap created successfully'
-          else
-            echo 'Swap already exists'
-            sudo swapon /swapfile 2>/dev/null || true
-          fi
-
-          free -h
-
-          if ! command -v docker &> /dev/null; then
-            echo 'Docker not found. Installing...'
-            sudo apt-get update -y
-            sudo apt-get install -y docker.io docker-compose-v2 git
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            sudo usermod -aG docker ubuntu
-          fi
-
-          echo 'Debug: Checking permissions...'
-          id
-          sudo id
-          sudo docker info
-
-          if [ -d 'flytio' ]; then
-            echo 'Repo exists, pulling...'
-            cd flytio
-            git remote set-url origin https://x-access-token:${GH_PAT}@github.com/all-black-493/flytio.git
-            # Not 'git pull': the checkout had diverged from origin/main, and
-            # with no pull strategy configured git refuses outright ('Need to
-            # specify how to reconcile divergent branches'). A deploy target
-            # has no local work worth keeping, so take origin verbatim.
-            git fetch --prune origin main
-            git reset --hard origin/main
-          else
-            echo 'Repo missing, cloning...'
-            git clone https://x-access-token:${GH_PAT}@github.com/all-black-493/flytio.git
-            cd flytio
-          fi
-
-          cd backend
-
-          cat > .env <<EOF
-          RESEND_API_KEY=${RESEND_API_KEY}
-          MAIL_DOMAIN=${MAIL_DOMAIN}
-          MAIL_FROM_NAME=${MAIL_FROM_NAME}
-          ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
-          SECRET_KEY=${SECRET_KEY}
-          ALGORITHM=${ALGORITHM}
-          DATABASE_URL=${DATABASE_URL}
-          REDIS_HOST=${REDIS_HOST}
-          REDIS_PORT=${REDIS_PORT}
-          REDIS_URL=${REDIS_URL}
-          DUFFEL_API_TOKEN=${DUFFEL_API_TOKEN}
-          DUFFEL_WEBHOOK_SECRET=${DUFFEL_WEBHOOK_SECRET}
-          CORS_ORIGINS=${CORS_ORIGINS}
-          PESAPAL_CONSUMER_KEY=${PESAPAL_CONSUMER_KEY}
-          PESAPAL_CONSUMER_SECRET=${PESAPAL_CONSUMER_SECRET}
-          PESAPAL_ENV=${PESAPAL_ENV}
-          PESAPAL_IPN_ID=${PESAPAL_IPN_ID}
-          FRONTEND_URL=${FRONTEND_URL}
-          BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL}
-          COOKIE_DOMAIN=${COOKIE_DOMAIN}
-          COOKIE_SECURE=${COOKIE_SECURE}
-          OPENAI_API_KEY=${OPENAI_API_KEY}
-          CONCIERGE_MODEL=${CONCIERGE_MODEL}
-          UNSPLASH_APP_ID=${UNSPLASH_APP_ID}
-          UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
-          UNSPLASH_SECRET_KEY=${UNSPLASH_SECRET_KEY}
-          KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
-          BLOCKED_USER_AGENTS=${BLOCKED_USER_AGENTS}
-          AUTO_BAN_DURATION=${AUTO_BAN_DURATION}
-          AUTO_BAN_THRESHOLD=${AUTO_BAN_THRESHOLD}
-          GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-          GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-          GOOGLE_AUTH_URL=${GOOGLE_AUTH_URL}
-          GOOGLE_TOKEN_URL=${GOOGLE_TOKEN_URL}
-          GOOGLE_USERINFO_URL=${GOOGLE_USERINFO_URL}
-          EOF
-
-          # The build writes a fresh image layer each deploy and nothing
-          # ever removed the old ones, which filled the 16GB root volume
-          # ('no space left on device' while extracting a layer). Reclaim
-          # before building, not after, so the space is there when needed.
-          echo '--- Disk before cleanup ---'
-          df -h / | tail -1
-
-          if docker compose version &> /dev/null; then
-            echo 'Using docker compose v2'
-            sudo docker compose down
-            # Order matters. An anonymous volume stays 'in use' while any
-            # container - even a stopped one - still references it, so
-            # pruning volumes before containers reclaims nothing. The
-            # .venv mount creates one such volume per build, and they had
-            # piled up 24 deep.
-            sudo docker container prune -f || true
-            # No -a: that would take NAMED volumes too, which includes
-            # postgres_data. Without it, only anonymous volumes go.
-            sudo docker volume prune -f || true
-            sudo docker image prune -af || true
-            sudo docker builder prune -af || true
-            echo '--- Disk after cleanup ---'
-            df -h / | tail -1
-            sudo docker compose up -d --build
-          else
-            echo 'Using legacy docker-compose'
-            sudo docker-compose down
-            sudo docker image prune -af || true
-            sudo docker container prune -f || true
-            sudo docker-compose up -d --build
-          fi
-
-          echo '--- Setting up Nginx reverse proxy ---'
-
-          if ! command -v nginx &> /dev/null; then
-            echo 'Installing Nginx...'
-            sudo apt-get update -y
-            sudo apt-get install -y nginx
-          fi
-
-          if ! command -v certbot &> /dev/null; then
-            echo 'Installing Certbot...'
-            sudo apt-get install -y certbot python3-certbot-nginx
-          fi
-
-          sudo tee /etc/nginx/sites-available/api.flyt.africa >/dev/null <<'NGINX_CONF'
-          server {
-              listen 80;
-              server_name api.flyt.africa;
-
-              location / {
-                  client_max_body_size 2M;
-                  proxy_pass http://127.0.0.1:8000;
-                  proxy_set_header Host \$host;
-                  proxy_set_header X-Real-IP \$remote_addr;
-                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto \$scheme;
-                  proxy_read_timeout 300s;
-                  proxy_connect_timeout 75s;
-              }
-          }
-          NGINX_CONF
-
-          sudo ln -sf /etc/nginx/sites-available/api.flyt.africa /etc/nginx/sites-enabled/
-          sudo rm -f /etc/nginx/sites-enabled/default
-
-          sudo nginx -t && sudo systemctl reload nginx
-
-          echo 'Nginx is running on port 80'
-
-          echo '--- Attempting SSL certificate ---'
-
-          sudo certbot \
-            --nginx \
-            -d api.flyt.africa \
-            --non-interactive \
-            --agree-tos \
-            --email "${CERTBOT_EMAIL}" \
-            --cert-name flyt-africa-api \
-            --redirect \
-            || echo 'WARNING: Certbot failed. DNS may not be pointing to this server yet.'
-
-          echo '--- Nginx setup complete ---'
-
-          sudo systemctl status nginx --no-pager
-
-          # Prove the API is actually serving before calling this a deploy.
-          # nginx and certbot succeeding says nothing about the app: with the
-          # containers down, every one of those steps still passes and the
-          # site returns 502. Dollar signs below are backslash-escaped so the
-          # REMOTE shell expands them, not the runner building this string.
-          echo '--- Verifying the API responds ---'
-          for i in \$(seq 1 24); do
-            if curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8000/health; then
-              echo \"API is up after \${i} attempt(s)\"
-              break
-            fi
-            if [ \${i} -eq 24 ]; then
-              echo 'ERROR: API never became healthy - container state and logs:'
-              sudo docker compose ps || true
-              sudo docker compose logs --tail=60 fastapi-app || true
-              exit 1
-            fi
-            sleep 5
-          done
-
-          "
+          # `bash -s` with the script on stdin, rather than the script inlined
+          # in this file. It cannot be read from the checkout on the server -
+          # it is what does the cloning - and piping it avoids an scp round
+          # trip. Env vars are named on the remote command line so the runner
+          # substitutes them once here; the script itself does no escaping.
+          ssh -o StrictHostKeyChecking=no -i private_key "${USER}@${HOST}" \
+            "DOPPLER_TOKEN='${DOPPLER_TOKEN}' GH_PAT='${GH_PAT}' bash -s" \
+            < .github/scripts/deploy-ec2.sh

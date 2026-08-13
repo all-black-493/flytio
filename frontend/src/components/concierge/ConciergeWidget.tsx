@@ -1,8 +1,8 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
+import { createChatClientOptions, fetchServerSentEvents } from "@tanstack/ai-client";
+import { useChat } from "@tanstack/ai-react";
 import { useQuery } from "@tanstack/react-query";
-import { DefaultChatTransport, getToolName, isToolUIPart } from "ai";
 import Link from "next/link";
 import { Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -14,6 +14,11 @@ import {
   ConciergeChangeOptionCard,
 } from "@/components/concierge/ConciergeBookingCards";
 import { ConciergeFlightCard } from "@/components/concierge/ConciergeFlightCard";
+import {
+  ConciergeRunTimeline,
+  KNOWN_CONCIERGE_TOOLS,
+  type RunStep,
+} from "@/components/concierge/ConciergeRunTimeline";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,22 +35,37 @@ const EXAMPLE_PROMPTS = [
   "What are my options from Nairobi to London next week?",
 ];
 
-/** One label per concierge tool, shown while it's running so the user
- * isn't left staring at a blank gap during the call. */
-const TOOL_LOADING_LABELS: Record<string, string> = {
-  search_flights: "Searching flights…",
-  get_my_booking: "Looking up your booking…",
-  get_cancellation_quote: "Getting a cancellation quote…",
-  confirm_cancellation: "Cancelling…",
-  search_change_options: "Searching change options…",
-};
+/** The fields this widget reads off a streamed tool call. Structural, so
+ * it stays valid whether the part arrives typed or as the base shape. */
+interface ToolCallLike {
+  type: "tool-call";
+  id: string;
+  name: string;
+  state: string;
+  input?: unknown;
+  output?: unknown;
+}
 
-const KNOWN_CONCIERGE_TOOLS = new Set(Object.keys(TOOL_LOADING_LABELS));
+/** One-line "what was it asked to do", shown beside a timeline step so
+ * the user can see the agent understood them - "NBO → DXB" catches a
+ * misheard city immediately, where a bare "Searching flights" would not.
+ * Best-effort: the input is streamed and may still be partial. */
+function summariseToolInput(tool: string, input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const args = input as Record<string, unknown>;
+  if (tool === "search_flights" || tool === "search_change_options") {
+    const from = args.origin_iata_code ?? args.origin;
+    const to = args.destination_iata_code ?? args.destination;
+    if (typeof from === "string" && typeof to === "string") return `${from} → ${to}`;
+  }
+  const ref = args.booking_reference;
+  return typeof ref === "string" ? ref : undefined;
+}
 
 /** Renders one tool's `output-available` payload as its card(s), or null
  * if the shape doesn't parse - same don't-trust-the-network-boundary
  * posture client.ts's zod parsing has everywhere else, just applied to
- * the AI SDK's tool-output channel instead of a fetch response body. A
+ * the agent's tool-output channel instead of a fetch response body. A
  * `null` return is ambiguous between "known tool, bad shape" (an error,
  * worth surfacing) and "tool this widget has no card for yet" (not an
  * error - the model's own text reply still carries the content) -
@@ -92,37 +112,54 @@ function renderToolOutput(toolName: string, output: unknown): React.ReactNode {
 
 /** flyt's air travel concierge - not a general chatbot, scoped to
  * finding real, bookable flights (see backend/external_services/
- * concierge.py's system instructions). Streams via the Vercel AI SDK
- * protocol (pydantic_ai.ui.vercel_ai.VercelAIAdapter on the backend); a
- * search_flights tool call streams back as a tool UI part - pydantic-ai
- * never marks it as the SDK's special "dynamic-tool" (that's for tools
- * registered via the JS-side dynamicTool() helper specifically, not
- * server-defined tools in general), so it always arrives shaped as a
- * static tool part instead. `isToolUIPart`/`getToolName` (from "ai")
- * handle both shapes correctly, which is why they're used below rather
- * than checking `part.type === "dynamic-tool"` directly. Rendered here
- * as ConciergeFlightCard - that's the "actionable card" mechanism, not
- * prose. Mounted once, app-wide, in app/(app)/layout.tsx. */
+ * concierge.py's system instructions). Streams over the AG-UI protocol
+ * as SSE (pydantic_ai.ui.ag_ui.AGUIAdapter on the backend), consumed by
+ * @tanstack/ai-react's useChat.
+ *
+ * Tool calls arrive as first-class `tool-call` parts carrying their own
+ * lifecycle state, which is what ConciergeRunTimeline renders: the agent
+ * can spend several seconds inside a Duffel search, and without that the
+ * panel sits blank and reads as broken. A completed call's payload is
+ * rendered as ConciergeFlightCard and friends - the "actionable card"
+ * mechanism, not prose. Mounted once, app-wide, in app/(app)/layout.tsx. */
 export function ConciergeWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const { data: me } = useQuery(meQuery());
   const authed = !!me;
 
-  const transport = useMemo(
+  // credentials: "include" for the same reason every browser-side call in
+  // this app uses it - auth is an httpOnly cookie on a sibling subdomain,
+  // never an Authorization header (see lib/api/client.ts).
+  const chatOptions = useMemo(
     () =>
-      new DefaultChatTransport({
-        api: `${API_URL}/concierge/chat`,
-        credentials: "include",
+      createChatClientOptions({
+        connection: fetchServerSentEvents(`${API_URL}/concierge/chat`, {
+          credentials: "include",
+        }),
       }),
     [],
   );
-  const { messages, sendMessage, status, error, regenerate } = useChat({ transport });
+  const { messages, sendMessage, isLoading, error, reload } = useChat(chatOptions);
+
+  // Tool calls, flattened into the visible run timeline. Derived from the
+  // messages rather than tracked separately so it can never drift from
+  // what actually happened.
+  const runSteps = (parts: readonly { type: string }[]): RunStep[] =>
+    parts
+      .filter((p): p is ToolCallLike => p.type === "tool-call")
+      .map((p) => ({
+        id: p.id,
+        tool: p.name,
+        state:
+          p.state === "error" ? "error" : p.state === "complete" ? "done" : "running",
+        detail: summariseToolInput(p.name, p.input),
+      }));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || status !== "ready") return;
-    sendMessage({ text: input });
+    if (!input.trim() || isLoading) return;
+    sendMessage(input);
     setInput("");
   };
 
@@ -180,8 +217,8 @@ export function ConciergeWidget() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={status !== "ready"}
-                          onClick={() => sendMessage({ text: prompt })}
+                          disabled={isLoading}
+                          onClick={() => sendMessage(prompt)}
                           className="h-auto max-w-full shrink whitespace-normal text-left"
                         >
                           {prompt}
@@ -195,6 +232,7 @@ export function ConciergeWidget() {
                     key={message.id}
                     className={message.role === "user" ? "text-right" : "text-left"}
                   >
+                    <ConciergeRunTimeline steps={runSteps(message.parts)} />
                     {message.parts.map((part, index) => {
                       if (part.type === "text") {
                         return (
@@ -206,44 +244,44 @@ export function ConciergeWidget() {
                                 : "inline-block"
                             }
                           >
-                            {part.text}
+                            {part.content}
                           </p>
                         );
                       }
-                      if (isToolUIPart(part)) {
-                        const toolName = getToolName(part);
-                        if (part.state === "input-available" || part.state === "input-streaming") {
-                          return (
-                            <p key={index} className="font-mono text-[11px] text-muted-foreground">
-                              {TOOL_LOADING_LABELS[toolName] ?? "Working on it…"}
-                            </p>
-                          );
-                        }
-                        if (part.state === "output-available") {
-                          const rendered = renderToolOutput(toolName, part.output);
-                          if (rendered !== null) {
-                            return <div key={index}>{rendered}</div>;
-                          }
-                          if (!KNOWN_CONCIERGE_TOOLS.has(toolName)) return null;
+                      // The agent's own reasoning, when the model emits
+                      // it - more of "what is it doing" than a spinner.
+                      if (part.type === "thinking") {
+                        return (
+                          <p
+                            key={index}
+                            className="font-mono text-[11px] whitespace-pre-wrap text-muted-foreground/70 italic"
+                          >
+                            {part.content}
+                          </p>
+                        );
+                      }
+                      // Progress for a running tool is the timeline's job
+                      // (rendered once per message, below); this only
+                      // renders the finished payload as cards.
+                      if (part.type === "tool-call") {
+                        const tool = part as unknown as ToolCallLike;
+                        if (tool.state === "complete") {
+                          const rendered = renderToolOutput(tool.name, tool.output);
+                          if (rendered !== null) return <div key={index}>{rendered}</div>;
+                          if (!KNOWN_CONCIERGE_TOOLS.has(tool.name)) return null;
                           return (
                             <p key={index} className="text-xs text-destructive">
                               Couldn&apos;t show this result.
                             </p>
                           );
                         }
-                        if (part.state === "output-error") {
-                          return (
-                            <p key={index} className="text-xs text-destructive">
-                              {part.errorText}
-                            </p>
-                          );
-                        }
+                        return null;
                       }
                       return null;
                     })}
                   </div>
                 ))}
-                {status === "submitted" && (
+                {isLoading && (
                   <p className="font-mono text-[11px] text-muted-foreground">Thinking…</p>
                 )}
                 {error && (
@@ -253,7 +291,7 @@ export function ConciergeWidget() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => regenerate()}
+                      onClick={() => reload()}
                       className="font-mono text-[11px] text-destructive underline underline-offset-2"
                     >
                       Try again
@@ -267,13 +305,13 @@ export function ConciergeWidget() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Ask about a flight…"
-                  disabled={status !== "ready" || !!error}
+                  disabled={isLoading || !!error}
                   className="h-9"
                 />
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={status !== "ready" || !!error || !input.trim()}
+                  disabled={isLoading || !!error || !input.trim()}
                 >
                   Send
                 </Button>

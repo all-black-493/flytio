@@ -6,13 +6,14 @@
  * by the home page's SearchCard, which has no filters/sort of its own.
  */
 
-import type { OfferListQueryParams, OfferSortKey } from "@/lib/api/types";
+import type { DepartureWindow, OfferListQueryParams, OfferSortKey } from "@/lib/api/types";
 
 export interface FilterSortParams {
   sort: OfferSortKey;
   airlines: string[];
   maxStops: number | null;
   priceMax: number | null;
+  departWindows: DepartureWindow[];
 }
 
 export const DEFAULT_FILTER_SORT: FilterSortParams = {
@@ -20,9 +21,11 @@ export const DEFAULT_FILTER_SORT: FilterSortParams = {
   airlines: [],
   maxStops: null,
   priceMax: null,
+  departWindows: [],
 };
 
-const SORT_KEYS: OfferSortKey[] = ["price", "duration", "departure", "arrival"];
+const SORT_KEYS: OfferSortKey[] = ["best", "price", "duration", "departure", "arrival"];
+const DEPART_WINDOWS: DepartureWindow[] = ["morning", "afternoon", "evening", "night"];
 
 /** Takes the same flattened record lib/search-params.ts's
  * flattenSearchParams() produces, so page.tsx only flattens once. */
@@ -31,7 +34,11 @@ export function parseFilterSortParams(params: Record<string, string>): FilterSor
   const airlines = params.airlines ? params.airlines.split(",").filter(Boolean) : [];
   const maxStops = params.max_stops !== undefined ? Number(params.max_stops) : null;
   const priceMax = params.price_max !== undefined ? Number(params.price_max) : null;
+  const departWindows = (params.depart_windows ?? "")
+    .split(",")
+    .filter((w): w is DepartureWindow => DEPART_WINDOWS.includes(w as DepartureWindow));
   return {
+    departWindows,
     sort,
     airlines,
     maxStops: Number.isFinite(maxStops) ? maxStops : null,
@@ -45,6 +52,7 @@ export function toOfferListQueryParams(filters: FilterSortParams): OfferListQuer
     airlines: filters.airlines,
     max_stops: filters.maxStops,
     price_max: filters.priceMax,
+    depart_windows: filters.departWindows,
   };
 }
 
@@ -69,6 +77,10 @@ export function withFilterSortParams(
   if (patch.maxStops !== undefined) {
     if (patch.maxStops === null) next.delete("max_stops");
     else next.set("max_stops", String(patch.maxStops));
+  }
+  if (patch.departWindows !== undefined) {
+    if (patch.departWindows.length === 0) next.delete("depart_windows");
+    else next.set("depart_windows", patch.departWindows.join(","));
   }
   if (patch.priceMax !== undefined) {
     if (patch.priceMax === null) next.delete("price_max");

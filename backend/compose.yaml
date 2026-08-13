@@ -1,18 +1,32 @@
+# The database is NOT one of these services in any deployed environment:
+# it lives in Neon, reached over the network via DATABASE_URL. The `db`
+# service below exists only for local development and sits behind the
+# `local` profile, so nothing here may `depends_on: db` - a dependency on
+# a profiled service makes the whole project invalid ("depends on
+# undefined service db") and every compose command fails, not just `up`.
 services:
   fastapi-app:
     build: .
-    # depends_on only waits for the containers to *start*, not for
-    # Postgres to accept connections, so on a cold boot this can lose the
-    # race and exit during init_db/alembic. Without a restart policy it
-    # would then stay dead - the API simply never comes up, with a green
-    # deploy step.
+    # Neon suspends an idle compute and takes a few seconds to wake, so a
+    # cold boot can still lose the race and exit during init_db/alembic.
+    # Without a restart policy it would then stay dead - the API simply
+    # never comes up, with a green deploy step.
     restart: unless-stopped
     ports:
       - "8000:80"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
+      - DATABASE_URL=${DATABASE_URL}
+      # Empty locally, where one Postgres serves both purposes; set to
+      # Neon's direct (non-pooled) endpoint in deployed environments,
+      # because the pooler can't run migrations. See config.py.
+      - DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Optional. When set, the entrypoint runs the process under
+      # `doppler run` and secrets arrive as environment variables,
+      # overriding anything below except the container-topology vars the
+      # entrypoint pins. Unset (local dev), everything falls back to .env.
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN:-}
       # `fastapi dev`/`fastapi run` have their own sys.path auto-detection
       # (triggered by backend/__init__.py existing) that makes `from
       # backend.x import y` resolve everywhere in this codebase - but that
@@ -21,30 +35,37 @@ services:
       # named 'backend'" without this explicitly set.
       - PYTHONPATH=/
     depends_on:
-      - db
       - redis
     volumes:
       - .:/backend
       - /backend/.venv
-    # init_db runs first: the migration chain cannot build a schema from
-    # nothing (see scripts/init_db.py), so against a fresh database
-    # Alembic fails on its very first statement and takes the container
-    # down with it.
-    command: ["sh", "-c", "uv run python -m backend.scripts.init_db && uv run alembic upgrade head && uv run fastapi run main.py --port 80 --host 0.0.0.0"]
+    # No `command:` - the API is this image's CMD (see Dockerfile), so the
+    # startup chain is defined once. Only the consumer below overrides it.
     
+  # Same image as the API, deliberately different process - which is the
+  # one reason a `command:` override belongs here rather than in the
+  # Dockerfile.
   kafka-consumer:
     build: .
     # Same race, quieter failure: nothing user-facing breaks immediately,
     # but cancellation refunds and notification fan-out stop happening.
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
+      # Was hardcoded to the local `db` container, which silently pointed
+      # this worker at a different database from the API - and at nothing
+      # at all once the database moved to Neon. Everything this process
+      # owns (refunds on cancellation, notification fan-out, the
+      # pre-departure reminder sweep) reads and writes through it.
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Optional. When set, the entrypoint runs the process under
+      # `doppler run` and secrets arrive as environment variables,
+      # overriding anything below except the container-topology vars the
+      # entrypoint pins. Unset (local dev), everything falls back to .env.
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN:-}
       - PYTHONPATH=/
     depends_on:
-      db:
-        condition: service_started
       redis:
         condition: service_started
       kafka:
@@ -52,31 +73,44 @@ services:
     volumes:
       - .:/backend
       - /backend/.venv
-    command: ["uv", "run", "python", "-m", "backend.workers.kafka_consumer"]
+    command: ["python", "-m", "backend.workers.kafka_consumer"]
 
   redis:
     image: redis:latest
     restart: always
-    ports:
-      - 6379:6379
+    # ports:
+    #   - 6379:6379
 
+  # Local development only - deployed environments use Neon and never
+  # start this. Behind a profile so `docker compose up` on the server
+  # can't accidentally run a second, empty database alongside the real
+  # one; bring it up locally with:
+  #
+  #     docker compose --profile local up -d db
+  #
   db:
-    image: postgres:16
+    image: postgres:17
+    container_name: postgres-db
     restart: always
+    profiles: ["local"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "5432:5432"
+      # Bound to loopback, not 0.0.0.0: a published Docker port bypasses
+      # UFW entirely, so the previous "5432:5432" would have exposed
+      # Postgres to the internet. This form is reachable from a host-run
+      # `fastapi dev` and from nowhere else.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   kafka:
     image: confluentinc/cp-kafka:7.8.3
     container_name: kafka
-    ports:
-      - "9092:9092"
+    # ports:
+    #   - "9092:9092"
     environment:
       KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
       KAFKA_KRAFT_MODE: 'true'
@@ -103,7 +137,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment: 
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
@@ -114,8 +148,8 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
-    ports:
-      - "9090:9090"
+    # ports:
+    #   - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -129,7 +163,7 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -158,8 +192,8 @@ services:
   loki:
     image: grafana/loki:latest
     container_name: loki
-    ports:
-      - "3100:3100"
+    # ports:
+    #   - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - loki_data:/loki

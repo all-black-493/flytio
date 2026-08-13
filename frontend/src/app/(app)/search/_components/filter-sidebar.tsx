@@ -1,6 +1,6 @@
 "use client";
 
-import { Plane, Route, Wallet } from "lucide-react";
+import { Clock, Plane, Route, Wallet } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
@@ -11,7 +11,15 @@ import {
   type FilterSortParams,
 } from "@/app/(app)/search/_lib/pagination-params";
 import { Card } from "@/components/ui/card";
+import type { DepartureWindow } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/checkbox";
+
+const DEPART_WINDOW_OPTIONS: { value: DepartureWindow; label: string; hours: string }[] = [
+  { value: "morning", label: "Morning", hours: "05–12" },
+  { value: "afternoon", label: "Afternoon", hours: "12–18" },
+  { value: "evening", label: "Evening", hours: "18–22" },
+  { value: "night", label: "Night", hours: "22–05" },
+];
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { formatMoney } from "@/lib/api/format";
@@ -39,7 +47,10 @@ export function FilterSidebar({ facets, currency }: FilterSidebarProps) {
   const [draftPriceMax, setDraftPriceMax] = useState<number | null>(null);
 
   const activeCount =
-    filters.airlines.length + (filters.maxStops !== null ? 1 : 0) + (filters.priceMax !== null ? 1 : 0);
+    filters.airlines.length +
+    filters.departWindows.length +
+    (filters.maxStops !== null ? 1 : 0) +
+    (filters.priceMax !== null ? 1 : 0);
   const priceCeiling = draftPriceMax ?? filters.priceMax ?? facets.price_max;
 
   function navigate(patch: Partial<FilterSortParams>) {
@@ -93,6 +104,45 @@ export function FilterSidebar({ facets, currency }: FilterSidebarProps) {
           </div>
         </div>
       )}
+
+      {/* Departure time - people shop by "I want to leave in the morning"
+          far more often than by an exact hour, and it's the filter the
+          airlines' own sites lead with. Not facet-gated: every search has
+          departures, so the section is always meaningful. */}
+      <div className="space-y-3 px-4 py-4">
+        <Label className={sectionLabelClass}>
+          <Clock className="size-3.5 text-signal" />
+          DEPARTS
+        </Label>
+        <div className="grid grid-cols-2 gap-2">
+          {DEPART_WINDOW_OPTIONS.map((option) => {
+            const active = filters.departWindows.includes(option.value);
+            return (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 text-sm"
+              >
+                <Checkbox
+                  checked={active}
+                  onCheckedChange={() =>
+                    navigate({
+                      departWindows: active
+                        ? filters.departWindows.filter((w) => w !== option.value)
+                        : [...filters.departWindows, option.value],
+                    })
+                  }
+                />
+                <span className="min-w-0">
+                  {option.label}
+                  <span className="block font-mono text-[10px] text-muted-foreground">
+                    {option.hours}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
 
       {facets.airlines.length > 1 && (
         <div className="space-y-3 px-4 py-4">

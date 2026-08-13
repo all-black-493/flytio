@@ -40,13 +40,20 @@ export interface FlightSearchQueryParams {
   max_connections?: number;
 }
 
-export type OfferSortKey = "price" | "duration" | "departure" | "arrival";
+/** "best" trades price against duration and stops - see the backend's
+ * _best_value_scores. The cheapest fare on a route is routinely a
+ * multi-stop itinerary hours longer than the direct one. */
+export type OfferSortKey = "best" | "price" | "duration" | "departure" | "arrival";
+
+/** Local departure time of the outbound leg. */
+export type DepartureWindow = "morning" | "afternoon" | "evening" | "night";
 
 /** View-layer params applied to an already-fetched, cached offer list —
  * kept separate from OfferRequestCreate (the shopping request itself), so
  * changing a filter/sort/page doesn't change what the backend caches. */
 export interface OfferListQueryParams {
   sort?: OfferSortKey;
+  depart_windows?: DepartureWindow[];
   airlines?: string[];
   max_stops?: number | null;
   price_max?: number | null;
