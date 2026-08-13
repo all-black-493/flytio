@@ -1,17 +1,4 @@
 #!/usr/bin/env bash
-#
-# Deploys the backend onto the EC2 host. Run BY the workflow, not on it:
-#
-#     ssh ... "DOPPLER_TOKEN=... GH_PAT=... bash -s" < .github/scripts/deploy-ec2.sh
-#
-# Living in a file rather than inline in terraform.yml is the point. Inline,
-# every `$` had to be backslash-escaped to survive the runner's own shell
-# before reaching the server, `set -e` had to be re-declared because ssh
-# reports only the last command's status, and nothing could be syntax-checked
-# until it ran against production. Here `bash -n` and shellcheck apply.
-#
-# Note the script cannot be read from the checkout it creates - it is what
-# does the cloning - so the workflow pipes it in over stdin.
 
 set -euo pipefail
 trap 'echo "ERROR: deploy failed at line ${LINENO}" >&2' ERR
@@ -27,13 +14,7 @@ REPO_URL="https://x-access-token:${GH_PAT}@github.com/all-black-493/flytio.git"
 API_DOMAIN="api.flyt.africa"
 HEALTH_URL="http://127.0.0.1:8000/health"
 
-# Compose interpolates some values (Grafana's SMTP password) on the HOST at
-# parse time, before any container exists, so the entrypoint inside the image
-# cannot cover them - the compose command itself has to see the secrets.
-#
-# `sudo env VAR=...` rather than `sudo -E` or `sudo --preserve-env=`: those
-# depend on the sudoers policy permitting environment passthrough, which is
-# not guaranteed. Passing the token as an argument to `env` always works.
+
 run_compose() {
     sudo env DOPPLER_TOKEN="${DOPPLER_TOKEN}" doppler run -- docker compose "$@"
 }
@@ -41,11 +22,6 @@ run_compose() {
 reclaim_disk() {
     echo '--- Disk before cleanup ---'
     df -h / | tail -1
-
-    # Order matters. An anonymous volume stays "in use" while any container -
-    # even a stopped one - still references it, so pruning volumes first
-    # reclaims nothing. The .venv mount creates one such volume per build,
-    # and they had piled up 24 deep.
     sudo docker container prune -f || true
     # No -a: that would take NAMED volumes too, which includes postgres_data.
     sudo docker volume prune -f || true
@@ -83,8 +59,15 @@ fi
 
 if ! command -v doppler &> /dev/null; then
     echo 'Doppler CLI not found. Installing...'
+    # The installer verifies the binary's GPG signature and exits 3 without
+    # gnupg present, so the prerequisites go in first.
+    sudo apt-get update -y
+    sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+    # cli.doppler.com, NOT packages.doppler.com - the latter serves the apt
+    # repo and its signing key, but has no install.sh, so `curl --fail`
+    # returns 22 on its 404 and (with pipefail) takes the deploy with it.
     curl -sLf --retry 3 --tlsv1.2 --proto '=https' \
-        'https://packages.doppler.com/public/cli/install.sh' | sudo sh
+        'https://cli.doppler.com/install.sh' | sudo sh
 fi
 
 # Compose v1 is long EOL, and this deploy assumes v2 throughout. Stopping
