@@ -38,6 +38,8 @@ spec:
         {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- include "backend.imagePullSecrets" . | nindent 6 }}
       {{- /*
       Deliberately the namespace's default ServiceAccount, not the chart's.
       A pre-install hook runs BEFORE the release's own resources exist, so

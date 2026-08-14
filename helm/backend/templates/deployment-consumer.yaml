@@ -31,6 +31,7 @@ spec:
   a database that bills for uptime.
   */}}
   replicas: {{ .Values.consumer.replicaCount }}
+  revisionHistoryLimit: {{ .Values.consumer.revisionHistoryLimit }}
   strategy:
     # Recreate, not RollingUpdate. Overlapping consumers in one group
     # trigger two rebalances per rollout instead of one, and with a single
@@ -46,12 +47,14 @@ spec:
       labels:
         {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "consumer") | nindent 8 }}
       annotations:
-        checksum/secret-name: {{ .Values.existingSecret | sha256sum }}
+        checksum/secret: {{ include "backend.secretChecksum" . }}
         {{- with .Values.consumer.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
       serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "backend.imagePullSecrets" . | nindent 6 }}
       securityContext:
         {{- include "backend.podSecurityContext" . | nindent 8 }}
       # The loop polls with a 1s timeout and commits after each message, so

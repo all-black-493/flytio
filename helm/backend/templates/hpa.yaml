@@ -16,6 +16,15 @@ spec:
     name: {{ include "backend.fullname" . }}-api
   minReplicas: {{ .Values.api.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  {{- with .Values.api.autoscaling.behavior }}
+  # Without a behavior block the HPA uses a 5-minute scale-down window and
+  # scales in as fast as the algorithm allows. For a request-serving tier
+  # that means shedding capacity right after a spike subsides and adding it
+  # back moments later - flapping that shows up as latency, since every new
+  # pod pays a cold start before it is ready.
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   metrics:
     {{- with .Values.api.autoscaling.targetCPUUtilizationPercentage }}
     - type: Resource

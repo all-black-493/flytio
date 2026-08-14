@@ -26,6 +26,13 @@ image:
   # what is running; `latest` makes two deploys indistinguishable.
   tag: ""
 
+# Required when the registry is private, which a GHCR package is by
+# default. Without it pods fail with a 403 ImagePullBackOff that names no
+# cause. Create with:
+#   kubectl create secret docker-registry ghcr \
+#     --docker-server=ghcr.io --docker-username=<user> \
+#     --docker-password=<a PAT with read:packages>
+# then: imagePullSecrets: [{name: ghcr}]
 imagePullSecrets: []
 
 # Name of an EXISTING Secret holding every application variable
@@ -92,6 +99,31 @@ api:
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: ""
 
+    # Scale out quickly, scale in slowly. Adding a pod too eagerly costs a
+    # little money; removing one too eagerly costs latency, because the
+    # replacement has to cold-start before it is ready.
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 600
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 120
+
+  # Spread replicas over nodes so one node failing cannot take the whole
+  # API with it. Advisory (ScheduleAnyway) - see _helpers.tpl.
+  spreadAcrossNodes: true
+
+  # ReplicaSets kept for rollback. Three covers "undo the last thing";
+  # the default ten is objects nobody reads.
+  revisionHistoryLimit: 3
+
   # Requests are what the scheduler and the HPA both work from - without
   # them the HPA has no percentage to compute and silently does nothing.
   resources:
@@ -103,8 +135,15 @@ api:
       # latency without protecting anything the request already reserves.
       memory: 512Mi
 
-  # Long enough for uvicorn to drain in-flight requests after SIGTERM.
+  # Long enough for uvicorn to drain in-flight requests after SIGTERM, AND
+  # to cover preStopSleepSeconds before that even begins.
   terminationGracePeriodSeconds: 30
+
+  # How long a terminating pod keeps serving while its removal from the
+  # Service's endpoints propagates. Five seconds is comfortably more than
+  # kube-proxy and an ingress controller need; the cost is five seconds of
+  # extra pod lifetime per rollout.
+  preStopSleepSeconds: 5
 
   # Generous, because a cold start may also be waiting on Neon to wake from
   # scale-to-zero. 30 x 5s = 150s before the container is called failed.
@@ -150,6 +189,8 @@ consumer:
   # issuing a refund, and being killed mid-handler leaves the offset
   # uncommitted and the side effect half-applied.
   terminationGracePeriodSeconds: 60
+
+  revisionHistoryLimit: 3
 
   podAnnotations: {}
   nodeSelector: {}
