@@ -121,6 +121,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     ports:
       # Bound to loopback, not 0.0.0.0: a published Docker port bypasses
       # UFW entirely, so the previous "5432:5432" would have exposed

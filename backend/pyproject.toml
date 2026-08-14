@@ -12,6 +12,7 @@ dependencies = [
     "fastapi-pagination>=0.15.16",
     "fastapi[standard]>=0.139.0",
     "fpdf2>=2.8.7",
+    "guard-agent>=2.8.1",
     "httpx>=0.28.1",
     "passlib>=1.7.4",
     "prometheus-fastapi-instrumentator>=8.1.0",
