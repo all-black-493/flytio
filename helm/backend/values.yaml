@@ -12,11 +12,18 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
+  # Published by .github/workflows/backend-image.yml. The package does not
+  # exist until that workflow runs once - GHCR creates it on first push,
+  # there is nothing to set up in the registry beforehand.
   repository: ghcr.io/all-black-493/flyt-backend
   pullPolicy: IfNotPresent
-  # Defaults to Chart.AppVersion. Pin to an immutable tag or digest per
-  # release - :latest gives no way to tell what is actually running, and
-  # makes a rollback meaningless.
+  # ALWAYS set this per release, e.g. --set image.tag=sha-1a2b3c4.
+  #
+  # Empty falls back to Chart.AppVersion, which is a chart version rather
+  # than a published tag - it will not exist in the registry and the pods
+  # will sit in ImagePullBackOff. The sha- tags are immutable, so a
+  # rollback is naming an earlier one and `kubectl describe` says exactly
+  # what is running; `latest` makes two deploys indistinguishable.
   tag: ""
 
 imagePullSecrets: []
