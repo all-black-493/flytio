@@ -1,0 +1,86 @@
+# Overrides for the k3d cluster (k3d/cluster.yaml). Layered on top of
+# values.yaml rather than replacing it:
+#
+#     helm upgrade --install flyt ./helm/backend -f helm/backend/values-local.yaml
+#
+# Everything not mentioned here keeps its production default, so the two
+# environments stay legible as one chart with a small delta - and a change
+# to a shared default is felt locally before it ships.
+
+image:
+  # Built from the working tree and pushed into the cluster's containerd
+  # with `k3d image import`, so there is no registry involved and no need
+  # to publish an image just to try a change.
+  repository: flyt-backend
+  tag: local
+  # Never: IfNotPresent would still be satisfied by an old imported layer
+  # of the same name. Never fails loudly if the import step was skipped,
+  # which is better than silently running yesterday's code.
+  pullPolicy: Never
+
+# Created by k3d/create-secret.sh from backend/.env, so local Kubernetes
+# and local Compose read the same source of truth.
+existingSecret: flyt-backend-secrets
+
+redis:
+  # k3d/dependencies.yaml. Named to match the production default so this
+  # override exists only to be explicit, not because it differs.
+  host: redis-master
+  port: 6379
+
+api:
+  # Two replicas even locally: it is what surfaces the things one replica
+  # hides - a rollout that drops connections, or migrations racing on
+  # startup. Cheap enough on one node.
+  replicaCount: 2
+
+  autoscaling:
+    # No metrics-server in a default k3d cluster, so an HPA would sit at
+    # <unknown>/70% and never act. replicaCount above governs instead.
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+  podDisruptionBudget:
+    # On a single node a PDB blocks `k3d node drain` and cordoning, which
+    # is a local annoyance guarding against a failure mode a one-node
+    # cluster does not have.
+    enabled: false
+
+consumer:
+  # No Kafka in this cluster. The consumer would start, fail to reach a
+  # broker and log connection errors on a loop - noise that looks like a
+  # fault. The API is unaffected: it publishes fire-and-forget.
+  #
+  # Turn this on after adding a broker if you need to exercise event
+  # handling or the departure-reminder sweep.
+  enabled: false
+
+migrations:
+  # The interesting half of running this locally: the pre-upgrade hook has
+  # to succeed against the in-cluster Postgres before any pod starts, which
+  # is exactly the sequencing that is hard to test anywhere else.
+  enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+ingress:
+  # Traefik ships with k3s, and k3d/cluster.yaml maps host 8081 to it, so
+  # the API is reachable at http://localhost:8081 with no port-forward.
+  enabled: true
+  className: traefik
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

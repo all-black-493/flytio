@@ -1,0 +1,41 @@
+# k3d cluster for running the backend chart locally.
+#
+#     k3d cluster create --config k3d/cluster.yaml
+#
+# Declarative rather than a pile of CLI flags, so the cluster anyone gets
+# is the same one - the flags that shape it are reviewable here instead of
+# living in someone's shell history.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: flyt
+
+# One server, no agents. The chart's API tier can still scale to several
+# replicas on a single node, which is all that is being exercised locally -
+# multi-node behaviour (affinity, topology spread) is a cluster property,
+# not something this chart asserts.
+servers: 1
+agents: 0
+
+ports:
+  # Traefik (k3s bundles it) on the loadbalancer, so an Ingress is reachable
+  # at http://localhost:8081 without port-forwarding. 8081 rather than 8080
+  # to stay clear of the Compose stack's kafka-ui, which uses 8080.
+  - port: 8081:80
+    nodeFilters:
+      - loadbalancer
+
+options:
+  k3d:
+    wait: true
+    timeout: "120s"
+  k3s:
+    nodeLabels:
+      - label: flyt.africa/local=true
+        nodeFilters:
+          - server:0
+  kubeconfig:
+    # Merge into the default kubeconfig and switch to it, so kubectl and
+    # helm need no extra flags after `cluster create`.
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true

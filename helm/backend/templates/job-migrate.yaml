@@ -38,7 +38,19 @@ spec:
         {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      {{- /*
+      Deliberately the namespace's default ServiceAccount, not the chart's.
+      A pre-install hook runs BEFORE the release's own resources exist, so
+      naming the chart's ServiceAccount here makes the Job unschedulable on
+      a first install - the job-controller reports "serviceaccount not
+      found" and retries until Helm times out, with no pod ever created to
+      look at.
+
+      Costs nothing: this Job talks to Postgres, never to the Kubernetes
+      API. If it ever needs a cloud identity (IRSA, Workload Identity),
+      that ServiceAccount has to be created outside the release for the
+      same ordering reason.
+      */}}
       securityContext:
         {{- include "backend.podSecurityContext" . | nindent 8 }}
       containers:

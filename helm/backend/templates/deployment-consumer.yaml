@@ -1,3 +1,4 @@
+{{- if .Values.consumer.enabled }}
 {{- /*
 The event tier: Kafka consumption, plus the pre-departure reminder sweep
 that rides on the same poll loop (backend/workers/kafka_consumer.py).
@@ -97,3 +98,4 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

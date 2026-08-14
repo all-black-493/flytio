@@ -122,6 +122,13 @@ api:
 
 # --- Event tier -------------------------------------------------------
 consumer:
+  # Turn off where there is no broker to consume from - a local cluster
+  # without Kafka, or an environment running only the HTTP tier. The API is
+  # unaffected: it publishes fire-and-forget and serves every request
+  # without a broker. What stops is event handling and, with it, the
+  # pre-departure reminder sweep.
+  enabled: true
+
   # Keep at 1 until the topics have more than one partition. A consumer
   # group assigns each partition to exactly one consumer, so a second
   # replica idles - while still holding a database connection and running
