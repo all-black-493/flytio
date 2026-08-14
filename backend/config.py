@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     # CORS - comma-separated origins allowed to hit the API with credentials
     CORS_ORIGINS: str = ""
 
+    # fastapi-guard's hosted telemetry (app.guard-core.com). Optional, same
+    # convention as OPENAI_API_KEY: absent means the agent stays off and the
+    # local rate limiting/penetration detection carries on unchanged. It
+    # cannot be half-configured - SecurityConfig rejects enable_agent=True
+    # with no key - so utils/guard.py gates the whole feature on this being
+    # set. GUARD_PROJECT_ID is what the dashboard attributes events to.
+    GUARD_API_KEY: str = ""
+    GUARD_PROJECT_ID: str = ""
+
     # Outbound mail (Resend). MAIL_DOMAIN must be verified in the Resend
     # dashboard - once it is, Resend lets you send from *any* address at
     # that domain with no further per-address setup (see utils/email.py's

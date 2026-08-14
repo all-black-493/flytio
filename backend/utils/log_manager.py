@@ -48,9 +48,18 @@ class LogManager:
         Initializes and configures the main global settings for all loggers
         """
 
+        # Whether the optional log FILE is usable. Probed here, once, and
+        # honoured by the handler further down - creating the directory and
+        # touching the file are as likely to fail as opening it, and doing
+        # it outside the guard is what made a read-only filesystem crash
+        # the process before it could log the reason.
         log_path = Path(DEFAULT_LOG_FILE)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.touch(exist_ok=True)
+        file_logging_error: OSError | None = None
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.touch(exist_ok=True)
+        except OSError as e:
+            file_logging_error = e
 
         root_logger = logging.getLogger()
         root_logger.setLevel(DEFAULT_LOG_LEVEL)
@@ -66,20 +75,46 @@ class LogManager:
 
             root_logger.addHandler(console_handler)
 
-        # Have one file/timed-rotating handler
-        if not any(
+        # Have one file/timed-rotating handler.
+        #
+        # Best-effort, never fatal. stdout above is the real log stream -
+        # it's what `docker logs` and `kubectl logs` read, and what any log
+        # collector scrapes. The file is a convenience for the Compose
+        # setup, where promtail tails ./.logs.
+        #
+        # A container writing here as root leaves a root-owned file on the
+        # host through the bind mount, and the next host-run command dies
+        # with PermissionError before printing anything. A read-only root
+        # filesystem - the usual Kubernetes hardening - fails the same way.
+        # Losing the duplicate file is a nuisance; refusing to start over
+        # it is an outage, so this degrades instead.
+        if file_logging_error is not None:
+            root_logger.warning(
+                "File logging disabled (%s): %s. Logs still go to stdout.",
+                DEFAULT_LOG_FILE,
+                file_logging_error,
+            )
+        elif not any(
             isinstance(handler, TimedRotatingFileHandler)
             for handler in root_logger.handlers
         ):
-            file_handler = TimedRotatingFileHandler(
-                DEFAULT_LOG_FILE,
-                when="midnight",
-                interval=1,
-                backupCount=7,
-                encoding="utf-8",
-            )
-            file_handler.setFormatter(formatter)
-            root_logger.addHandler(file_handler)
+            try:
+                file_handler = TimedRotatingFileHandler(
+                    DEFAULT_LOG_FILE,
+                    when="midnight",
+                    interval=1,
+                    backupCount=7,
+                    encoding="utf-8",
+                )
+            except OSError as e:
+                root_logger.warning(
+                    "File logging disabled (%s): %s. Logs still go to stdout.",
+                    DEFAULT_LOG_FILE,
+                    e,
+                )
+            else:
+                file_handler.setFormatter(formatter)
+                root_logger.addHandler(file_handler)
 
         for noisy_name in _NOISY_LOGGER_NAMES:
             logging.getLogger(noisy_name).setLevel(logging.WARNING)

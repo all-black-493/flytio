@@ -1,0 +1,165 @@
+# flyt backend.
+#
+# One image, three workloads, deliberately separate because they fail and
+# scale for unrelated reasons:
+#
+#   api       - HTTP. Scales on request load. Behind a Service and Ingress.
+#   consumer  - Kafka events + the pre-departure reminder sweep. Scales on
+#               consumer lag, capped by partition count. No Service.
+#   migrate   - schema, as a pre-upgrade hook Job. Runs once per release.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Published by .github/workflows/backend-image.yml. The package does not
+  # exist until that workflow runs once - GHCR creates it on first push,
+  # there is nothing to set up in the registry beforehand.
+  repository: ghcr.io/all-black-493/flyt-backend
+  pullPolicy: IfNotPresent
+  # ALWAYS set this per release, e.g. --set image.tag=sha-1a2b3c4.
+  #
+  # Empty falls back to Chart.AppVersion, which is a chart version rather
+  # than a published tag - it will not exist in the registry and the pods
+  # will sit in ImagePullBackOff. The sha- tags are immutable, so a
+  # rollback is naming an earlier one and `kubectl describe` says exactly
+  # what is running; `latest` makes two deploys indistinguishable.
+  tag: ""
+
+imagePullSecrets: []
+
+# Name of an EXISTING Secret holding every application variable
+# (DATABASE_URL, SECRET_KEY, DUFFEL_API_TOKEN, RESEND_API_KEY, ...). See
+# backend/config.py for the full list; the 11 required ones will stop the
+# app from starting if absent.
+#
+# Not templated into this chart on purpose: values files end up in git and
+# in CI logs, and `helm get manifest` would print every secret in plain
+# text. Populate it from Doppler with the External Secrets Operator, which
+# keeps the same source of truth the Compose deploy uses.
+#
+# DATABASE_MIGRATION_URL belongs in here too when running on Neon: the
+# app-facing URL is the pooled endpoint, and PgBouncer in transaction mode
+# cannot run schema changes.
+existingSecret: flyt-backend-secrets
+
+# Cluster-internal Redis. Not a secret, and not the same value the app
+# uses locally, so it lives here rather than in the Secret.
+redis:
+  host: redis-master
+  port: 6379
+
+# Anything not covered above. Appended to every workload's env.
+extraEnv: []
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  # The container listens on 8000: the image runs unprivileged and cannot
+  # bind anything below 1024.
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.flyt.africa
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: flyt-api-tls
+    #   hosts:
+    #     - api.flyt.africa
+
+# --- HTTP tier --------------------------------------------------------
+api:
+  # Ignored when autoscaling is enabled.
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: ""
+
+  # Requests are what the scheduler and the HPA both work from - without
+  # them the HPA has no percentage to compute and silently does nothing.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      # No CPU limit on purpose: throttling a request-serving process adds
+      # latency without protecting anything the request already reserves.
+      memory: 512Mi
+
+  # Long enough for uvicorn to drain in-flight requests after SIGTERM.
+  terminationGracePeriodSeconds: 30
+
+  # Generous, because a cold start may also be waiting on Neon to wake from
+  # scale-to-zero. 30 x 5s = 150s before the container is called failed.
+  startupProbe:
+    failureThreshold: 30
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# --- Event tier -------------------------------------------------------
+consumer:
+  # Keep at 1 until the topics have more than one partition. A consumer
+  # group assigns each partition to exactly one consumer, so a second
+  # replica idles - while still holding a database connection and running
+  # its own copy of the reminder sweep.
+  replicaCount: 1
+
+  # Recreate avoids overlapping members and the double rebalance a rolling
+  # update causes in a consumer group. Events wait in Kafka meanwhile.
+  strategy: Recreate
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 384Mi
+
+  # Longer than the API's: a message in flight may be sending mail or
+  # issuing a refund, and being killed mid-handler leaves the offset
+  # uncommitted and the side effect half-applied.
+  terminationGracePeriodSeconds: 60
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# --- Schema -----------------------------------------------------------
+migrations:
+  enabled: true
+  # Retries a transient failure (Neon still waking) without masking a
+  # genuinely broken migration.
+  backoffLimit: 2
+  # Stops a migration blocked on a lock from holding the release open.
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

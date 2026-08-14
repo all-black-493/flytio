@@ -1,0 +1,13 @@
+apiVersion: v2
+name: backend
+description: |
+  flyt.africa backend - HTTP API, Kafka consumer and schema migrations
+  from one image, deployed as separately-scalable workloads.
+type: application
+
+# Chart version: bump on any change to these templates.
+version: 0.1.0
+
+# Application version. Used as the default image tag, so it should track
+# the image actually being released.
+appVersion: "0.1.0"

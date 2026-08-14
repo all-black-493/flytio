@@ -45,7 +45,10 @@ ENV PATH="/backend/.venv/bin:$PATH" \
     # compose.yaml so the image is runnable on its own.
     PYTHONPATH=/
 
-EXPOSE 80
+# 8000, not 80. Ports below 1024 need root or CAP_NET_BIND_SERVICE, and
+# this image runs unprivileged (below) - binding 80 as a non-root user
+# fails with "Permission denied" at startup.
+EXPOSE 8000
 
 # Every process in this image goes through the entrypoint, which is what
 # injects Doppler secrets when a token is present - so neither the CMD
@@ -53,14 +56,38 @@ EXPOSE 80
 # Doppler at all.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Run as a normal user. Kubernetes' restricted Pod Security Standard
+# refuses containers that run as root, and runAsNonRoot cannot be
+# satisfied by the manifest alone unless the image has a numeric,
+# non-zero UID to fall back on. 1000 also matches the usual host user, so
+# files written through a Compose bind mount stay editable instead of
+# arriving root-owned.
+#
+# /tmp is where the Doppler CLI writes (DOPPLER_CONFIG_DIR above), and
+# .logs is the optional log file - both need to belong to appuser for a
+# non-root process, and neither is needed for the app to serve.
+RUN useradd --create-home --uid 1000 --shell /bin/bash appuser \
+    && mkdir -p /backend/.logs /tmp/.doppler \
+    && chown -R appuser:appuser /backend /tmp/.doppler
+USER appuser
+
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
-# The API is this image's default process, so `docker run` on it starts a
-# working server instead of nothing. The Kafka consumer is built from the
-# same image but is a genuinely different process, so it - and only it -
-# overrides this via `command:` in compose.yaml.
+# Exec form, one process, no shell. This is what makes graceful shutdown
+# work: the CMD becomes PID 1, so the SIGTERM Kubernetes sends on a
+# rolling update reaches uvicorn, which finishes in-flight requests before
+# exiting. The previous `sh -c "migrate && migrate && serve"` left uvicorn
+# as a CHILD of the shell, and a shell forwards nothing - every pod would
+# sit out the full termination grace period and then be SIGKILLed
+# mid-request.
 #
-# init_db runs first: the migration chain cannot build a schema from
-# nothing (see scripts/init_db.py), so against a fresh database Alembic
-# fails on its very first statement and takes the container down with it.
-CMD ["sh", "-c", "python -m backend.scripts.init_db && alembic upgrade head && fastapi run main.py --port 80 --host 0.0.0.0"]
+# Migrations are deliberately NOT here any more. With more than one
+# replica they would race to ALTER the same tables on every rollout; they
+# belong in a Kubernetes init container or Job, and in Compose's `migrate`
+# service - all three run the same `python -m backend.scripts.migrate`.
+#
+# No --workers: under an orchestrator, replication is the cluster's job.
+# One process per container keeps the memory footprint predictable and
+# lets the scheduler do the scaling (FastAPI's own deployment guidance).
+CMD ["fastapi", "run", "main.py", "--port", "8000", "--host", "0.0.0.0"]

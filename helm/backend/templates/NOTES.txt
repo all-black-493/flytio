@@ -1,0 +1,22 @@
+{{ .Chart.Name }} {{ .Chart.Version }} deployed as release {{ .Release.Name }}.
+
+Workloads (one image, scaled separately):
+  api      {{ if .Values.api.autoscaling.enabled }}{{ .Values.api.autoscaling.minReplicas }}-{{ .Values.api.autoscaling.maxReplicas }} replicas (HPA){{ else }}{{ .Values.api.replicaCount }} replica(s){{ end }}
+  consumer {{ .Values.consumer.replicaCount }} replica(s) - capped by Kafka partition count, not CPU
+  migrate  {{ if .Values.migrations.enabled }}ran as a pre-upgrade hook before this release{{ else }}DISABLED - schema not managed by this chart{{ end }}
+
+Verify:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -L app.kubernetes.io/component
+  helm test {{ .Release.Name }}
+
+{{- if not .Values.ingress.enabled }}
+
+No Ingress. To reach the API locally:
+  kubectl port-forward svc/{{ include "backend.fullname" . }} 8000:{{ .Values.service.port }}
+  curl localhost:8000/health/ready
+{{- end }}
+
+Secrets come from the existing Secret "{{ .Values.existingSecret }}" - this
+chart never renders them. If pods CrashLoopBackOff on startup, check it has
+every required variable:
+  kubectl get secret {{ .Values.existingSecret }} -o jsonpath='{.data}' | tr ',' '\n' | cut -d'"' -f2

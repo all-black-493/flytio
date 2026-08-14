@@ -10,6 +10,23 @@
 # itself about where the API lives.
 API_V1_PREFIX = "/api/v1"
 
+# Health probes. Declared here rather than in routers/health.py because
+# two unrelated places need to agree on them: the router, which serves
+# them, and utils/guard.py, which must exempt them from security checks so
+# a probe still answers when Redis is down.
+#
+# Every entry is listed under both mount points, since main.py serves the
+# health router twice - versioned for the frontend, unversioned for probes
+# and uptime monitors that are configured once and will not follow an
+# /api/v2 later.
+HEALTH_PREFIX = "/health"
+_HEALTH_SUBPATHS = ("", "/live", "/ready")
+HEALTH_PATHS = [
+    f"{prefix}{sub}"
+    for prefix in (HEALTH_PREFIX, f"{API_V1_PREFIX}{HEALTH_PREFIX}")
+    for sub in _HEALTH_SUBPATHS
+]
+
 
 class KafkaTopics:
     USER_EVENTS = "user.events"

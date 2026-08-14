@@ -1,0 +1,21 @@
+{{- /* `helm test` - proves the Service routes to a pod that can actually
+   serve, not merely that a pod exists. Hits readiness rather than
+   liveness for exactly that reason: liveness answers 200 from a process
+   whose database is unreachable. */}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "backend.fullname" . }}-test-connection"
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: readiness
+      image: curlimages/curl:latest
+      command: ["curl", "--fail", "--silent", "--show-error", "--max-time", "10"]
+      args:
+        - "http://{{ include "backend.fullname" . }}:{{ .Values.service.port }}/health/ready"

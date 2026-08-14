@@ -1,0 +1,97 @@
+name: Backend image
+
+# Builds and publishes the backend container to GitHub Container Registry.
+#
+# The registry path in helm/backend/values.yaml does not exist until this
+# runs once: GHCR creates a package on first push, there is nothing to set
+# up in advance.
+#
+# This also takes the build off the EC2 host. Today's deploy runs
+# `docker compose up --build` there, so every deploy costs an outage for
+# the length of a build on a 1GB box. A cluster pulls a finished image
+# instead, and the build happens on a runner that is not serving traffic.
+
+on:
+  push:
+    branches: [main]
+    # Only when something that lands in the image changes. The chart and
+    # the workflows do not.
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-image.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # Lowercased below - GHCR rejects uppercase in a repository path, and
+  # github.repository_owner preserves whatever case the account uses.
+  IMAGE_NAME: ${{ github.repository_owner }}/flyt-backend
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to push to GHCR with the automatic GITHUB_TOKEN; no PAT
+      # and no long-lived registry credential to rotate.
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lowercase the image name
+        id: image
+        run: echo "name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          # sha- is the tag to deploy: immutable, so a rollback means
+          # naming an earlier one, and `kubectl describe` says exactly what
+          # is running. `latest` exists for convenience and should never be
+          # what a cluster pins to - it makes two deploys indistinguishable.
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # Links the package to this repository, so GHCR shows the source
+          # and inherits its visibility instead of defaulting to private
+          # and failing an anonymous pull with an unhelpful 403.
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image published"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo
+            echo "Deploy it:"
+            echo '```'
+            echo "helm upgrade --install flyt ./helm/backend \\"
+            echo "  --set image.tag=sha-$(git rev-parse --short HEAD)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
