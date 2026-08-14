@@ -48,9 +48,18 @@ class LogManager:
         Initializes and configures the main global settings for all loggers
         """
 
+        # Whether the optional log FILE is usable. Probed here, once, and
+        # honoured by the handler further down - creating the directory and
+        # touching the file are as likely to fail as opening it, and doing
+        # it outside the guard is what made a read-only filesystem crash
+        # the process before it could log the reason.
         log_path = Path(DEFAULT_LOG_FILE)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.touch(exist_ok=True)
+        file_logging_error: OSError | None = None
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.touch(exist_ok=True)
+        except OSError as e:
+            file_logging_error = e
 
         root_logger = logging.getLogger()
         root_logger.setLevel(DEFAULT_LOG_LEVEL)
@@ -79,7 +88,13 @@ class LogManager:
         # filesystem - the usual Kubernetes hardening - fails the same way.
         # Losing the duplicate file is a nuisance; refusing to start over
         # it is an outage, so this degrades instead.
-        if not any(
+        if file_logging_error is not None:
+            root_logger.warning(
+                "File logging disabled (%s): %s. Logs still go to stdout.",
+                DEFAULT_LOG_FILE,
+                file_logging_error,
+            )
+        elif not any(
             isinstance(handler, TimedRotatingFileHandler)
             for handler in root_logger.handlers
         ):

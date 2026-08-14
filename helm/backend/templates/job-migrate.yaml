@@ -1,0 +1,61 @@
+{{- if .Values.migrations.enabled }}
+{{- /*
+Schema migrations, as a Helm hook rather than an init container.
+
+Both run before the app, but an init container runs once PER POD: with
+three API replicas rolling, three of them race to ALTER the same tables,
+and Alembic's version table is not a lock. A pre-upgrade hook runs exactly
+once per release, and Helm waits for it to succeed before touching the
+Deployments - so a migration that fails leaves the previous version
+serving instead of rolling out code its schema cannot support.
+
+Same `python -m backend.scripts.migrate` as Compose's migrate service, so
+local and cluster prepare the schema identically.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "backend.fullname" . }}-migrate
+  labels:
+    {{- include "backend.componentLabels" (dict "ctx" . "component" "migrate") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    # Lower weight than any other hook, so the schema is ready first.
+    "helm.sh/hook-weight": "-5"
+    # before-hook-creation clears the previous run (a Job's spec is
+    # immutable, so a same-named leftover would fail the next upgrade);
+    # hook-succeeded keeps a FAILED job around, which is the one you need
+    # to read the logs of.
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  # Cap the wait: a migration blocked on a lock would otherwise hold the
+  # release open indefinitely.
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      securityContext:
+        {{- include "backend.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "backend.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "backend.containerSecurityContext" . | nindent 12 }}
+          command: ["python", "-m", "backend.scripts.migrate"]
+          env:
+            {{- include "backend.env" . | nindent 12 }}
+          envFrom:
+            {{- include "backend.envFrom" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "backend.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "backend.volumes" . | nindent 8 }}
+{{- end }}

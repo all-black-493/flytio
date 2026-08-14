@@ -1,0 +1,108 @@
+{{- /*
+The HTTP tier. Scales on request load, independently of the consumer -
+they are one image but two entirely different workloads, and tying them
+together would mean scaling Kafka consumers because HTTP traffic rose.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "backend.fullname" . }}-api
+  labels:
+    {{- include "backend.componentLabels" (dict "ctx" . "component" "api") | nindent 4 }}
+spec:
+  {{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never drop below the current replica count during a rollout. The
+      # app now shuts down gracefully on SIGTERM (uvicorn is PID 1), so a
+      # new pod can be serving before an old one goes away.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "api") | nindent 8 }}
+      annotations:
+        # Rolls the pods when the secret's content changes. Without this a
+        # rotated credential sits unused until something else happens to
+        # restart the pod - secrets are read at process start.
+        checksum/secret-name: {{ .Values.existingSecret | sha256sum }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      securityContext:
+        {{- include "backend.podSecurityContext" . | nindent 8 }}
+      # Long enough for in-flight requests to finish. uvicorn stops
+      # accepting new connections on SIGTERM and drains the rest.
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      containers:
+        - name: api
+          image: {{ include "backend.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "backend.containerSecurityContext" . | nindent 12 }}
+          # No command/args: serving is the image's CMD. Migrations are the
+          # Job, and the consumer overrides its own - see those templates.
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- include "backend.env" . | nindent 12 }}
+          envFrom:
+            {{- include "backend.envFrom" . | nindent 12 }}
+          # Three probes, three different questions - see routers/health.py.
+          #
+          # startup gates the other two, so a slow first boot (Neon waking
+          # from scale-to-zero) is not mistaken for a wedged process and
+          # restarted in a loop.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: {{ .Values.api.startupProbe.failureThreshold }}
+          # Restarts the container. Deliberately touches no dependency: a
+          # Redis outage must not be read as "this process is broken" and
+          # restart every replica at once.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # Removes the pod from the Service. Checks the database and Redis,
+          # so a pod that cannot serve stops receiving traffic and rejoins
+          # by itself when the dependency recovers.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "backend.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "backend.volumes" . | nindent 8 }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

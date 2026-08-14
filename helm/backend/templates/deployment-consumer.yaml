@@ -1,0 +1,99 @@
+{{- /*
+The event tier: Kafka consumption, plus the pre-departure reminder sweep
+that rides on the same poll loop (backend/workers/kafka_consumer.py).
+
+Separate from the API because the two scale on unrelated signals and
+neither should drag the other. HTTP scales on request rate and CPU; this
+scales on consumer lag, and only up to the topic partition count. Running
+them as one Deployment would mean a traffic spike spawning Kafka
+consumers that have no partition to read.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "backend.fullname" . }}-consumer
+  labels:
+    {{- include "backend.componentLabels" (dict "ctx" . "component" "consumer") | nindent 4 }}
+spec:
+  {{- /*
+  Deliberately not autoscaled, and deliberately not defaulted above 1.
+
+  A consumer group can have at most one active consumer per partition;
+  the app's topics are auto-created with the broker default of 1, so a
+  second replica would idle through every rebalance while still holding a
+  database connection. Raising this without first raising partitions
+  (`kafka-topics --alter --partitions N`) buys nothing.
+
+  It also multiplies the reminder sweep: every replica runs its own timer.
+  That is safe - crud/reminders.py claims each leg with a conditional
+  UPDATE, so only one replica can send - but it is wasted queries against
+  a database that bills for uptime.
+  */}}
+  replicas: {{ .Values.consumer.replicaCount }}
+  strategy:
+    # Recreate, not RollingUpdate. Overlapping consumers in one group
+    # trigger two rebalances per rollout instead of one, and with a single
+    # partition the new pod would sit idle until the old one exits anyway.
+    # The gap costs nothing: unconsumed events wait in Kafka, which is the
+    # entire point of putting them there.
+    type: {{ .Values.consumer.strategy }}
+  selector:
+    matchLabels:
+      {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "consumer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "consumer") | nindent 8 }}
+      annotations:
+        checksum/secret-name: {{ .Values.existingSecret | sha256sum }}
+        {{- with .Values.consumer.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      securityContext:
+        {{- include "backend.podSecurityContext" . | nindent 8 }}
+      # The loop polls with a 1s timeout and commits after each message, so
+      # it exits quickly - but a message being handled mid-SIGTERM may be
+      # sending an email or issuing a refund, and killing that leaves the
+      # offset uncommitted and the side effect half-done.
+      terminationGracePeriodSeconds: {{ .Values.consumer.terminationGracePeriodSeconds }}
+      containers:
+        - name: consumer
+          image: {{ include "backend.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "backend.containerSecurityContext" . | nindent 12 }}
+          # The one place the image's CMD is overridden: same image, a
+          # genuinely different process.
+          command: ["python", "-m", "backend.workers.kafka_consumer"]
+          {{- /*
+          No ports and no probes. This workload serves no HTTP, so there is
+          nothing for httpGet to reach, and an exec probe that only proves
+          "a process exists" would report healthy for a consumer wedged on
+          a poll - coverage in name only. A crash still restarts the pod
+          via restartPolicy. Real liveness here means consumer lag, which
+          belongs in an alert on the Kafka metrics, not a probe.
+          */}}
+          env:
+            {{- include "backend.env" . | nindent 12 }}
+          envFrom:
+            {{- include "backend.envFrom" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.consumer.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "backend.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "backend.volumes" . | nindent 8 }}
+      {{- with .Values.consumer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.consumer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.consumer.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

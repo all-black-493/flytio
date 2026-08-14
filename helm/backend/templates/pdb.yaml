@@ -1,0 +1,17 @@
+{{- if .Values.api.podDisruptionBudget.enabled }}
+{{- /* Keeps a node drain (upgrade, autoscaler consolidation) from taking
+   every API pod at once. Not applied to the consumer: with one partition
+   there is only one useful replica, and a PDB requiring it to stay up
+   would block node drains indefinitely. */}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "backend.fullname" . }}-api
+  labels:
+    {{- include "backend.componentLabels" (dict "ctx" . "component" "api") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.api.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "api") | nindent 6 }}
+{{- end }}
