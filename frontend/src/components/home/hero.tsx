@@ -44,7 +44,7 @@ export default function Hero() {
               See today&apos;s fares
             </a>
             <Link
-              href="/#business"
+              href="/business"
               className="font-mono text-sm lowercase text-muted-foreground hover:text-signal"
             >
               flyt for business →
