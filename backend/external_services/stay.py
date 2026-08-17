@@ -1,28 +1,11 @@
-import httpx
+from backend.external_services.duffel_client import DuffelAPIError, DuffelService
 
-from backend.config import settings
-
-DUFFEL_BASE_URL = "https://api.duffel.com"
-DUFFEL_API_VERSION = "v2"
-
-
-class DuffelAPIError(Exception):
-    """Raised when the Duffel API returns an error response. Mirrors
-    external_services/flight.py's DuffelAPIError - kept as a separate
-    class (not imported from there) so this module has no dependency on
-    the Flights service, matching one-service-per-Duffel-product-surface."""
-
-    def __init__(self, status_code: int, errors: list[dict]):
-        self.status_code = status_code
-        self.errors = errors
-        messages = (
-            "; ".join(e.get("message") or e.get("title", "") for e in errors)
-            or f"Duffel API returned HTTP {status_code}"
-        )
-        super().__init__(messages)
+# Re-exported: routers/stays.py and tests import DuffelAPIError from here,
+# and it is now the one shared class rather than a per-product copy.
+__all__ = ["DuffelAPIError", "DuffelStayService", "duffel_stay_service"]
 
 
-class DuffelStayService:
+class DuffelStayService(DuffelService):
     """Service for the Duffel Stays API (v2) - foundation only. Search,
     rates, quotes, and booking creation, proxied through to Duffel
     directly with no local persistence (no Stay/StayBooking DB model
@@ -39,53 +22,6 @@ class DuffelStayService:
     publish raw curl examples for the quote/booking endpoints specifically,
     so treat this as unverified against a live sandbox until exercised.
     """
-
-    def __init__(self):
-        self.api_token = settings.DUFFEL_API_TOKEN
-        self._client: httpx.AsyncClient | None = None
-
-    @property
-    def client(self) -> httpx.AsyncClient:
-        if self._client is None:
-            if not self.api_token:
-                raise ValueError(
-                    "Duffel API token not configured (set DUFFEL_API_TOKEN)"
-                )
-            self._client = httpx.AsyncClient(
-                base_url=DUFFEL_BASE_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_token}",
-                    "Duffel-Version": DUFFEL_API_VERSION,
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                },
-                timeout=httpx.Timeout(30.0),
-            )
-        return self._client
-
-    async def aclose(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json_body: dict | None = None,
-        params: dict | None = None,
-    ) -> dict:
-        response = await self.client.request(
-            method, path, json=json_body, params=params
-        )
-        if response.is_error:
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = {}
-            raise DuffelAPIError(response.status_code, payload.get("errors", []))
-        return response.json()
 
     async def search_stays(self, search: dict) -> dict:
         """Location-based accommodation search - step 1 of 4."""
