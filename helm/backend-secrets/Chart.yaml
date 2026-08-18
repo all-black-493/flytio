@@ -1,0 +1,8 @@
+apiVersion: v2
+name: backend-secrets
+description: |
+  Syncs the flyt backend's secrets from Doppler into the Kubernetes Secret
+  that helm/backend reads, using the Doppler Kubernetes Operator.
+type: application
+version: 0.1.0
+appVersion: "1.7.1"

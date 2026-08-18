@@ -1,0 +1,92 @@
+# Secret delivery for the flyt backend.
+#
+# What this chart does: tells the Doppler Kubernetes Operator to keep a
+# Kubernetes Secret in sync with a Doppler config. helm/backend then reads
+# that Secret by name (its `existingSecret` value) and knows nothing about
+# Doppler at all.
+#
+# Why it is a separate chart from helm/backend, rather than a template
+# inside it: they have different lifecycles and different owners. Secret
+# delivery is installed once per cluster/namespace and rarely changes; the
+# application is redeployed on every commit. Folding them together would
+# mean every app deploy re-applies the secret plumbing, and a rollback of
+# the app would roll back the plumbing with it.
+#
+# What this chart does NOT do: install the operator. That is a
+# cluster-wide component with its own CRDs and controller, installed once
+# by whoever administers the cluster:
+#
+#   helm repo add doppler https://helm.doppler.com
+#   helm install doppler-operator doppler/doppler-kubernetes-operator \
+#     --namespace doppler-operator-system --create-namespace
+#
+# A chart that installed CRDs as a side effect of deploying one app's
+# secrets would fight every other chart that needs them, and uninstalling
+# the app would take the CRDs - and every other DopplerSecret in the
+# cluster - with it.
+
+# --- Doppler source ---------------------------------------------------
+doppler:
+  # Which Doppler config to read. Both are required by the operator; there
+  # is no default, because guessing at someone's project layout is how you
+  # sync staging credentials into production.
+  project: flyt
+  config: prd
+
+  # How often the operator re-reads Doppler. The CRD's own default is 60s.
+  # Left at that: a rotation should take effect in about a minute, and the
+  # request costs nothing meaningful.
+  #
+  # Note this syncs the SECRET, which is a separate thing from restarting
+  # the pods that already read it - see reloadDeployments below.
+  resyncSeconds: 60
+
+  # Empty = every secret in the config. Name specific keys to sync only a
+  # subset, e.g. ["DATABASE_URL", "SECRET_KEY"].
+  secrets: []
+
+# --- Service token ----------------------------------------------------
+# The operator authenticates to Doppler with a service token, which it
+# reads from a Kubernetes Secret. That Secret is deliberately NOT created
+# by this chart: a token templated from values.yaml would end up in git,
+# in `helm get manifest`, and in CI logs - which is the whole thing
+# Doppler is here to avoid.
+#
+# Create it once, out of band:
+#
+#   kubectl create secret generic doppler-token-secret \
+#     --namespace flyt \
+#     --from-literal=serviceToken=dp.st.prd.xxxxx
+#
+# Use a SERVICE token (dp.st....), scoped read-only to one project+config.
+# A personal token would give the cluster your entire Doppler account.
+tokenSecret:
+  name: doppler-token-secret
+  # Defaults to the release namespace. Set only if the token lives
+  # elsewhere - e.g. one shared token in the operator's own namespace.
+  namespace: ""
+
+# --- Managed secret ---------------------------------------------------
+# The Secret the operator creates and keeps in sync. This name must match
+# helm/backend's `existingSecret`, or the app will start with no
+# configuration and CrashLoopBackOff on pydantic validation.
+managedSecret:
+  name: flyt-backend-secrets
+  # Defaults to the release namespace. Must be the namespace the app runs
+  # in: a Secret is namespaced, and a pod cannot read one from next door.
+  namespace: ""
+  type: Opaque
+  annotations: {}
+  labels: {}
+
+# --- Rollout on rotation ----------------------------------------------
+# The operator can annotate Deployments so they restart when the synced
+# Secret changes. Off by default here, because helm/backend already
+# handles this itself: its pod template carries a checksum of the Secret's
+# contents, so `helm upgrade` after a rotation rolls the pods.
+#
+# Turn this on if you want a rotation to take effect WITHOUT a deploy -
+# the operator will restart the annotated Deployments on its own. Leaving
+# both mechanisms on is harmless but means two things can trigger the same
+# rollout, which makes "why did it restart?" harder to answer.
+reloadDeployments: false
