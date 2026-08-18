@@ -12,27 +12,38 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  # Published by .github/workflows/backend-image.yml. The package does not
-  # exist until that workflow runs once - GHCR creates it on first push,
-  # there is nothing to set up in the registry beforehand.
-  repository: ghcr.io/all-black-493/flyt-backend
+  # ECR, created by terraform/kubernetes-staging/ecr.tf and published to by
+  # .github/workflows/backend-image.yml. Chosen over a public registry
+  # because the EKS node role already carries ECR pull permission, so pods
+  # need no imagePullSecret - see imagePullSecrets below, which stays empty
+  # for this reason.
+  #
+  # The account id is not a secret (Terraform outputs it, and it appears in
+  # every ARN here), but it does tie this default to one AWS account -
+  # override image.repository for any other.
+  repository: 379057358703.dkr.ecr.us-east-2.amazonaws.com/flyt-backend
   pullPolicy: IfNotPresent
   # ALWAYS set this per release, e.g. --set image.tag=sha-1a2b3c4.
   #
   # Empty falls back to Chart.AppVersion, which is a chart version rather
   # than a published tag - it will not exist in the registry and the pods
-  # will sit in ImagePullBackOff. The sha- tags are immutable, so a
-  # rollback is naming an earlier one and `kubectl describe` says exactly
-  # what is running; `latest` makes two deploys indistinguishable.
+  # will sit in ImagePullBackOff.
+  #
+  # There is no `latest` to fall back on, deliberately: the repository is
+  # created with IMMUTABLE tags, so a tag is written once and always means
+  # the same image. A rollback is naming an earlier sha- tag.
   tag: ""
 
-# Required when the registry is private, which a GHCR package is by
-# default. Without it pods fail with a 403 ImagePullBackOff that names no
-# cause. Create with:
-#   kubectl create secret docker-registry ghcr \
-#     --docker-server=ghcr.io --docker-username=<user> \
-#     --docker-password=<a PAT with read:packages>
-# then: imagePullSecrets: [{name: ghcr}]
+# Empty, and expected to stay empty on EKS: the node role provisioned in
+# terraform/kubernetes-staging carries AmazonEC2ContainerRegistryPullOnly,
+# so nodes authenticate to ECR themselves and pods need no credential.
+#
+# Needed only when pulling from a registry the nodes have no identity for -
+# a private GHCR package, Docker Hub with a paid account. Without it those
+# fail as a 403 ImagePullBackOff naming no cause:
+#   kubectl create secret docker-registry <name> \
+#     --docker-server=<registry> --docker-username=<user> --docker-password=<token>
+# then: imagePullSecrets: [{name: <name>}]
 imagePullSecrets: []
 
 # Name of an EXISTING Secret holding every application variable
