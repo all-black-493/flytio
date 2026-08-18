@@ -10,3 +10,21 @@ mprocs.log
 
 .logs
 
+
+# Terraform working directories. .terraform/ holds downloaded provider
+# binaries - the AWS provider alone is 675MB, which GitHub rejects outright
+# (100MB limit). It is a local cache rebuilt by `terraform init`, never
+# source.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.lock.hcl.bak
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
