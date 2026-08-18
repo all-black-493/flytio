@@ -23,8 +23,9 @@ export default function Hero() {
             <span className="text-signal">The exact fare, locked before you pay.</span>
           </h1>
           <p className="mt-6 max-w-lg font-mono text-base leading-relaxed text-muted-foreground">
-            flyt scans <span className="text-foreground">300+ carriers</span> and confirms
-            the price before checkout - for one traveler or a whole company.
+            flyt searches <span className="text-foreground">300+ carriers</span>, locks
+            the price before checkout, and keeps every ticket and receipt in one place -
+            for one traveler or a whole company.
           </p>
 
           <ul className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[13px] lowercase text-muted-foreground">

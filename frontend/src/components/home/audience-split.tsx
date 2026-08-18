@@ -2,7 +2,7 @@ export default function AudienceSplit() {
   return (
     <section id="business" className="mx-auto w-full max-w-6xl scroll-mt-8 px-4 pb-20 sm:px-6">
       <p className="mb-3 font-mono text-xs tracking-[0.25em] text-muted-foreground">
-        TWO WAYS TO FLY WITH US
+        TWO WAYS TO TRAVEL WITH US
       </p>
       <h2 className="mb-10 text-3xl font-bold tracking-tight sm:text-4xl">
         One seat, or the whole cabin.
