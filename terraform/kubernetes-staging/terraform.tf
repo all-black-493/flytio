@@ -19,7 +19,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "flyt-africa-terraform-state-bucket-18072026"
+    bucket       = "flyt-africa-terraform-state-bucket"
     key          = "staging/kubernetes.tfstate"
     region       = "us-east-2"
     use_lockfile = true
