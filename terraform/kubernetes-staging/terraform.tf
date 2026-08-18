@@ -17,7 +17,6 @@ terraform {
       version = "~> 5.92"
     }
   }
-
   backend "s3" {
     bucket       = "flyt-africa-terraform-state-bucket"
     key          = "staging/kubernetes.tfstate"
