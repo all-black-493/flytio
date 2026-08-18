@@ -114,9 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      # Required: the deploy step reads .github/scripts/deploy-ec2.sh from
-      # the runner's workspace and pipes it to the server. Without a
-      # checkout that file does not exist and the step dies on stdin.
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -126,10 +124,6 @@ jobs:
           HOST: ${{ needs.deploy-infrastructure.outputs.ec2_public_ip }}
           USER: ubuntu
           GH_PAT: ${{ secrets.GH_PAT }}
-          # Bootstrap credentials only - these are what get us TO the
-          # environment, so they cannot themselves live in Doppler. Every
-          # application secret comes from the Doppler config this token
-          # is scoped to.
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
 
         run: |
