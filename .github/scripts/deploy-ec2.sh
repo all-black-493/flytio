@@ -19,6 +19,16 @@ API_DOMAIN="api.flyt.africa"
 HEALTH_URL="http://127.0.0.1:8000/health/ready"
 
 
+# Which Doppler config this deployment reads. Named explicitly rather than
+# left implicit in whatever DOPPLER_TOKEN happens to be scoped to: a token
+# swapped for one issued against the wrong config would otherwise pull
+# staging's secrets into production silently, and the first symptom would
+# be REDIS_TLS=true against the plaintext Redis container - which took the
+# site down once already. Mismatched values make doppler fail loudly here
+# instead.
+DOPPLER_PROJECT="${DOPPLER_PROJECT:-backend}"
+DOPPLER_CONFIG="${DOPPLER_CONFIG:-prd}"
+
 run_compose() {
     # --preserve-env, NOT `sudo env DOPPLER_TOKEN=...`: arguments are visible
     # in /proc to every user on the box, so the second form prints a live
@@ -26,7 +36,8 @@ run_compose() {
     # through the environment keeps it out of argv. This does depend on the
     # sudoers policy allowing the variable through, which is why the deploy
     # checks it below rather than assuming it.
-    sudo --preserve-env=DOPPLER_TOKEN doppler run -- docker compose "$@"
+    sudo --preserve-env=DOPPLER_TOKEN doppler run \
+        --project "${DOPPLER_PROJECT}" --config "${DOPPLER_CONFIG}" -- docker compose "$@"
 }
 
 reclaim_disk() {
@@ -90,11 +101,13 @@ fi
 
 # Fail at the point of discovery rather than four steps later with containers
 # in a restart loop and every deploy step still green.
-if ! doppler secrets --only-names > /dev/null 2>&1; then
-    echo 'ERROR: DOPPLER_TOKEN is missing or invalid - cannot fetch secrets.' >&2
+if ! doppler secrets --only-names --project "${DOPPLER_PROJECT}" --config "${DOPPLER_CONFIG}" > /dev/null 2>&1; then
+    echo "ERROR: cannot read Doppler ${DOPPLER_PROJECT}/${DOPPLER_CONFIG}." >&2
+    echo '       Either DOPPLER_TOKEN is missing/invalid, or it is scoped to a' >&2
+    echo '       different config - which is the failure worth catching here.' >&2
     exit 1
 fi
-echo "Doppler reachable: $(doppler secrets --only-names | wc -l) secrets in scope"
+echo "Doppler ${DOPPLER_PROJECT}/${DOPPLER_CONFIG}: $(doppler secrets --only-names --project "${DOPPLER_PROJECT}" --config "${DOPPLER_CONFIG}" | wc -l) secrets in scope"
 
 # run_compose relies on sudo passing DOPPLER_TOKEN through. If the sudoers
 # policy strips it, doppler runs with no token and compose comes up with no
