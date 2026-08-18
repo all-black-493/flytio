@@ -12,8 +12,12 @@ logger = get_app_logger(__name__)
 
 
 class RedisCache:
-    def __init__(self, host: str, port: int):
-        self.r = redis.Redis(host=host, port=port, db=0, decode_responses=True)
+    def __init__(self, url: str | None = None):
+        # from_url, not Redis(host=..., port=...): the URL carries the
+        # scheme, and the scheme is what selects TLS. Passing host/port
+        # separately has no way to express that, so a TLS-only endpoint
+        # would be connected to in plaintext and simply refuse.
+        self.r = redis.Redis.from_url(url or settings.redis_url, decode_responses=True)
 
     def set(self, key: str, value, expiration_seconds: int = 300):
         try:
@@ -63,4 +67,4 @@ def build_places_cache_key(query: PlaceSuggestionsQuery) -> str:
     return f"places:suggestions:{_hash_payload(payload)}"
 
 
-redis_cache = RedisCache(settings.REDIS_HOST, settings.REDIS_PORT)
+redis_cache = RedisCache()

@@ -1,0 +1,57 @@
+# Overrides for the staging EKS cluster built by
+# terraform/kubernetes-staging.
+#
+#   helm upgrade --install flyt ./helm/backend \
+#     --namespace flyt-staging --create-namespace \
+#     -f helm/backend/values-staging.yaml \
+#     --set image.tag=sha-<short sha> \
+#     --set redis.host=$(terraform -chdir=terraform/kubernetes-staging output -raw redis_primary_endpoint)
+#
+# This file exists because the chart's defaults describe a cluster that
+# runs its own Redis and its own Kafka - true of k3d, false of EKS. Without
+# it, a deploy here starts consumer pods with no broker to talk to and
+# points the API at a Redis Service that does not exist.
+
+# The namespace is not set here - Helm takes it from --namespace. It must
+# be flyt-staging: the GitHub deploy role's EKS access is scoped to that
+# one namespace (terraform/kubernetes-staging/github_actions.tf), so a
+# release into `default` is refused with a permissions error that reads
+# like a broken kubeconfig.
+
+# redis.host is not set here - it is the ElastiCache endpoint, which only
+# exists after `terraform apply`, so it is passed with --set (see above).
+# REDIS_TLS belongs in Doppler and must be true: ElastiCache refuses
+# plaintext connections.
+
+# --- Event tier -------------------------------------------------------
+consumer:
+  # Terraform provisions no Kafka, so a consumer would run without a broker
+  # and log connection errors while reporting Running. The cost: no
+  # cancellation refunds, no notification fan-out, no departure reminders
+  # in staging. Turn on once a broker exists.
+  enabled: false
+
+# --- HTTP tier --------------------------------------------------------
+api:
+  autoscaling:
+    # Works here, unlike locally: EKS Auto Mode runs metrics-server.
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+ingress:
+  # EKS Auto Mode provisions AWS load balancers, so this wants the ALB
+  # ingress class and annotations rather than nginx's - a decision to make,
+  # not a default to inherit.
+  enabled: false
+
+migrations:
+  enabled: true
+  # The hook gates the whole release, and Neon may be waking from
+  # scale-to-zero - cheaper to retry than to fail a deploy that needed a
+  # few more seconds.
+  backoffLimit: 3

@@ -10,6 +10,7 @@ from backend.utils.constants import API_V1_PREFIX
 from backend.external_services.flight import duffel_flight_service
 from backend.external_services.google_oauth import google_oauth_service
 from backend.external_services.payment import pesapal_payment_service
+from backend.external_services.car import duffel_car_service
 from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
 from backend.utils.kafka import kafka_producer
@@ -19,6 +20,7 @@ from backend.routers import notifications
 from .routers import (
     admin,
     bookings,
+    cars,
     concierge,
     flights,
     health,
@@ -43,6 +45,7 @@ async def lifespan(app: FastAPI):
     kafka_producer.stop()
     await duffel_flight_service.aclose()
     await duffel_stay_service.aclose()
+    await duffel_car_service.aclose()
     await pesapal_payment_service.aclose()
     await google_oauth_service.aclose()
     logger.info("flyt backend shutting down")
@@ -104,6 +107,7 @@ api_v1_router.include_router(bookings.router)
 api_v1_router.include_router(payments.router)
 api_v1_router.include_router(webhooks.router)
 api_v1_router.include_router(stays.router)
+api_v1_router.include_router(cars.router)
 api_v1_router.include_router(support.router)
 api_v1_router.include_router(admin.router)
 api_v1_router.include_router(concierge.router)

@@ -1,84 +1,16 @@
-import httpx
+from backend.external_services.duffel_client import DuffelAPIError, DuffelService
 
-from backend.config import settings
-
-DUFFEL_BASE_URL = "https://api.duffel.com"
-DUFFEL_API_VERSION = "v2"
+# Re-exported: a dozen modules and tests import DuffelAPIError from here.
+__all__ = ["DuffelAPIError", "duffel_flight_service"]
 
 
-class DuffelAPIError(Exception):
-    """Raised when the Duffel API returns an error response.
-
-    Carries the HTTP status code and the `errors` array from Duffel's
-    error envelope so callers can surface meaningful details.
-    """
-
-    def __init__(self, status_code: int, errors: list[dict]):
-        self.status_code = status_code
-        self.errors = errors
-        messages = (
-            "; ".join(e.get("message") or e.get("title", "") for e in errors)
-            or f"Duffel API returned HTTP {status_code}"
-        )
-        super().__init__(messages)
-
-
-class DuffelFlightService:
+class DuffelFlightService(DuffelService):
     """Service for the Duffel Flights API (v2) over plain REST with httpx.
 
     Duffel's official Python SDK is archived and pinned to API v1, so per
     Duffel's guidance we call the documented REST endpoints directly:
     https://duffel.com/docs/api
     """
-
-    def __init__(self):
-        self.api_token = settings.DUFFEL_API_TOKEN
-        self._client: httpx.AsyncClient | None = None
-
-    @property
-    def client(self) -> httpx.AsyncClient:
-        # Created lazily so the app (and tests) can import this module
-        # before DUFFEL_API_TOKEN is configured.
-        if self._client is None:
-            if not self.api_token:
-                raise ValueError(
-                    "Duffel API token not configured (set DUFFEL_API_TOKEN)"
-                )
-            self._client = httpx.AsyncClient(
-                base_url=DUFFEL_BASE_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_token}",
-                    "Duffel-Version": DUFFEL_API_VERSION,
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                },
-                timeout=httpx.Timeout(30.0),
-            )
-        return self._client
-
-    async def aclose(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json_body: dict | None = None,
-        params: dict | None = None,
-    ) -> dict:
-        response = await self.client.request(
-            method, path, json=json_body, params=params
-        )
-        if response.is_error:
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = {}
-            raise DuffelAPIError(response.status_code, payload.get("errors", []))
-        return response.json()
 
     async def search_flights(self, offer_request: dict) -> dict:
         """Create an offer request and return it with its offers included."""

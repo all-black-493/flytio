@@ -1,0 +1,20 @@
+{{ .Chart.Name }} installed as release {{ .Release.Name }}.
+
+Doppler {{ .Values.doppler.project }}/{{ .Values.doppler.config }}
+  -> Secret/{{ .Values.managedSecret.name }} in namespace {{ .Values.managedSecret.namespace | default .Release.Namespace }}
+  resyncing every {{ .Values.doppler.resyncSeconds }}s
+
+Check it worked - the Secret is created by the operator, not by Helm, so
+`helm status` says nothing about whether the sync succeeded:
+
+  kubectl get dopplersecret {{ include "backend-secrets.fullname" . }} -n {{ .Release.Namespace }}
+  kubectl get secret {{ .Values.managedSecret.name }} -n {{ .Values.managedSecret.namespace | default .Release.Namespace }}
+
+If the Secret never appears, the operator's log is where the reason is:
+
+  kubectl logs -n doppler-operator-system -l app.kubernetes.io/name=doppler-kubernetes-operator --tail=50
+
+Most common causes, in order: the token Secret "{{ .Values.tokenSecret.name }}"
+does not exist in namespace {{ .Values.tokenSecret.namespace | default .Release.Namespace }};
+the token is not a service token for {{ .Values.doppler.project }}/{{ .Values.doppler.config }};
+or the operator is not installed in this cluster at all.

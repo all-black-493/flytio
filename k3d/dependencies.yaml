@@ -1,0 +1,107 @@
+# Postgres and Redis for the LOCAL cluster only.
+#
+# Deliberately not part of the backend chart. The chart deploys the
+# application; what backs it is an environment decision - production uses
+# Neon and a managed Redis, and a chart that could also conjure its own
+# database would invite someone to run one there by accident.
+#
+# Both are ephemeral (emptyDir): a local cluster should be reproducible
+# from nothing, and `make k3d-down && make k3d-up` is meant to give a clean
+# database rather than resurrect yesterday's half-migrated one.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels: { app: postgres, flyt.africa/local: "true" }
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector: { app: postgres }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: { app: postgres, flyt.africa/local: "true" }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          # Matches the Compose stack and Neon's major version, so a
+          # migration that works locally means something.
+          image: postgres:17
+          env:
+            # Local-only throwaway credentials. Real ones come from the
+            # Secret the chart reads; these never leave this cluster.
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_DB
+              value: postgres
+            # Postgres refuses to initialise into a non-empty mount point;
+            # a subdirectory keeps it happy on any volume type.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  labels: { app: redis, flyt.africa/local: "true" }
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+  selector: { app: redis }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels: { app: redis, flyt.africa/local: "true" }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 256Mi }

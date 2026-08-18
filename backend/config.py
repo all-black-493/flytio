@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # Redis cache
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
+    # Managed Redis (ElastiCache with transit encryption, Upstash, etc)
+    # accepts TLS connections only, and refuses a plaintext one - which
+    # surfaces as a connection error that looks like the host being wrong.
+    # Local Redis and the Compose/k3d containers are plaintext.
+    REDIS_TLS: bool = False
 
     # Duffel (flights + payments)
     DUFFEL_API_TOKEN: str
@@ -147,6 +152,20 @@ class Settings(BaseSettings):
     # needs ngrok/cloudflared for local testing.
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
+
+    @property
+    def redis_url(self) -> str:
+        """The one place a Redis connection string is built.
+
+        Two callers construct connections - the cache
+        (external_services/cache.py) and the rate limiter
+        (utils/guard.py) - and they used different forms, so a TLS
+        endpoint would have needed fixing twice and been half-fixed once.
+
+        `rediss://` (two s's) is the TLS scheme. `redis://` against a
+        TLS-only endpoint fails at connect time, not at startup."""
+        scheme = "rediss" if self.REDIS_TLS else "redis"
+        return f"{scheme}://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
 
     @property
     def migration_database_url(self) -> str:

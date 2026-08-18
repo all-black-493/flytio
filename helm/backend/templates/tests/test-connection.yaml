@@ -15,7 +15,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: readiness
-      image: curlimages/curl:latest
+      image: curlimages/curl:8.11.1
       command: ["curl", "--fail", "--silent", "--show-error", "--max-time", "10"]
       args:
         - "http://{{ include "backend.fullname" . }}:{{ .Values.service.port }}/health/ready"

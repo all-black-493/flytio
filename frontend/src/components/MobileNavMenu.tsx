@@ -16,8 +16,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 const NAV_LINKS = [
   { label: "Search", href: "/search" },
   { label: "Departures", href: "/#board" },
-  { label: "Business", href: "/#business" },
-  { label: "API", href: "/#business" },
+  { label: "Business", href: "/business" },
+  { label: "API", href: "/api" },
 ];
 
 const linkClass =

@@ -12,20 +12,38 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  # Published by .github/workflows/backend-image.yml. The package does not
-  # exist until that workflow runs once - GHCR creates it on first push,
-  # there is nothing to set up in the registry beforehand.
-  repository: ghcr.io/all-black-493/flyt-backend
+  # ECR, created by terraform/kubernetes-staging/ecr.tf and published to by
+  # .github/workflows/backend-image.yml. Chosen over a public registry
+  # because the EKS node role already carries ECR pull permission, so pods
+  # need no imagePullSecret - see imagePullSecrets below, which stays empty
+  # for this reason.
+  #
+  # The account id is not a secret (Terraform outputs it, and it appears in
+  # every ARN here), but it does tie this default to one AWS account -
+  # override image.repository for any other.
+  repository: 379057358703.dkr.ecr.us-east-2.amazonaws.com/flyt-backend
   pullPolicy: IfNotPresent
   # ALWAYS set this per release, e.g. --set image.tag=sha-1a2b3c4.
   #
   # Empty falls back to Chart.AppVersion, which is a chart version rather
   # than a published tag - it will not exist in the registry and the pods
-  # will sit in ImagePullBackOff. The sha- tags are immutable, so a
-  # rollback is naming an earlier one and `kubectl describe` says exactly
-  # what is running; `latest` makes two deploys indistinguishable.
+  # will sit in ImagePullBackOff.
+  #
+  # There is no `latest` to fall back on, deliberately: the repository is
+  # created with IMMUTABLE tags, so a tag is written once and always means
+  # the same image. A rollback is naming an earlier sha- tag.
   tag: ""
 
+# Empty, and expected to stay empty on EKS: the node role provisioned in
+# terraform/kubernetes-staging carries AmazonEC2ContainerRegistryPullOnly,
+# so nodes authenticate to ECR themselves and pods need no credential.
+#
+# Needed only when pulling from a registry the nodes have no identity for -
+# a private GHCR package, Docker Hub with a paid account. Without it those
+# fail as a 403 ImagePullBackOff naming no cause:
+#   kubectl create secret docker-registry <name> \
+#     --docker-server=<registry> --docker-username=<user> --docker-password=<token>
+# then: imagePullSecrets: [{name: <name>}]
 imagePullSecrets: []
 
 # Name of an EXISTING Secret holding every application variable
@@ -92,6 +110,31 @@ api:
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: ""
 
+    # Scale out quickly, scale in slowly. Adding a pod too eagerly costs a
+    # little money; removing one too eagerly costs latency, because the
+    # replacement has to cold-start before it is ready.
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 600
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 120
+
+  # Spread replicas over nodes so one node failing cannot take the whole
+  # API with it. Advisory (ScheduleAnyway) - see _helpers.tpl.
+  spreadAcrossNodes: true
+
+  # ReplicaSets kept for rollback. Three covers "undo the last thing";
+  # the default ten is objects nobody reads.
+  revisionHistoryLimit: 3
+
   # Requests are what the scheduler and the HPA both work from - without
   # them the HPA has no percentage to compute and silently does nothing.
   resources:
@@ -103,8 +146,15 @@ api:
       # latency without protecting anything the request already reserves.
       memory: 512Mi
 
-  # Long enough for uvicorn to drain in-flight requests after SIGTERM.
+  # Long enough for uvicorn to drain in-flight requests after SIGTERM, AND
+  # to cover preStopSleepSeconds before that even begins.
   terminationGracePeriodSeconds: 30
+
+  # How long a terminating pod keeps serving while its removal from the
+  # Service's endpoints propagates. Five seconds is comfortably more than
+  # kube-proxy and an ingress controller need; the cost is five seconds of
+  # extra pod lifetime per rollout.
+  preStopSleepSeconds: 5
 
   # Generous, because a cold start may also be waiting on Neon to wake from
   # scale-to-zero. 30 x 5s = 150s before the container is called failed.
@@ -122,6 +172,13 @@ api:
 
 # --- Event tier -------------------------------------------------------
 consumer:
+  # Turn off where there is no broker to consume from - a local cluster
+  # without Kafka, or an environment running only the HTTP tier. The API is
+  # unaffected: it publishes fire-and-forget and serves every request
+  # without a broker. What stops is event handling and, with it, the
+  # pre-departure reminder sweep.
+  enabled: true
+
   # Keep at 1 until the topics have more than one partition. A consumer
   # group assigns each partition to exactly one consumer, so a second
   # replica idles - while still holding a database connection and running
@@ -143,6 +200,8 @@ consumer:
   # issuing a refund, and being killed mid-handler leaves the offset
   # uncommitted and the side effect half-applied.
   terminationGracePeriodSeconds: 60
+
+  revisionHistoryLimit: 3
 
   podAnnotations: {}
   nodeSelector: {}

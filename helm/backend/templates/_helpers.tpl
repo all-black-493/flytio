@@ -144,3 +144,60 @@ emptyDir costs nothing and keeps the local behaviour).
 - name: logs
   mountPath: /backend/.logs
 {{- end }}
+
+{{/*
+Pull secrets for a private registry. The values key existed but no
+template ever consumed it, so a private GHCR package failed with an
+opaque 403 ImagePullBackOff and nothing in the chart to explain it.
+*/}}
+{{- define "backend.imagePullSecrets" -}}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
+A checksum of the Secret's CONTENT, so rotating a credential actually
+rolls the pods. Secrets are read once at process start; without this a
+rotated value sits unused until something unrelated happens to restart
+the pod - which, for a rotation done because a key leaked, is the whole
+point missed.
+
+This hashes the live Secret via `lookup` because the Secret is external
+to the release (see values.yaml) - Helm cannot see content it does not
+render. `lookup` returns nothing during `helm template` and `--dry-run`,
+which is why the fallback is a constant: a rendered-but-not-installed
+manifest has no cluster to read from, and that is not an error.
+
+Only a hash is stored. The annotation never contains secret material.
+*/}}
+{{- define "backend.secretChecksum" -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace .Values.existingSecret -}}
+{{- if $secret -}}
+{{- $secret.data | toYaml | sha256sum -}}
+{{- else -}}
+not-resolved
+{{- end -}}
+{{- end }}
+
+{{/*
+Spread the API's replicas over nodes, so losing one node cannot take out
+every replica at once.
+
+ScheduleAnyway, not DoNotSchedule: a single-node cluster (k3d, or a
+production cluster mid-drain) must still be able to place pods. Availability
+is the goal; refusing to schedule in the name of spreading them would
+convert a degraded cluster into an outage.
+*/}}
+{{- define "backend.topologySpreadConstraints" -}}
+{{- if .ctx.Values.api.spreadAcrossNodes }}
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        {{- include "backend.componentSelectorLabels" (dict "ctx" .ctx "component" .component) | nindent 8 }}
+{{- end }}
+{{- end }}

@@ -53,7 +53,7 @@ security_config = SecurityConfig(
     rate_limit_window=60,
     enable_rate_limiting=True,
     enable_redis=True,
-    redis_url=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
+    redis_url=settings.redis_url,
     # Health probes bypass every security check, because guard_core is
     # fail-secure: when Redis is unreachable it answers 500 to everything
     # rather than let a request through unchecked. That is right for the

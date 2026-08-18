@@ -13,6 +13,10 @@ spec:
   {{- if not .Values.api.autoscaling.enabled }}
   replicas: {{ .Values.api.replicaCount }}
   {{- end }}
+  # Old ReplicaSets are how `helm rollback`/`kubectl rollout undo` work;
+  # 10 of them is more history than anyone reads and more objects than
+  # etcd needs.
+  revisionHistoryLimit: {{ .Values.api.revisionHistoryLimit }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -29,15 +33,17 @@ spec:
       labels:
         {{- include "backend.componentSelectorLabels" (dict "ctx" . "component" "api") | nindent 8 }}
       annotations:
-        # Rolls the pods when the secret's content changes. Without this a
-        # rotated credential sits unused until something else happens to
-        # restart the pod - secrets are read at process start.
-        checksum/secret-name: {{ .Values.existingSecret | sha256sum }}
+        checksum/secret: {{ include "backend.secretChecksum" . }}
         {{- with .Values.api.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
       serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      # This workload never calls the Kubernetes API, so mounting a token
+      # for it only widens what a compromised process can reach.
+      automountServiceAccountToken: false
+      {{- include "backend.imagePullSecrets" . | nindent 6 }}
+      {{- include "backend.topologySpreadConstraints" (dict "ctx" . "component" "api") | nindent 6 }}
       securityContext:
         {{- include "backend.podSecurityContext" . | nindent 8 }}
       # Long enough for in-flight requests to finish. uvicorn stops
@@ -88,6 +94,21 @@ spec:
               port: http
             periodSeconds: 10
             failureThreshold: 3
+          # Endpoint removal and SIGTERM are dispatched in PARALLEL, not in
+          # order: kube-proxy and the ingress controller can still be
+          # routing to this pod at the moment uvicorn stops accepting
+          # connections. Measured on a rolling update, that lost 2 requests
+          # in 133 with maxUnavailable already at 0.
+          #
+          # Sleeping here keeps the container serving while that removal
+          # propagates. SIGTERM is not sent until preStop returns, so the
+          # drain that follows is uncontended. Must stay well below
+          # terminationGracePeriodSeconds, which covers preStop AND the
+          # drain after it.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "{{ .Values.api.preStopSleepSeconds }}"]
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
           volumeMounts:

@@ -25,8 +25,8 @@ async function checkIsStaff(): Promise<boolean> {
 const NAV_LINKS = [
   { label: "search", href: "/search" },
   { label: "departures", href: "/#board" },
-  { label: "business", href: "/#business" },
-  { label: "api", href: "/#business" },
+  { label: "business", href: "/business" },
+  { label: "api", href: "/api" },
 ];
 
 export default async function TopNav() {

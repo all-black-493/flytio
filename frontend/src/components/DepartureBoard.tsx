@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -164,15 +165,32 @@ export default function DepartureBoard() {
                 </summary>
                 <OfferDetail offer={offer} />
               </details>
+
+              {/* Outside the <details>, deliberately. A link inside a
+                  <summary> is a nested interactive element: clicking it
+                  toggles the row open instead of navigating, and screen
+                  readers announce the summary and the link as one control.
+                  Here it is always visible, so a fare can be acted on
+                  without expanding it first. */}
+              <div className="flex justify-end border-t border-board-line/60 px-4 py-3 sm:px-6">
+                <Link
+                  href={`/booking/${offer.id}`}
+                  className="bg-signal px-4 py-2 font-mono text-xs font-semibold uppercase tracking-widest text-black transition-colors hover:bg-board-ink hover:text-board active:translate-y-px"
+                >
+                  Book →
+                </Link>
+              </div>
             </li>
           );
         })}
       </ul>
-      {/* <div className="border-t border-board-line px-4 py-3 sm:px-6">
+      {/* Once, here - not repeated under every row. Five copies of the
+          same reassurance stops being reassuring and becomes noise. */}
+      <div className="border-t border-board-line px-4 py-3 sm:px-6">
         <p className="font-mono text-[10px] tracking-[0.2em] text-board-muted">
           FARES REFRESH EVERY 60 SECONDS · PRICES CONFIRMED BEFORE PAYMENT
         </p>
-      </div> */}
+      </div>
     </div>
   );
 }
