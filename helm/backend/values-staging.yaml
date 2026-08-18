@@ -1,0 +1,87 @@
+# Overrides for the staging EKS cluster built by
+# terraform/kubernetes-staging.
+#
+#   helm upgrade --install flyt ./helm/backend \
+#     --namespace flyt-staging --create-namespace \
+#     -f helm/backend/values-staging.yaml \
+#     --set image.tag=sha-<short sha> \
+#     --set redis.host=$(terraform -chdir=terraform/kubernetes-staging output -raw redis_primary_endpoint)
+#
+# This file exists because the chart's defaults describe a cluster that
+# runs its own Redis and its own Kafka - true of k3d, false of EKS. Without
+# it, a deploy here starts consumer pods with no broker to talk to and
+# points the API at a Redis Service that does not exist.
+
+# The namespace is not set here - Helm takes it from --namespace. It must
+# be flyt-staging: the GitHub deploy role's EKS access is scoped to that
+# one namespace (terraform/kubernetes-staging/github_actions.tf), so a
+# release into `default` is refused with a permissions error that reads
+# like a broken kubeconfig.
+
+image:
+  # Repository comes from values.yaml (ECR). The tag must be passed per
+  # release - there is no `latest` to fall back on, by design.
+  pullPolicy: IfNotPresent
+
+# --- Redis ------------------------------------------------------------
+redis:
+  # MUST be overridden with the real endpoint:
+  #
+  #   terraform -chdir=terraform/kubernetes-staging output -raw redis_primary_endpoint
+  #
+  # Left as an obviously-invalid placeholder rather than a plausible
+  # hostname: this cannot be known before `terraform apply`, and a wrong
+  # but plausible value would fail as an ordinary connection error. This
+  # one fails DNS immediately and names its own fix in `kubectl describe`.
+  host: REPLACE-WITH-terraform-output-redis_primary_endpoint
+  port: 6379
+
+# REDIS_TLS is NOT set here - it belongs in Doppler with the other
+# application config, and it must be "true" for staging. ElastiCache is
+# created with transit_encryption_enabled, which refuses plaintext
+# connections; the app then builds rediss:// instead of redis://
+# (backend/config.py's redis_url). Without it, every Redis call fails and
+# readiness never passes.
+
+# --- Event tier -------------------------------------------------------
+consumer:
+  # OFF, because terraform/kubernetes-staging provisions no Kafka - no MSK
+  # cluster, no self-hosted broker, nothing. With this left at the chart
+  # default of true, the consumer starts, cannot reach a broker, and logs
+  # connection errors on a loop forever while looking "Running".
+  #
+  # The cost of this being off is real and worth stating: no event
+  # handling, which means cancellation refunds and notification fan-out do
+  # not happen, and the pre-departure reminder sweep never runs. Staging
+  # will not send reminder emails.
+  #
+  # Turn on once there is a broker and KAFKA_BOOTSTRAP_SERVERS is set in
+  # Doppler.
+  enabled: false
+
+# --- HTTP tier --------------------------------------------------------
+api:
+  autoscaling:
+    # EKS Auto Mode does run metrics-server, so an HPA works here - unlike
+    # the local cluster, where it would sit at <unknown>/70% forever.
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+ingress:
+  # Off until a load balancer and certificate are decided. EKS Auto Mode
+  # provisions AWS load balancers (the cluster has elastic_load_balancing
+  # enabled), so this wants the ALB ingress class and its annotations
+  # rather than nginx's - which is a decision, not a default.
+  enabled: false
+
+migrations:
+  enabled: true
+  # Neon can be waking from scale-to-zero when the hook runs, and the hook
+  # gates the whole release - a little more patience here is cheaper than a
+  # failed deploy that only needed to wait.
+  backoffLimit: 3
