@@ -1,16 +1,4 @@
 name: Backend image
-
-# Builds and publishes the backend container to GitHub Container Registry.
-#
-# The registry path in helm/backend/values.yaml does not exist until this
-# runs once: GHCR creates a package on first push, there is nothing to set
-# up in advance.
-#
-# This also takes the build off the EC2 host. Today's deploy runs
-# `docker compose up --build` there, so every deploy costs an outage for
-# the length of a build on a 1GB box. A cluster pulls a finished image
-# instead, and the build happens on a runner that is not serving traffic.
-
 on:
   push:
     branches: [main]
