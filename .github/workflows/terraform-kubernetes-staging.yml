@@ -1,0 +1,242 @@
+name: Provision EKS Staging Infrastructure
+
+# Two jobs, deliberately: `terraform` owns AWS resources, `cluster` owns
+# what lives inside the cluster once it exists. Splitting them is what
+# lets the second job run only on an apply without repeating the same
+# `if:` on a dozen steps.
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Staging infrastructure operation
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/kubernetes-staging/**"
+      - "helm/backend-secrets/**"
+      - ".github/workflows/terraform-kubernetes-staging.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/kubernetes-staging/**"
+      - "helm/backend-secrets/**"
+      - ".github/workflows/terraform-kubernetes-staging.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-kubernetes-staging-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+  TF_IN_AUTOMATION: "true"
+  TF_DIR: terraform/kubernetes-staging
+
+jobs:
+  terraform:
+    name: Plan or apply staging infrastructure
+    # A pull_request from a fork carries no secrets and no id-token
+    # permission, so it could only ever fail at the OIDC assume-role.
+    if: >-
+      github.repository == 'all-black-493/flytio'
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+
+    outputs:
+      # Consumed by the `cluster` job below, and republished into a
+      # ConfigMap for the deploy workflow - none of which can read
+      # Terraform state themselves.
+      applied: ${{ steps.apply.outputs.applied }}
+      redis_host: ${{ steps.apply.outputs.redis_host }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure infrastructure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-eks-staging-terraform
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Initialize Terraform
+        run: terraform -chdir="${TF_DIR}" init -input=false
+
+      - name: Check Terraform formatting
+        run: terraform -chdir="${TF_DIR}" fmt -check -recursive
+
+      - name: Validate Terraform
+        run: terraform -chdir="${TF_DIR}" validate
+
+      # Plan is the default on every trigger. Applying this stack starts an
+      # EKS cluster and an ElastiCache replication group that bill by the
+      # hour, so it takes a deliberate workflow_dispatch rather than
+      # happening as a side effect of merging a comment change. Flip the
+      # `if:` on the two steps below to include `github.event_name ==
+      # 'push'` to get apply-on-merge instead.
+      - name: Plan staging infrastructure
+        if: inputs.operation != 'apply' && inputs.operation != 'destroy'
+        run: terraform -chdir="${TF_DIR}" plan -input=false -no-color
+
+      - name: Apply staging infrastructure
+        id: apply
+        if: inputs.operation == 'apply'
+        run: |
+          terraform -chdir="${TF_DIR}" plan -input=false -out=tfplan
+          terraform -chdir="${TF_DIR}" apply -input=false -auto-approve tfplan
+
+          {
+            echo "applied=true"
+            echo "redis_host=$(terraform -chdir="${TF_DIR}" output -raw redis_primary_endpoint)"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Destroy staging infrastructure
+        if: inputs.operation == 'destroy'
+        run: terraform -chdir="${TF_DIR}" destroy -input=false -auto-approve
+
+  cluster:
+    name: Configure staging cluster
+    needs: terraform
+    if: needs.terraform.outputs.applied == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      EKS_CLUSTER_NAME: flyt-backend-staging
+      KUBERNETES_NAMESPACE: flyt-staging
+      INFRASTRUCTURE_CONFIG_MAP: backend-infrastructure
+      DOPPLER_OPERATOR_NAMESPACE: doppler-operator-system
+      DOPPLER_OPERATOR_VERSION: 1.7.1
+      DOPPLER_PROJECT: backend
+      # stg, never prd. The two configs differ on REDIS_TLS - true here
+      # because ElastiCache refuses plaintext, false for the EC2/Compose
+      # production deploy - and syncing the wrong one took the site down
+      # once already.
+      DOPPLER_CONFIG: stg
+      SECRETS_RELEASE: flyt-backend-secrets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure infrastructure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-eks-staging-cluster
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Configure staging kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "${AWS_REGION}" \
+            --name "${EKS_CLUSTER_NAME}"
+
+      - name: Create the application namespace
+        run: |
+          kubectl create namespace "${KUBERNETES_NAMESPACE}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Publish staging infrastructure configuration
+        env:
+          REDIS_HOST: ${{ needs.terraform.outputs.redis_host }}
+        run: |
+          # REDIS_HOST, not REDIS_URL: backend/config.py reads
+          # REDIS_HOST/REDIS_PORT/REDIS_TLS and assembles the URL itself
+          # (Settings.redis_url), so a REDIS_URL published here would be
+          # read by nothing. The endpoint changes whenever ElastiCache is
+          # recreated and is not secret, so it travels as a ConfigMap
+          # rather than through Doppler - the deploy workflow reads it
+          # back from here to set the chart's redis.host.
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            create configmap "${INFRASTRUCTURE_CONFIG_MAP}" \
+            --from-literal="REDIS_HOST=${REDIS_HOST}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install Doppler operator
+        run: |
+          helm repo add doppler https://helm.doppler.com --force-update
+          helm repo update doppler
+          helm upgrade --install doppler-operator \
+            doppler/doppler-kubernetes-operator \
+            --namespace "${DOPPLER_OPERATOR_NAMESPACE}" \
+            --create-namespace \
+            --version "${DOPPLER_OPERATOR_VERSION}" \
+            --wait \
+            --timeout 5m
+
+      - name: Configure Doppler authentication
+        env:
+          DOPPLER_STAGING_TOKEN: ${{ secrets.DOPPLER_STAGING_TOKEN }}
+        run: |
+          : "${DOPPLER_STAGING_TOKEN:?DOPPLER_STAGING_TOKEN is required - a Doppler service token scoped read-only to backend/stg}"
+
+          # --from-file with /dev/stdin, not --from-literal: the token
+          # would otherwise sit in this process's argv.
+          printf '%s' "${DOPPLER_STAGING_TOKEN}" |
+            kubectl --namespace "${DOPPLER_OPERATOR_NAMESPACE}" \
+              create secret generic doppler-token-secret \
+              --from-file=serviceToken=/dev/stdin \
+              --dry-run=client -o yaml |
+            kubectl apply -f -
+
+      - name: Synchronize backend configuration
+        run: |
+          helm lint helm/backend-secrets --strict \
+            --set-string "doppler.project=${DOPPLER_PROJECT}" \
+            --set-string "doppler.config=${DOPPLER_CONFIG}" \
+            --set-string "managedSecret.namespace=${KUBERNETES_NAMESPACE}"
+
+          # The release lives beside the operator; only the Secret it
+          # manages crosses into the application namespace.
+          helm upgrade --install "${SECRETS_RELEASE}" helm/backend-secrets \
+            --namespace "${DOPPLER_OPERATOR_NAMESPACE}" \
+            --set-string "doppler.project=${DOPPLER_PROJECT}" \
+            --set-string "doppler.config=${DOPPLER_CONFIG}" \
+            --set-string "managedSecret.namespace=${KUBERNETES_NAMESPACE}"
+
+          kubectl --namespace "${DOPPLER_OPERATOR_NAMESPACE}" wait \
+            --for=condition=secrets.doppler.com/SecretSyncReady \
+            "dopplersecret/${SECRETS_RELEASE}" \
+            --timeout=120s
+
+          # Same name as the DopplerSecret - helm/backend's
+          # `existingSecret` value, which is what the pods read.
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" wait \
+            --for=create "secret/${SECRETS_RELEASE}" \
+            --timeout=120s
+
+      - name: Diagnose failed configuration
+        if: failure()
+        run: |
+          kubectl --namespace "${DOPPLER_OPERATOR_NAMESPACE}" \
+            describe "dopplersecret/${SECRETS_RELEASE}" || true
+
+          kubectl --namespace "${DOPPLER_OPERATOR_NAMESPACE}" logs \
+            --selector app.kubernetes.io/name=doppler-kubernetes-operator \
+            --all-containers=true \
+            --prefix=true \
+            --tail=200 || true
