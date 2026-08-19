@@ -1,23 +1,21 @@
 name: Backend image
 on:
+  # No paths filter, deliberately: every commit on main gets an image.
+  #
+  # A filter here has to predict which commits might later be deployed, and
+  # it cannot. Matching deploy-backend-staging.yml's paths covered pushes
+  # and still left every workflow_dispatch of a deploy able to land on a
+  # commit with no image - a tag that will never exist, because the build
+  # that would have made it already did not run. Twice this was diagnosed
+  # as something else, both times after ten minutes of polling.
+  #
+  # The cost is a build per commit, most of them producing a tag whose
+  # content is identical to the last. The layers come from the gha cache,
+  # so it is around a minute, and ecr.tf keeps only the 30 newest images.
+  # In exchange the invariant needs no maintenance: any commit on main can
+  # be deployed, and its image is already there.
   push:
     branches: [main]
-    # Must match deploy-backend-staging.yml's paths. Every commit that can
-    # trigger a deploy has to have an image, and ECR tags are immutable and
-    # keyed on the commit - so a release whose push built nothing asks for
-    # a tag that will never be pushed.
-    #
-    # The cost is a rebuild on a chart-only change, producing a second tag
-    # with identical content. That is cheap - the layers come from the gha
-    # cache - and ecr.tf's lifecycle policy prunes the extras. The
-    # alternative, having the deploy resolve some earlier tag, trades a
-    # loud failure for the quiet one: shipping code that is not this
-    # commit's.
-    paths:
-      - "backend/**"
-      - "helm/backend/**"
-      - ".github/workflows/backend-image.yml"
-      - ".github/workflows/deploy-backend-staging.yml"
   workflow_dispatch:
 
 env:

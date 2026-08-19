@@ -147,14 +147,21 @@ jobs:
           # type=sha,format=short is the first 7 characters). That workflow
           # runs concurrently with this one, so the tag may not exist yet.
           #
-          # This only holds because the two workflows fire on the SAME
-          # paths. They did not once: this one also ran on helm/backend/**,
-          # which produced releases whose commit had no image and never
-          # would, and a ten-minute wait for a tag nothing was building.
-          # Keep the `paths:` blocks in step.
+          # This holds because backend-image.yml runs on every push to
+          # main, with no paths filter - see its own header.
           tag="sha-${GITHUB_SHA:0:7}"
 
-          for attempt in $(seq 1 60); do
+          # On a push that build is running alongside this job, so waiting
+          # is the whole point. On a dispatch it ran when the commit
+          # landed, or it failed: either way the tag is not going to appear
+          # in the next ten minutes, and polling only delays the message.
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            attempts=60
+          else
+            attempts=1
+          fi
+
+          for attempt in $(seq 1 "${attempts}"); do
             if aws ecr batch-get-image \
                  --repository-name "${ECR_REPOSITORY}" \
                  --image-ids "imageTag=${tag}" \
@@ -164,10 +171,13 @@ jobs:
               break
             fi
 
-            if [[ "${attempt}" == "60" ]]; then
-              echo "ERROR: ${ECR_REPOSITORY}:${tag} never appeared." >&2
-              echo "       Check the 'Backend image' workflow for this commit;" >&2
-              echo "       it is gated on the ECR_ENABLED repository variable." >&2
+            if [[ "${attempt}" == "${attempts}" ]]; then
+              echo "ERROR: ${ECR_REPOSITORY}:${tag} does not exist." >&2
+              echo "       Every push to main builds one, so this commit's build failed or" >&2
+              echo "       was skipped - check the 'Backend image' workflow, which is gated" >&2
+              echo "       on the ECR_ENABLED repository variable." >&2
+              echo "       To retry a failed deploy of code that has not changed, re-run the" >&2
+              echo "       job rather than dispatching a new one: gh run rerun <id> --failed" >&2
               exit 1
             fi
 
