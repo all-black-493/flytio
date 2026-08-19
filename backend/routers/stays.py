@@ -17,7 +17,7 @@ the same way POST /booking/flight-orders does.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, status
+from fastapi import Depends, APIRouter, Path, status
 
 from backend.external_services.stay import DuffelAPIError, duffel_stay_service
 from backend.schemas.duffel_stays import (
@@ -27,6 +27,8 @@ from backend.schemas.duffel_stays import (
 )
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
+from backend.models.users import UserInDB
+from backend.utils.security import get_current_user
 
 router = APIRouter(prefix="/stays", tags=["Stays"])
 
@@ -74,7 +76,14 @@ async def create_stay_quote(request: StaysQuoteRequest):
 
 @router.post("/bookings", status_code=status.HTTP_201_CREATED)
 @guard_deco.rate_limit(requests=STAYS_IP_LIMIT, window=STAYS_WINDOW_SECONDS)
-async def create_stay_booking(request: StaysBookingCreate):
+async def create_stay_booking(
+    request: StaysBookingCreate,
+    # A booking spends flyt's own Duffel balance and creates a real
+    # reservation with a supplier. Search and quote stay public, as
+    # they do for flights - this is the step that costs money, and it
+    # is also what gives the reservation an owner to show it to later.
+    current_user: UserInDB = Depends(get_current_user),
+):
     """Step 4 of 4: finalizes the booking from a quote_id. NOT persisted
     anywhere in our own DB - see this module's docstring. The response is
     Duffel's own booking record; there is currently no way to look this

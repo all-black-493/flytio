@@ -5,8 +5,35 @@ sandbox connectivity assumed)."""
 
 import pytest
 
+from backend.utils.security import get_current_user
+
+from backend.models.users import UserInDB
+
+from backend.main import app
+
 from backend.external_services.stay import DuffelAPIError, duffel_stay_service
 from backend.schemas.duffel_stays import StaysSearchRequest
+
+
+@pytest.fixture
+def authed_client(api_client):
+    """A client whose requests carry an authenticated user.
+
+    get_current_user is overridden rather than a real token minted against
+    a real row: what these tests exercise is the Duffel pass-through, and
+    the authentication itself is covered where it belongs
+    (tests/test_account_management.py). The property that the endpoint
+    REQUIRES a user is asserted separately below, against the plain
+    client - overriding it here would otherwise hide exactly the gap this
+    dependency was added to close.
+    """
+    app.dependency_overrides[get_current_user] = lambda: UserInDB(
+        email="renter@example.com", password="hashed"
+    )
+    try:
+        yield api_client
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 def _search_payload(**overrides) -> dict:
@@ -106,7 +133,7 @@ def test_create_stay_quote_endpoint(api_client, monkeypatch):
     assert response.json() == fake_response
 
 
-def test_create_stay_booking_endpoint(api_client, monkeypatch):
+def test_create_stay_booking_endpoint(authed_client, monkeypatch):
     fake_response = {"data": {"id": "sbk_test123", "reference": "XYZ789"}}
 
     async def fake_create_booking(booking):
@@ -116,7 +143,7 @@ def test_create_stay_booking_endpoint(api_client, monkeypatch):
 
     monkeypatch.setattr(duffel_stay_service, "create_booking", fake_create_booking)
 
-    response = api_client.post(
+    response = authed_client.post(
         "/api/v1/stays/bookings",
         json={
             "quote_id": "stq_test123",
@@ -134,3 +161,29 @@ def test_create_stay_booking_endpoint(api_client, monkeypatch):
 
     assert response.status_code == 201
     assert response.json() == fake_response
+
+
+def test_create_stay_booking_requires_authentication(api_client, monkeypatch):
+    """The step that spends money needs an owner.
+
+    Search and quote are deliberately public, as they are for flights.
+    Booking is not: it draws on flyt's own Duffel balance and creates a
+    real reservation with a supplier.
+
+    The tripwire is the point. Asserting 401 alone passed even with the
+    dependency removed: the unmocked Duffel call was itself rejected for
+    a bad token and the error mapper turned that into a 401 - the right
+    status for the wrong reason. Failing if the supplier is reached at
+    all is what actually pins this open.
+    """
+
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError(
+            "reached Duffel with no authenticated user - the booking "
+            "endpoint is no longer gated"
+        )
+
+    monkeypatch.setattr(duffel_stay_service, "create_booking", must_not_be_called)
+
+    response = api_client.post("/api/v1/stays/bookings", json={})
+    assert response.status_code == 401
