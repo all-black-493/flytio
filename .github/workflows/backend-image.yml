@@ -2,9 +2,22 @@ name: Backend image
 on:
   push:
     branches: [main]
+    # Must match deploy-backend-staging.yml's paths. Every commit that can
+    # trigger a deploy has to have an image, and ECR tags are immutable and
+    # keyed on the commit - so a release whose push built nothing asks for
+    # a tag that will never be pushed.
+    #
+    # The cost is a rebuild on a chart-only change, producing a second tag
+    # with identical content. That is cheap - the layers come from the gha
+    # cache - and ecr.tf's lifecycle policy prunes the extras. The
+    # alternative, having the deploy resolve some earlier tag, trades a
+    # loud failure for the quiet one: shipping code that is not this
+    # commit's.
     paths:
       - "backend/**"
+      - "helm/backend/**"
       - ".github/workflows/backend-image.yml"
+      - ".github/workflows/deploy-backend-staging.yml"
   workflow_dispatch:
 
 env:

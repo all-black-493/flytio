@@ -146,6 +146,12 @@ jobs:
           # Same tag backend-image.yml publishes (docker/metadata-action's
           # type=sha,format=short is the first 7 characters). That workflow
           # runs concurrently with this one, so the tag may not exist yet.
+          #
+          # This only holds because the two workflows fire on the SAME
+          # paths. They did not once: this one also ran on helm/backend/**,
+          # which produced releases whose commit had no image and never
+          # would, and a ten-minute wait for a tag nothing was building.
+          # Keep the `paths:` blocks in step.
           tag="sha-${GITHUB_SHA:0:7}"
 
           for attempt in $(seq 1 60); do
