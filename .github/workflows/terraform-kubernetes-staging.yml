@@ -166,9 +166,30 @@ jobs:
         env:
           CERTIFICATE_ARN: ${{ steps.apply.outputs.certificate_arn }}
         run: |
-          state="$(aws acm describe-certificate \
+          # One call, both fields: FailureReason is the only thing that
+          # distinguishes "waiting for DNS" from "will never issue".
+          read -r state reason < <(aws acm describe-certificate \
             --certificate-arn "${CERTIFICATE_ARN}" \
-            --query 'Certificate.Status' --output text)"
+            --query 'Certificate.[Status,FailureReason]' --output text)
+          if [[ "${reason}" == "None" ]]; then
+            reason=""
+          fi
+
+          # To stdout as well as the summary. A summary renders in the
+          # browser and nowhere else, and this is the value that decides
+          # whether the ALB can ever come up - so it has to be greppable
+          # from the logs rather than only clickable.
+          echo "Certificate ${CERTIFICATE_ARN##*/}: ${state}${reason:+ (${reason})}"
+
+          case "${state}" in
+            ISSUED) ;;
+            FAILED)
+              echo "::error title=Certificate will not issue::ACM does not retry a failed issuance. Fix the cause, then re-run this workflow with operation=replace-certificate."
+              ;;
+            *)
+              echo "::warning title=Certificate not issued yet::The ALB cannot attach it until this reads ISSUED, so a deploy will fail on the Ingress."
+              ;;
+          esac
 
           {
             echo '### ACM certificate'
