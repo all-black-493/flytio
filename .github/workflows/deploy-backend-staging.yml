@@ -88,6 +88,20 @@ jobs:
           REDIS_PORT: "6379"
           REDIS_TLS: "false"
           CORS_ORIGINS: http://localhost:3000
+          # Defaults to true, and TestClient speaks plain HTTP - a Secure
+          # cookie is set but never sent back, so the OAuth state check
+          # fails and the callback bounces to ?error=google_auth_failed.
+          COOKIE_SECURE: "false"
+          # test_oauth.py asserts the login redirect actually points at
+          # accounts.google.com, so these need real endpoints rather than
+          # placeholders. The client id/secret only have to be non-empty:
+          # the token and userinfo calls are monkeypatched, so nothing
+          # here reaches Google.
+          GOOGLE_CLIENT_ID: ci-only-client-id
+          GOOGLE_CLIENT_SECRET: ci-only-client-secret
+          GOOGLE_AUTH_URL: https://accounts.google.com/o/oauth2/v2/auth
+          GOOGLE_TOKEN_URL: https://oauth2.googleapis.com/token
+          GOOGLE_USERINFO_URL: https://www.googleapis.com/oauth2/v2/userinfo
         run: backend/.venv/bin/pytest backend/tests
 
   deploy:
@@ -102,10 +116,6 @@ jobs:
 
     env:
       AWS_REGION: us-east-2
-      # Built by terraform/kubernetes-staging/github_actions.tf as
-      # "${project_name}-${environment}-github-deploy". The account id is
-      # not a secret - it appears in every ARN, and in helm/backend's
-      # default image.repository - but it does tie this to one account.
       AWS_STAGING_DEPLOY_ROLE_ARN: arn:aws:iam::379057358703:role/flyt-backend-staging-github-deploy
       EKS_CLUSTER_NAME: flyt-backend-staging
       ECR_REPOSITORY: flyt-backend
