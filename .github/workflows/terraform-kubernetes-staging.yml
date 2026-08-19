@@ -16,6 +16,7 @@ on:
         options:
           - plan
           - apply
+          - replace-certificate
           - destroy
   push:
     branches:
@@ -80,7 +81,7 @@ jobs:
       # sts:AssumeRoleWithWebIdentity", which reads as a broken role
       # rather than as the branch dropdown that actually caused it.
       - name: Require main for apply and destroy
-        if: inputs.operation == 'apply' || inputs.operation == 'destroy'
+        if: inputs.operation != '' && inputs.operation != 'plan'
         env:
           OPERATION: ${{ inputs.operation }}
         run: |
@@ -123,14 +124,30 @@ jobs:
       # `if:` on the two steps below to include `github.event_name ==
       # 'push'` to get apply-on-merge instead.
       - name: Plan staging infrastructure
-        if: inputs.operation != 'apply' && inputs.operation != 'destroy'
+        if: inputs.operation == '' || inputs.operation == 'plan'
         run: terraform -chdir="${TF_DIR}" plan -input=false -no-color
 
       - name: Apply staging infrastructure
         id: apply
-        if: inputs.operation == 'apply'
+        if: inputs.operation == 'apply' || inputs.operation == 'replace-certificate'
         run: |
-          terraform -chdir="${TF_DIR}" plan -input=false -out=tfplan
+          # ACM does not retry a failed issuance - a certificate that hit
+          # CAA_ERROR stays FAILED for good, and AWS's own answer is to
+          # request a new one. There is no way to do that from a plain
+          # apply, because nothing about the resource has changed, so
+          # replace-certificate forces the replacement.
+          #
+          # The new certificate carries a NEW validation record, which has
+          # to be added in Cloudflare like the first one - the summary step
+          # below prints it. Everything else is a normal apply, which
+          # matters: the ARN changes, so the cluster job has to republish
+          # the ConfigMap the deploy reads it from.
+          replace=()
+          if [[ "${{ inputs.operation }}" == "replace-certificate" ]]; then
+            replace=(-replace=aws_acm_certificate.api)
+          fi
+
+          terraform -chdir="${TF_DIR}" plan -input=false "${replace[@]}" -out=tfplan
           terraform -chdir="${TF_DIR}" apply -input=false -auto-approve tfplan
 
           {
@@ -145,7 +162,7 @@ jobs:
       # the run summary is the difference between a one-minute copy-paste
       # and going to hunt for it in the ACM console.
       - name: Report the certificate validation record
-        if: inputs.operation == 'apply'
+        if: inputs.operation == 'apply' || inputs.operation == 'replace-certificate'
         env:
           CERTIFICATE_ARN: ${{ steps.apply.outputs.certificate_arn }}
         run: |
