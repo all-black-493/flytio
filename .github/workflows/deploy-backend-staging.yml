@@ -292,6 +292,49 @@ jobs:
         # process whose database is unreachable.
         run: helm test "${HELM_RELEASE}" --namespace "${KUBERNETES_NAMESPACE}" --logs
 
+      - name: Report the public address
+        run: |
+          # Skipped rather than failed where the chart has no Ingress - the
+          # default everywhere but staging.
+          if ! kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+               get "ingress/${HELM_RELEASE}" >/dev/null 2>&1; then
+            echo "This release has no Ingress; nothing to report."
+            exit 0
+          fi
+
+          # helm returns as soon as the Ingress object is accepted. The ALB
+          # behind it is provisioned afterwards by the controller, and its
+          # address is empty until that finishes - a minute or two on a
+          # first release, immediate on an update.
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" wait \
+            --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
+            "ingress/${HELM_RELEASE}" --timeout=300s
+
+          address="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get "ingress/${HELM_RELEASE}" \
+            --output 'jsonpath={.status.loadBalancer.ingress[0].hostname}')"
+          host="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get "ingress/${HELM_RELEASE}" \
+            --output 'jsonpath={.spec.rules[0].host}')"
+
+          # To stdout as well as the summary: a step summary is readable in
+          # the browser and nowhere else - not in the logs, and not through
+          # the API - so anything only written there cannot be scripted
+          # against or quoted back in a terminal.
+          echo "ALB address: ${address}"
+          echo "Serving host: ${host}"
+
+          {
+            echo '### Public address'
+            echo
+            printf 'Point **%s** at the load balancer, DNS only (not proxied):\n\n' "${host}"
+            echo '```'
+            printf 'CNAME  %s  ->  %s\n' "${host%%.*}" "${address}"
+            echo '```'
+            echo
+            echo 'The address changes if the Ingress is deleted and recreated.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Diagnose a failed deployment
         if: failure()
         env:
