@@ -138,6 +138,34 @@ def get_token(
     return token
 
 
+def get_current_user_optional(
+    request: Request, session=Depends(get_session)
+) -> "UserInDB | None":
+    """Who is asking, if anyone - None when there is no valid credential,
+    instead of a 401.
+
+    For endpoints that serve everyone but do more for a signed-in user.
+    The concierge is the case this exists for: anyone may ask about
+    flights, only an account has bookings to look up.
+
+    Deliberately NOT a relaxed get_current_user. It reuses the strict one
+    and converts its refusal into None, so every rule that function
+    enforces - token purpose, deleted, banned, password-changed-since -
+    keeps applying. A hand-rolled "decode and shrug" version would drift
+    from those checks the first time one of them changed, and the drift
+    would be silent.
+    """
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return None
+    try:
+        return get_current_user(token=token, session=session)
+    except HTTPException:
+        # An expired or revoked cookie means "not signed in" here, not
+        # "error" - the caller has an anonymous path that works.
+        return None
+
+
 def get_current_user(token: str = Depends(get_token), session=Depends(get_session)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

@@ -3,11 +3,11 @@
 import { createChatClientOptions, fetchServerSentEvents } from "@tanstack/ai-client";
 import { useChat } from "@tanstack/ai-react";
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { meQuery } from "@/app/(app)/account/_lib/queries";
+import { ThinkingOrb, orbForTools } from "@/components/ui/thinking-orb";
 import {
   ConciergeBookingSummaryCard,
   ConciergeCancellationQuoteCard,
@@ -70,7 +70,11 @@ function summariseToolInput(tool: string, input: unknown): string | undefined {
  * worth surfacing) and "tool this widget has no card for yet" (not an
  * error - the model's own text reply still carries the content) -
  * KNOWN_CONCIERGE_TOOLS at the call site disambiguates the two. */
-function renderToolOutput(toolName: string, output: unknown): React.ReactNode {
+function renderToolOutput(
+  toolName: string,
+  output: unknown,
+  authed: boolean,
+): React.ReactNode {
   switch (toolName) {
     case "search_flights": {
       const parsed = conciergeFlightCardSchema.array().safeParse(output);
@@ -78,7 +82,7 @@ function renderToolOutput(toolName: string, output: unknown): React.ReactNode {
       return (
         <div className="space-y-2">
           {parsed.data.map((card) => (
-            <ConciergeFlightCard key={card.offer_id} offer={card} />
+            <ConciergeFlightCard key={card.offer_id} offer={card} authed={authed} />
           ))}
         </div>
       );
@@ -156,6 +160,18 @@ export function ConciergeWidget() {
         detail: summariseToolInput(p.name, p.input),
       }));
 
+  // Tool calls still in flight on the most recent message - the same
+  // events the run timeline reads, so the two can never disagree.
+  const activeTools = (() => {
+    const last = messages[messages.length - 1];
+    if (!last) return [] as string[];
+    return (last.parts as readonly { type: string }[])
+      .filter((p): p is ToolCallLike => p.type === "tool-call")
+      .filter((p) => p.state !== "complete" && p.state !== "error")
+      .map((p) => p.name);
+  })();
+  const orb = orbForTools(activeTools);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -182,29 +198,6 @@ export function ConciergeWidget() {
             </button>
           </div>
 
-          {!authed ? (
-            <div className="space-y-3 p-4">
-              <p className="text-sm text-muted-foreground">
-                Tell flyt where you want to go and it&apos;ll find real, bookable flights for you.
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {EXAMPLE_PROMPTS.map((prompt) => (
-                  <span
-                    key={prompt}
-                    className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground"
-                  >
-                    {prompt}
-                  </span>
-                ))}
-              </div>
-              <Link
-                href="/login"
-                className="block rounded-lg bg-signal px-3 py-2 text-center text-sm font-semibold text-white hover:bg-signal/90"
-              >
-                Sign in to chat with the concierge
-              </Link>
-            </div>
-          ) : (
             <>
               <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
                 {messages.length === 0 && (
@@ -266,7 +259,7 @@ export function ConciergeWidget() {
                       if (part.type === "tool-call") {
                         const tool = part as unknown as ToolCallLike;
                         if (tool.state === "complete") {
-                          const rendered = renderToolOutput(tool.name, tool.output);
+                          const rendered = renderToolOutput(tool.name, tool.output, authed);
                           if (rendered !== null) return <div key={index}>{rendered}</div>;
                           if (!KNOWN_CONCIERGE_TOOLS.has(tool.name)) return null;
                           return (
@@ -281,9 +274,7 @@ export function ConciergeWidget() {
                     })}
                   </div>
                 ))}
-                {isLoading && (
-                  <p className="font-mono text-[11px] text-muted-foreground">Thinking…</p>
-                )}
+                {isLoading && <ThinkingOrb state={orb.state} label={orb.label} />}
                 {error && (
                   <div className="space-y-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
                     <p className="text-xs text-destructive">
@@ -317,7 +308,6 @@ export function ConciergeWidget() {
                 </Button>
               </form>
             </>
-          )}
         </Card>
       )}
 

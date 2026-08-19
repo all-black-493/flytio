@@ -1,32 +1,13 @@
 name: Backend image
-
-# Builds and publishes the backend container to GitHub Container Registry.
-#
-# The registry path in helm/backend/values.yaml does not exist until this
-# runs once: GHCR creates a package on first push, there is nothing to set
-# up in advance.
-#
-# This also takes the build off the EC2 host. Today's deploy runs
-# `docker compose up --build` there, so every deploy costs an outage for
-# the length of a build on a 1GB box. A cluster pulls a finished image
-# instead, and the build happens on a runner that is not serving traffic.
-
 on:
   push:
     branches: [main]
-    # Only when something that lands in the image changes. The chart and
-    # the workflows do not.
     paths:
       - "backend/**"
       - ".github/workflows/backend-image.yml"
   workflow_dispatch:
 
 env:
-  # ECR, not GHCR. The EKS node role provisioned in
-  # terraform/kubernetes-staging already carries
-  # AmazonEC2ContainerRegistryPullOnly, so pods pull with no registry
-  # credential in the cluster at all - no imagePullSecret to create, rotate
-  # or forget in a new namespace.
   AWS_REGION: us-east-2
   ECR_REPOSITORY: flyt-backend
 
@@ -34,14 +15,10 @@ jobs:
   build:
     name: Build and push
     runs-on: ubuntu-latest
-    # Skips cleanly until terraform/kubernetes-staging has been applied and
-    # the role exists. Without this, every push to backend/** would fail
-    # red on an ECR that is not there yet - a broken build that means
-    # nothing, which is the fastest way to teach people to ignore builds.
     if: ${{ vars.ECR_ENABLED == 'true' }}
+    
     permissions:
       contents: read
-      # OIDC, so there is no long-lived AWS key stored in GitHub.
       id-token: write
     steps:
       - name: Checkout
@@ -66,13 +43,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
-          # sha- only. The ECR repository is created with
-          # image_tag_mutability = "IMMUTABLE", so a tag can never be
-          # reassigned - pushing `latest` a second time is rejected outright
-          # and the build fails. That is the right setting to keep: an
-          # immutable tag means `kubectl describe` tells you exactly what is
-          # running, and a rollback is naming an earlier tag rather than
-          # hoping a moving one still points where you think.
           tags: |
             type=sha,prefix=sha-,format=short
 
@@ -82,9 +52,6 @@ jobs:
           context: ./backend
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          # Links the package to this repository, so GHCR shows the source
-          # and inherits its visibility instead of defaulting to private
-          # and failing an anonymous pull with an unhelpful 403.
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

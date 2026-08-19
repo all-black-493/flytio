@@ -31,14 +31,14 @@ export const metadata: Metadata = {
   // canonical host is www: the apex 308-redirects here, so the www form
   // is what people actually share.
   metadataBase: new URL("https://www.flyt.africa"),
-  title: "flyt — flight booking in full flow",
+  title: "flyt — travel booking in full flow",
   description:
-    "Search, book, and manage flights for yourself or your whole business. flyt is Norwegian for flow — and that's how booking should feel.",
+    "Search, book and manage flights in one place - every airline, with the exact fare locked before you pay. flyt is Norwegian for flow.",
   openGraph: {
     type: "website",
     siteName: "flyt",
     url: "/",
-    title: "flyt — flight booking in full flow",
+    title: "flyt — travel booking in full flow",
     // Deliberately shorter than the SEO description above: chat clients
     // hard-truncate, and the full sentence was being cut mid-word.
     description: "Every airline, one search. The exact fare, locked before you pay.",
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   // rather than falling back to a small thumbnail.
   twitter: {
     card: "summary_large_image",
-    title: "flyt — flight booking in full flow",
+    title: "flyt — travel booking in full flow",
     description: "Every airline, one search. The exact fare, locked before you pay.",
   },
 };

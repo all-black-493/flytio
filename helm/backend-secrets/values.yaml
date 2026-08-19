@@ -27,11 +27,14 @@
 
 # --- Doppler source ---------------------------------------------------
 doppler:
-  # Which Doppler config to read. Both are required by the operator; there
-  # is no default, because guessing at someone's project layout is how you
-  # sync staging credentials into production.
-  project: flyt
-  config: prd
+  # Verified against the account, not guessed: the project is `backend`
+  # (not `flyt`), and its configs are dev, dev_personal, stg and prd.
+  #
+  # Defaults to stg, because this chart is for the Kubernetes staging
+  # cluster. Pointing it at prd would sync the EC2 deployment's secrets -
+  # including REDIS_TLS=false, which is correct there and wrong here.
+  project: backend
+  config: stg
 
   # How often the operator re-reads Doppler. The CRD's own default is 60s.
   # Left at that: a rotation should take effect in about a minute, and the
@@ -56,7 +59,7 @@ doppler:
 #
 #   kubectl create secret generic doppler-token-secret \
 #     --namespace flyt \
-#     --from-literal=serviceToken=dp.st.prd.xxxxx
+#     --from-literal=serviceToken=dp.st.stg.xxxxx
 #
 # Use a SERVICE token (dp.st....), scoped read-only to one project+config.
 # A personal token would give the cluster your entire Doppler account.

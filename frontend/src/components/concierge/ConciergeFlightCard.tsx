@@ -12,7 +12,13 @@ import type { ConciergeFlightCard as ConciergeFlightCardData } from "@/lib/api/s
  * them; booking itself happens on the existing /booking/[offerId] flow,
  * not in the concierge - it only ever hands off to a real, bookable
  * offer. */
-export function ConciergeFlightCard({ offer }: { offer: ConciergeFlightCardData }) {
+export function ConciergeFlightCard({
+  offer,
+  authed,
+}: {
+  offer: ConciergeFlightCardData;
+  authed: boolean;
+}) {
   return (
     <Card className="gap-2 p-3">
       <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
@@ -49,11 +55,19 @@ export function ConciergeFlightCard({ offer }: { offer: ConciergeFlightCardData 
         <span className="text-base font-bold tabular-nums">
           {formatMoney(offer.total_amount, offer.total_currency)}
         </span>
+        {/* The concierge answers for anyone; acting on an answer needs an
+            account. Signed out, this routes through login and comes back to
+            the same offer via ?next - losing the flight you just found is a
+            worse experience than the sign-in itself. */}
         <Link
-          href={`/booking/${offer.offer_id}`}
+          href={
+            authed
+              ? `/booking/${offer.offer_id}`
+              : `/login?next=${encodeURIComponent(`/booking/${offer.offer_id}`)}`
+          }
           className="font-mono text-[11px] tracking-wide text-signal hover:underline"
         >
-          View &amp; book →
+          {authed ? "View & book →" : "Sign in to book →"}
         </Link>
       </div>
     </Card>

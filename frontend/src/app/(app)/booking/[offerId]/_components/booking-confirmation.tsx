@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 
+import { BookingCelebration } from "@/app/(app)/booking/[offerId]/_components/booking-celebration";
 import { AirlineLogo } from "@/components/AirlineLogo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +18,7 @@ export function BookingConfirmation({ booking }: { booking: BookingPublic }) {
 
   return (
     <Card className="w-full max-w-md gap-0 overflow-hidden py-0 shadow-xl">
+      <BookingCelebration />
       <div className="flex items-center justify-between bg-board px-6 py-3">
         <span className="font-mono text-[11px] tracking-[0.25em] text-board-muted">
           BOOKING CONFIRMED

@@ -1,0 +1,301 @@
+name: Deploy Backend to EKS Staging
+
+# Tests, then a Helm release onto the staging cluster.
+#
+# It does NOT build the image: backend-image.yml already builds and pushes
+# `sha-<short>` on the same trigger, and ECR is created with IMMUTABLE
+# tags, so a second workflow pushing the same tag fails outright. This one
+# waits for that tag to appear instead - which also means a deploy can
+# never run against an image that was never published.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "helm/backend/**"
+      - ".github/workflows/deploy-backend-staging.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: backend-staging
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test backend
+    if: github.repository == 'all-black-493/flytio'
+    runs-on: ubuntu-latest
+
+    # Redis only. The suite overrides the session dependency and runs
+    # against in-memory SQLite, so DATABASE_URL never has to resolve - but
+    # fastapi-guard opens its Redis connection during app startup, and
+    # without one every request through the shared TestClient answers 500.
+    services:
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Run backend tests
+        # Scoped to this step rather than the workflow, so throwaway
+        # credentials cannot reach the deploy job. Every name here exists
+        # in backend/config.py - the 11 without a default are what would
+        # otherwise fail pydantic validation at import.
+        #
+        # GUARD_API_KEY is deliberately absent: setting it switches on
+        # fastapi-guard's hosted agent (utils/guard.py), which would have
+        # CI reporting traffic to api.guard-core.com under a fake key.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5999/unused
+          SECRET_KEY: ci-only-secret-key
+          ALGORITHM: HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+          AUTO_BAN_THRESHOLD: "10"
+          AUTO_BAN_DURATION: "3600"
+          DUFFEL_API_TOKEN: ci-only-duffel-token
+          RESEND_API_KEY: ci-only-resend-key
+          MAIL_DOMAIN: example.com
+          PESAPAL_CONSUMER_KEY: ci-only-consumer-key
+          PESAPAL_CONSUMER_SECRET: ci-only-consumer-secret
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "6379"
+          REDIS_TLS: "false"
+          CORS_ORIGINS: http://localhost:3000
+          # Defaults to true, and TestClient speaks plain HTTP - a Secure
+          # cookie is set but never sent back, so the OAuth state check
+          # fails and the callback bounces to ?error=google_auth_failed.
+          COOKIE_SECURE: "false"
+          # test_oauth.py asserts the login redirect actually points at
+          # accounts.google.com, so these need real endpoints rather than
+          # placeholders. The client id/secret only have to be non-empty:
+          # the token and userinfo calls are monkeypatched, so nothing
+          # here reaches Google.
+          GOOGLE_CLIENT_ID: ci-only-client-id
+          GOOGLE_CLIENT_SECRET: ci-only-client-secret
+          GOOGLE_AUTH_URL: https://accounts.google.com/o/oauth2/v2/auth
+          GOOGLE_TOKEN_URL: https://oauth2.googleapis.com/token
+          GOOGLE_USERINFO_URL: https://www.googleapis.com/oauth2/v2/userinfo
+        run: backend/.venv/bin/pytest backend/tests
+
+  deploy:
+    name: Deploy to staging
+    needs: test
+    # Off until the cluster exists. terraform-kubernetes-staging.yml only
+    # applies on a deliberate workflow_dispatch, so without this gate every
+    # merge would go red at `aws eks update-kubeconfig`.
+    if: vars.EKS_STAGING_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+
+    env:
+      AWS_REGION: us-east-2
+      AWS_STAGING_DEPLOY_ROLE_ARN: arn:aws:iam::379057358703:role/flyt-backend-staging-github-deploy
+      EKS_CLUSTER_NAME: flyt-backend-staging
+      ECR_REPOSITORY: flyt-backend
+      KUBERNETES_NAMESPACE: flyt-staging
+      INFRASTRUCTURE_CONFIG_MAP: backend-infrastructure
+      HELM_RELEASE: flyt-backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure staging AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_STAGING_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-eks-staging-deploy
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Await the backend image
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          # Same tag backend-image.yml publishes (docker/metadata-action's
+          # type=sha,format=short is the first 7 characters). That workflow
+          # runs concurrently with this one, so the tag may not exist yet.
+          tag="sha-${GITHUB_SHA:0:7}"
+
+          for attempt in $(seq 1 60); do
+            if aws ecr batch-get-image \
+                 --repository-name "${ECR_REPOSITORY}" \
+                 --image-ids "imageTag=${tag}" \
+                 --query 'length(images)' \
+                 --output text 2>/dev/null | grep -qx 1; then
+              echo "Found ${ECR_REPOSITORY}:${tag} after ${attempt} attempt(s)"
+              break
+            fi
+
+            if [[ "${attempt}" == "60" ]]; then
+              echo "ERROR: ${ECR_REPOSITORY}:${tag} never appeared." >&2
+              echo "       Check the 'Backend image' workflow for this commit;" >&2
+              echo "       it is gated on the ECR_ENABLED repository variable." >&2
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          {
+            echo "repository=${ECR_REGISTRY}/${ECR_REPOSITORY}"
+            echo "tag=${tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Configure staging kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "${AWS_REGION}" \
+            --name "${EKS_CLUSTER_NAME}"
+
+      - name: Resolve staging infrastructure configuration
+        id: infrastructure
+        run: |
+          # Published by terraform-kubernetes-staging.yml. helm/backend's
+          # default redis.host is the in-cluster `redis-master` Service,
+          # which does not exist here - the chart's values-staging.yaml
+          # leaves it unset precisely because only Terraform knows the
+          # ElastiCache endpoint.
+          redis_host="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get "configmap/${INFRASTRUCTURE_CONFIG_MAP}" \
+            --output "jsonpath={.data.REDIS_HOST}")"
+
+          if [[ -z "${redis_host}" ]]; then
+            echo "ERROR: ${INFRASTRUCTURE_CONFIG_MAP} carries no REDIS_HOST." >&2
+            echo "       Run terraform-kubernetes-staging.yml with operation=apply." >&2
+            exit 1
+          fi
+
+          echo "redis_host=${redis_host}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify the Doppler-managed secret
+        run: |
+          # helm/backend's `existingSecret`. Its absence would surface as
+          # every pod CrashLoopBackOff-ing on pydantic validation, which
+          # reads like an application bug rather than missing plumbing.
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" wait \
+            --for=create secret/flyt-backend-secrets \
+            --timeout=120s
+
+      - name: Validate the backend Helm chart
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          REDIS_HOST: ${{ steps.infrastructure.outputs.redis_host }}
+        run: |
+          helm lint helm/backend --strict \
+            -f helm/backend/values-staging.yaml \
+            --set-string "image.repository=${IMAGE_REPOSITORY}" \
+            --set-string "image.tag=${IMAGE_TAG}" \
+            --set-string "redis.host=${REDIS_HOST}"
+
+          helm template "${HELM_RELEASE}" helm/backend \
+            --namespace "${KUBERNETES_NAMESPACE}" \
+            -f helm/backend/values-staging.yaml \
+            --set-string "image.repository=${IMAGE_REPOSITORY}" \
+            --set-string "image.tag=${IMAGE_TAG}" \
+            --set-string "redis.host=${REDIS_HOST}" >/dev/null
+
+      - name: Deploy the backend with Helm
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          REDIS_HOST: ${{ steps.infrastructure.outputs.redis_host }}
+        run: |
+          # --wait-for-jobs covers the pre-upgrade migration hook, which
+          # gates the rollout: a failed schema change leaves the previous
+          # version serving rather than rolling out code it cannot support.
+          helm upgrade --install "${HELM_RELEASE}" helm/backend \
+            --namespace "${KUBERNETES_NAMESPACE}" \
+            -f helm/backend/values-staging.yaml \
+            --set-string "image.repository=${IMAGE_REPOSITORY}" \
+            --set-string "image.tag=${IMAGE_TAG}" \
+            --set-string "redis.host=${REDIS_HOST}" \
+            --reset-values \
+            --wait \
+            --wait-for-jobs \
+            --timeout 10m
+
+      - name: Verify the rollout
+        run: |
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" rollout status \
+            "deployment/${HELM_RELEASE}-api" --timeout=180s
+
+      - name: Smoke test the release
+        # The chart's own test Pod: it curls /health/ready THROUGH the
+        # Service, so it proves routing and readiness together. Readiness
+        # rather than liveness, because /health/live answers 200 from a
+        # process whose database is unreachable.
+        run: helm test "${HELM_RELEASE}" --namespace "${KUBERNETES_NAMESPACE}" --logs
+
+      - name: Diagnose a failed deployment
+        if: failure()
+        env:
+          SELECTOR: app.kubernetes.io/instance=${{ env.HELM_RELEASE }}
+        run: |
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get deployments,pods --output wide || true
+
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            describe "deployment/${HELM_RELEASE}-api" || true
+
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            describe pods --selector "${SELECTOR}" || true
+
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" logs \
+            --selector "${SELECTOR}" \
+            --all-containers=true \
+            --prefix=true \
+            --tail=200 \
+            --max-log-requests=10 || true
+
+          # hook-delete-policy keeps a FAILED migration Job (and only a
+          # failed one), so this is where a blocked schema change shows up.
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            describe "job/${HELM_RELEASE}-migrate" || true
+
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" logs \
+            --selector "job-name=${HELM_RELEASE}-migrate" \
+            --all-containers=true \
+            --prefix=true \
+            --tail=-1 || true
+
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get events --sort-by=.lastTimestamp || true
