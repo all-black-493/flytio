@@ -306,9 +306,28 @@ jobs:
           # behind it is provisioned afterwards by the controller, and its
           # address is empty until that finishes - a minute or two on a
           # first release, immediate on an update.
-          kubectl --namespace "${KUBERNETES_NAMESPACE}" wait \
-            --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
-            "ingress/${HELM_RELEASE}" --timeout=300s
+          if ! kubectl --namespace "${KUBERNETES_NAMESPACE}" wait \
+               --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
+               "ingress/${HELM_RELEASE}" --timeout=300s; then
+            # kubectl only reports that the condition never came true. Why
+            # it did not is in the controller's events, and nowhere else.
+            echo "::error title=No load balancer::The Ingress never received an address."
+            kubectl --namespace "${KUBERNETES_NAMESPACE}" get events \
+              --field-selector "involvedObject.kind=Ingress,involvedObject.name=${HELM_RELEASE}" \
+              --sort-by=.lastTimestamp || true
+
+            echo
+            echo "UnsupportedCertificate above does not mean the certificate is malformed."
+            echo "It is what ELB returns for a certificate that is not ISSUED, which almost"
+            echo "always means its DNS validation record is missing - flyt.africa is on"
+            echo "Cloudflare, so nothing in AWS can add that record. Take the CNAME from the"
+            echo "infrastructure workflow's summary, add it DNS-only, wait for the"
+            echo "certificate to reach ISSUED, and re-run this job."
+            echo
+            echo "The application itself is already released - the rollout and smoke test"
+            echo "above passed. What is missing is only the public address."
+            exit 1
+          fi
 
           address="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
             get "ingress/${HELM_RELEASE}" \
