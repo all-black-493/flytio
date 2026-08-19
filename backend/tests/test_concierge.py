@@ -213,9 +213,38 @@ def test_build_agent_constructs_when_api_key_set(monkeypatch):
     assert _build_agent() is not None
 
 
-def test_chat_rejects_unauthenticated(db_client):
+def test_chat_is_open_to_signed_out_visitors(db_client, monkeypatch):
+    """Anyone can ask the concierge about flights.
+
+    The question a first-time visitor has - "what does NBO to DXB cost?" -
+    is exactly the one a login wall would block, so this endpoint takes no
+    credential. What signing in unlocks is acting on an answer, which the
+    booking tools enforce themselves (see below).
+    """
+    monkeypatch.setattr(concierge_service, "concierge_agent", None)
     response = db_client.post("/api/v1/concierge/chat", json={"messages": []})
-    assert response.status_code == 401
+    # 503 because no agent is configured in tests - the point is that it is
+    # NOT 401: the request got past auth.
+    assert response.status_code == 503
+
+
+def test_booking_tools_refuse_without_an_account():
+    """The other half of the bargain: search is open, acting is not.
+
+    _require_user raises ModelRetry rather than an exception that would end
+    the run, so the agent relays "sign in to do this" as an answer instead
+    of the whole reply failing.
+    """
+    from pydantic_ai import ModelRetry
+
+    with pytest.raises(ModelRetry) as excinfo:
+        concierge_service._require_user(None)
+    assert "sign in" in str(excinfo.value).lower()
+
+
+def test_require_user_passes_a_real_user_through(session):
+    user = _make_user(session)
+    assert concierge_service._require_user(user) is user
 
 
 def test_chat_returns_503_when_unconfigured(session, db_client, monkeypatch):

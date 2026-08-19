@@ -86,7 +86,9 @@ reference code:
 
 @dataclass
 class ConciergeDeps:
-    user: UserInDB
+    # None for a signed-out visitor. Flight search works for everyone; the
+    # booking tools below need an account, and say so rather than failing.
+    user: UserInDB | None
 
 
 def _build_agent() -> Agent[ConciergeDeps, str] | None:
@@ -127,6 +129,25 @@ def _offer_to_card(offer: Offer) -> FlightCard:
         total_amount=offer.total_amount,
         total_currency=offer.total_currency,
     )
+
+
+SIGN_IN_REQUIRED = (
+    "That needs a signed-in account. Ask the traveler to sign in at "
+    "/login, then try again - flight search works either way."
+)
+
+
+def _require_user(user: "UserInDB | None") -> UserInDB:
+    """Every booking tool starts here.
+
+    Raises ModelRetry rather than an exception the run would die on: the
+    agent reads the message and tells the traveler to sign in, which is a
+    useful answer. A crash would surface as "the concierge isn't
+    available", which is both wrong and unhelpful.
+    """
+    if user is None:
+        raise ModelRetry(SIGN_IN_REQUIRED)
+    return user
 
 
 def _get_owned_booking_or_retry(
@@ -203,7 +224,7 @@ if concierge_agent is not None:
         (e.g. ABC123)."""
         with Session(engine) as session:
             booking = _get_owned_booking_or_retry(
-                session, booking_reference, ctx.deps.user
+                session, booking_reference, _require_user(ctx.deps.user)
             )
             first_slice = booking.slices[0]
             return BookingSummary(
@@ -226,7 +247,7 @@ if concierge_agent is not None:
         confirm_cancellation."""
         with Session(engine) as session:
             booking = _get_owned_booking_or_retry(
-                session, booking_reference, ctx.deps.user
+                session, booking_reference, _require_user(ctx.deps.user)
             )
             if booking.status == BookingStatus.CANCELLED:
                 raise ModelRetry(f"Booking {booking_reference} is already cancelled.")
@@ -258,7 +279,7 @@ if concierge_agent is not None:
         irreversible and triggers a real refund."""
         with Session(engine) as session:
             booking = _get_owned_booking_or_retry(
-                session, booking_reference, ctx.deps.user
+                session, booking_reference, _require_user(ctx.deps.user)
             )
             if booking.status == BookingStatus.CANCELLED:
                 raise ModelRetry(f"Booking {booking_reference} is already cancelled.")
@@ -277,7 +298,7 @@ if concierge_agent is not None:
         quote = OrderCancellationQuote.model_validate(response["data"])
         with Session(engine) as session:
             booking = _get_owned_booking_or_retry(
-                session, booking_reference, ctx.deps.user
+                session, booking_reference, _require_user(ctx.deps.user)
             )
             mark_booking_cancelled(session, booking)
             # Same event the REST cancellation path publishes
@@ -288,7 +309,7 @@ if concierge_agent is not None:
                 KafkaTopics.BOOKING_EVENTS,
                 KafkaEventTypes.BOOKING_CANCELLED,
                 {
-                    "user_id": ctx.deps.user.id,
+                    "user_id": _require_user(ctx.deps.user).id,
                     "booking_id": booking.id,
                     "booking_reference": booking.booking_reference,
                     "duffel_refund_amount": quote.refund_amount,
@@ -321,7 +342,7 @@ if concierge_agent is not None:
         contact support."""
         with Session(engine) as session:
             booking = _get_owned_booking_or_retry(
-                session, booking_reference, ctx.deps.user
+                session, booking_reference, _require_user(ctx.deps.user)
             )
             matching_slice = next(
                 (
