@@ -44,6 +44,11 @@ env:
   AWS_REGION: us-east-2
   TF_IN_AUTOMATION: "true"
   TF_DIR: terraform/kubernetes-staging
+  # Created by terraform/kubernetes-staging/github_actions.tf. Read-only,
+  # and trusted for the pull_request subject that AWS_ROLE_TO_ASSUME is
+  # deliberately not - a PR run executes the PR's own copy of this file,
+  # so it must not reach a role that can create infrastructure.
+  AWS_PLAN_ROLE_ARN: arn:aws:iam::379057358703:role/flyt-backend-staging-github-plan
 
 jobs:
   terraform:
@@ -93,7 +98,7 @@ jobs:
       - name: Configure infrastructure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ github.event_name == 'pull_request' && env.AWS_PLAN_ROLE_ARN || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: github-actions-eks-staging-terraform
 

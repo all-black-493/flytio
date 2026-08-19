@@ -17,3 +17,8 @@ output "github_actions_deploy_role_arn" {
   description = "Role assumed by the staging deployment workflow."
   value       = aws_iam_role.github_actions_deploy.arn
 }
+
+output "github_actions_plan_role_arn" {
+  description = "Read-only role assumed by pull_request plan runs."
+  value       = aws_iam_role.github_actions_plan.arn
+}
