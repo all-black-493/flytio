@@ -45,6 +45,8 @@ env:
   AWS_REGION: us-east-2
   TF_IN_AUTOMATION: "true"
   TF_DIR: terraform/kubernetes-staging
+  EKS_CLUSTER_NAME: flyt-backend-staging
+  KUBERNETES_NAMESPACE: flyt-staging
   # Created by terraform/kubernetes-staging/github_actions.tf. Read-only,
   # and trusted for the pull_request subject that AWS_ROLE_TO_ASSUME is
   # deliberately not - a PR run executes the PR's own copy of this file,
@@ -208,6 +210,36 @@ jobs:
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      # Before Terraform, and this is the whole reason it exists: the ALB
+      # is created by the in-cluster controller, not by Terraform. It is
+      # not in state, so `terraform destroy` does not touch it - deleting
+      # the cluster simply orphans it, along with its target groups and
+      # security groups, and an orphaned load balancer keeps billing with
+      # nothing left that manages it. Which rather defeats destroying the
+      # stack to stop paying for it.
+      #
+      # Deleting the Ingress is what releases it. The controller puts a
+      # finalizer on the object, so the delete blocks until the AWS
+      # resources are actually gone - no polling needed here.
+      - name: Set up kubectl
+        if: inputs.operation == 'destroy'
+        uses: azure/setup-kubectl@v5
+
+      - name: Release the load balancer
+        if: inputs.operation == 'destroy'
+        run: |
+          if ! aws eks describe-cluster --name "${EKS_CLUSTER_NAME}" >/dev/null 2>&1; then
+            echo "No cluster, so no Ingress and no load balancer to release."
+            exit 0
+          fi
+
+          aws eks update-kubeconfig \
+            --region "${AWS_REGION}" --name "${EKS_CLUSTER_NAME}"
+
+          echo "Deleting Ingresses; this blocks until the ALB is gone."
+          kubectl --namespace "${KUBERNETES_NAMESPACE}" delete ingress --all \
+            --ignore-not-found --timeout=10m
+
       - name: Destroy staging infrastructure
         if: inputs.operation == 'destroy'
         run: terraform -chdir="${TF_DIR}" destroy -input=false -auto-approve
@@ -219,8 +251,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      EKS_CLUSTER_NAME: flyt-backend-staging
-      KUBERNETES_NAMESPACE: flyt-staging
       INFRASTRUCTURE_CONFIG_MAP: backend-infrastructure
       DOPPLER_OPERATOR_NAMESPACE: doppler-operator-system
       DOPPLER_OPERATOR_VERSION: 1.7.1
