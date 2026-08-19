@@ -7,7 +7,7 @@ import { Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { meQuery } from "@/app/(app)/account/_lib/queries";
-import { ThinkingDots } from "@/components/ui/thinking-dots";
+import { ThinkingOrb, orbForTools } from "@/components/ui/thinking-orb";
 import {
   ConciergeBookingSummaryCard,
   ConciergeCancellationQuoteCard,
@@ -160,6 +160,18 @@ export function ConciergeWidget() {
         detail: summariseToolInput(p.name, p.input),
       }));
 
+  // Tool calls still in flight on the most recent message - the same
+  // events the run timeline reads, so the two can never disagree.
+  const activeTools = (() => {
+    const last = messages[messages.length - 1];
+    if (!last) return [] as string[];
+    return (last.parts as readonly { type: string }[])
+      .filter((p): p is ToolCallLike => p.type === "tool-call")
+      .filter((p) => p.state !== "complete" && p.state !== "error")
+      .map((p) => p.name);
+  })();
+  const orb = orbForTools(activeTools);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -262,7 +274,7 @@ export function ConciergeWidget() {
                     })}
                   </div>
                 ))}
-                {isLoading && <ThinkingDots />}
+                {isLoading && <ThinkingOrb state={orb.state} label={orb.label} />}
                 {error && (
                   <div className="space-y-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
                     <p className="text-xs text-destructive">

@@ -1,7 +1,8 @@
-import { PageLoading } from "@/components/ui/page-loading";
+import { FlightPathLoading } from "@/components/ui/flight-path-loading";
 
-/** Streamed in by Next while this segment's server component resolves.
- *  See components/ui/page-loading.tsx for why it is a skeleton. */
+/** Shown while the offer is re-priced with the airline. Not the shared
+ *  skeleton: see components/ui/flight-path-loading.tsx for why this wait
+ *  gets its own figure. */
 export default function Loading() {
-  return <PageLoading label="BOOKING" />;
+  return <FlightPathLoading />;
 }
