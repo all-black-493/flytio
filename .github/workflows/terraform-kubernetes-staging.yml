@@ -64,6 +64,29 @@ jobs:
       redis_host: ${{ steps.apply.outputs.redis_host }}
 
     steps:
+      # Before checkout or credentials, so the mistake costs seconds.
+      # The role's trust policy accepts refs/heads/main and
+      # environment:staging and nothing else, deliberately - there is no
+      # wildcard on the ref. Dispatching an apply from another branch
+      # therefore spends two minutes in configure-aws-credentials' twelve
+      # OIDC retries and then fails with "Not authorized to perform
+      # sts:AssumeRoleWithWebIdentity", which reads as a broken role
+      # rather than as the branch dropdown that actually caused it.
+      - name: Require main for apply and destroy
+        if: inputs.operation == 'apply' || inputs.operation == 'destroy'
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            exit 0
+          fi
+
+          echo "::error title=Dispatch this from main::operation=${OPERATION} was dispatched from ${GITHUB_REF_NAME}, but the AWS role trusts only refs/heads/main - this run cannot authenticate."
+          echo "Re-run it against main:"
+          echo "  gh workflow run \"Provision EKS Staging Infrastructure\" --ref main -f operation=${OPERATION}"
+          echo "Applying from another branch would also apply that branch's Terraform, not main's."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
