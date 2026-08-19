@@ -48,3 +48,9 @@ variable "kubernetes_namespace" {
   type        = string
   default     = "flyt-staging"
 }
+
+variable "api_hostname" {
+  description = "Public hostname the staging ALB serves. Must match the Ingress host in helm/backend/values-staging.yaml."
+  type        = string
+  default     = "api-staging.flyt.africa"
+}

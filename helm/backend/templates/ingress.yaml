@@ -5,9 +5,18 @@ metadata:
   name: {{ include "backend.fullname" . }}
   labels:
     {{- include "backend.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- if or .Values.ingress.annotations .Values.ingress.certificateArn }}
   annotations:
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.ingress.certificateArn }}
+    # A first-class value rather than one more entry in `annotations`,
+    # because this is the only part of the ALB configuration that is not
+    # known until `terraform apply` has run - so it arrives via --set, and
+    # --set on a key containing dots needs every one of them escaped.
+    alb.ingress.kubernetes.io/certificate-arn: {{ . | quote }}
+    {{- end }}
   {{- end }}
 spec:
   {{- with .Values.ingress.className }}

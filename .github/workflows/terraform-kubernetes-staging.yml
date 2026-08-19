@@ -67,6 +67,8 @@ jobs:
       # Terraform state themselves.
       applied: ${{ steps.apply.outputs.applied }}
       redis_host: ${{ steps.apply.outputs.redis_host }}
+      certificate_arn: ${{ steps.apply.outputs.certificate_arn }}
+      vpc_cidr: ${{ steps.apply.outputs.vpc_cidr }}
 
     steps:
       # Before checkout or credentials, so the mistake costs seconds.
@@ -134,7 +136,39 @@ jobs:
           {
             echo "applied=true"
             echo "redis_host=$(terraform -chdir="${TF_DIR}" output -raw redis_primary_endpoint)"
+            echo "certificate_arn=$(terraform -chdir="${TF_DIR}" output -raw acm_certificate_arn)"
+            echo "vpc_cidr=$(terraform -chdir="${TF_DIR}" output -raw vpc_cidr_block)"
           } >> "${GITHUB_OUTPUT}"
+
+      # flyt.africa is on Cloudflare, not Route 53, so nothing here can
+      # complete the certificate's DNS validation. Printing the record into
+      # the run summary is the difference between a one-minute copy-paste
+      # and going to hunt for it in the ACM console.
+      - name: Report the certificate validation record
+        if: inputs.operation == 'apply'
+        env:
+          CERTIFICATE_ARN: ${{ steps.apply.outputs.certificate_arn }}
+        run: |
+          state="$(aws acm describe-certificate \
+            --certificate-arn "${CERTIFICATE_ARN}" \
+            --query 'Certificate.Status' --output text)"
+
+          {
+            echo '### ACM certificate'
+            echo
+            printf '**Status:** %s\n\n' "${state}"
+
+            if [[ "${state}" != "ISSUED" ]]; then
+              echo 'Add this CNAME in Cloudflare (DNS only, not proxied). The'
+              echo 'certificate issues within minutes of it resolving, and the'
+              echo 'ALB cannot attach it until then.'
+              echo
+              echo '```'
+              terraform -chdir="${TF_DIR}" output -json acm_validation_record |
+                jq -r '.[] | "\(.type)  \(.name)  ->  \(.value)"'
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Destroy staging infrastructure
         if: inputs.operation == 'destroy'
@@ -191,6 +225,8 @@ jobs:
       - name: Publish staging infrastructure configuration
         env:
           REDIS_HOST: ${{ needs.terraform.outputs.redis_host }}
+          ACM_CERTIFICATE_ARN: ${{ needs.terraform.outputs.certificate_arn }}
+          VPC_CIDR: ${{ needs.terraform.outputs.vpc_cidr }}
         run: |
           # REDIS_HOST, not REDIS_URL: backend/config.py reads
           # REDIS_HOST/REDIS_PORT/REDIS_TLS and assembles the URL itself
@@ -199,10 +235,22 @@ jobs:
           # recreated and is not secret, so it travels as a ConfigMap
           # rather than through Doppler - the deploy workflow reads it
           # back from here to set the chart's redis.host.
+          # The certificate ARN and the VPC range travel the same way and
+          # for the same reason: known only to Terraform, needed by a Helm
+          # release, and not secret. The deploy role can read this
+          # ConfigMap but cannot read Terraform state.
           kubectl --namespace "${KUBERNETES_NAMESPACE}" \
             create configmap "${INFRASTRUCTURE_CONFIG_MAP}" \
             --from-literal="REDIS_HOST=${REDIS_HOST}" \
+            --from-literal="ACM_CERTIFICATE_ARN=${ACM_CERTIFICATE_ARN}" \
+            --from-literal="VPC_CIDR=${VPC_CIDR}" \
             --dry-run=client -o yaml | kubectl apply -f -
+
+      # Cluster-scoped, so it is installed here rather than by helm/backend -
+      # see the file's own header for why an application chart must not own
+      # it. Idempotent: `apply` on an unchanged pair is a no-op.
+      - name: Install the ALB ingress class
+        run: kubectl apply -f k8s/staging/ingress-class.yaml
 
       - name: Install Doppler operator
         run: |

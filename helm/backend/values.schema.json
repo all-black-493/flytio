@@ -3,76 +3,133 @@
   "title": "flyt backend chart values",
   "description": "Validated by Helm on install/upgrade/template. Deliberately covers the values whose mistakes are expensive - a wrong pullPolicy or a missing secret name surfaces as an opaque pod failure minutes later, whereas this fails before anything is applied. Not an exhaustive mirror of values.yaml: over-specifying a schema makes the chart hostile to override.",
   "type": "object",
-  "required": ["image", "existingSecret", "service", "api", "consumer", "migrations"],
+  "required": [
+    "image",
+    "existingSecret",
+    "service",
+    "api",
+    "consumer",
+    "migrations"
+  ],
   "properties": {
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string" },
-
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
     "image": {
       "type": "object",
-      "required": ["repository", "pullPolicy"],
+      "required": [
+        "repository",
+        "pullPolicy"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
         "tag": {
           "type": "string",
           "description": "Empty falls back to Chart.AppVersion, which is a chart version and not a published tag. Allowed, because a chart whose appVersion tracks real releases is a legitimate setup - but see values.yaml."
         },
         "pullPolicy": {
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"],
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ],
           "description": "Kubernetes rejects any other value, including the lowercase spellings people reach for first."
         }
       }
     },
-
     "imagePullSecrets": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
-        "properties": { "name": { "type": "string", "minLength": 1 } }
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
-
     "existingSecret": {
       "type": "string",
       "minLength": 1,
       "description": "Empty would render an envFrom pointing at nothing, and every pod would start with no configuration at all."
     },
-
     "redis": {
       "type": "object",
       "properties": {
-        "host": { "type": "string", "minLength": 1 },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
       }
     },
-
     "extraEnv": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
-        "properties": { "name": { "type": "string", "minLength": 1 } }
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
-
     "serviceAccount": {
       "type": "object",
       "properties": {
-        "create": { "type": "boolean" },
-        "automount": { "type": "boolean" },
-        "name": { "type": "string" },
-        "annotations": { "type": "object" }
+        "create": {
+          "type": "boolean"
+        },
+        "automount": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object"
+        }
       }
     },
-
     "service": {
       "type": "object",
-      "required": ["port", "targetPort"],
+      "required": [
+        "port",
+        "targetPort"
+      ],
       "properties": {
-        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "type": {
+          "type": "string",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
         "targetPort": {
           "type": "integer",
           "minimum": 1024,
@@ -81,97 +138,217 @@
         }
       }
     },
-
     "ingress": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "className": { "type": "string" },
-        "hosts": { "type": "array" },
-        "tls": { "type": "array" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "hosts": {
+          "type": "array"
+        },
+        "tls": {
+          "type": "array"
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "certificateArn": {
+          "type": "string",
+          "description": "ACM certificate ARN for the ALB, or empty. Rendered as alb.ingress.kubernetes.io/certificate-arn.",
+          "pattern": "^$|^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/[0-9a-f-]+$"
+        }
       }
     },
-
     "api": {
       "type": "object",
-      "required": ["replicaCount", "resources"],
+      "required": [
+        "replicaCount",
+        "resources"
+      ],
       "properties": {
-        "replicaCount": { "type": "integer", "minimum": 1 },
-        "revisionHistoryLimit": { "type": "integer", "minimum": 0 },
-        "spreadAcrossNodes": { "type": "boolean" },
-        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
-        "preStopSleepSeconds": { "type": "integer", "minimum": 0 },
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "revisionHistoryLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spreadAcrossNodes": {
+          "type": "boolean"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "preStopSleepSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
         "autoscaling": {
           "type": "object",
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minReplicas": { "type": "integer", "minimum": 1 },
-            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
             "targetCPUUtilizationPercentage": {
               "oneOf": [
-                { "type": "integer", "minimum": 1, "maximum": 100 },
-                { "type": "string", "maxLength": 0 }
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                {
+                  "type": "string",
+                  "maxLength": 0
+                }
               ],
               "description": "An empty string disables this metric; the template skips it with `with`."
             },
             "targetMemoryUtilizationPercentage": {
               "oneOf": [
-                { "type": "integer", "minimum": 1, "maximum": 100 },
-                { "type": "string", "maxLength": 0 }
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                {
+                  "type": "string",
+                  "maxLength": 0
+                }
               ]
             },
-            "behavior": { "type": "object" }
+            "behavior": {
+              "type": "object"
+            }
           }
         },
         "podDisruptionBudget": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minAvailable": { "type": ["integer", "string"] }
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
           }
         },
         "startupProbe": {
           "type": "object",
-          "properties": { "failureThreshold": { "type": "integer", "minimum": 1 } }
+          "properties": {
+            "failureThreshold": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         },
-        "resources": { "type": "object" },
-        "podAnnotations": { "type": "object" },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "resources": {
+          "type": "object"
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "forwardedAllowIps": {
+          "type": "string",
+          "description": "CIDR or address list whose X-Forwarded-For uvicorn trusts (FORWARDED_ALLOW_IPS). Empty leaves uvicorn's 127.0.0.1 default."
+        }
       }
     },
-
     "consumer": {
       "type": "object",
-      "required": ["enabled", "replicaCount"],
+      "required": [
+        "enabled",
+        "replicaCount"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "replicaCount": {
           "type": "integer",
           "minimum": 0,
           "description": "Bounded above by the topic partition count, which no schema can see - see the template."
         },
-        "revisionHistoryLimit": { "type": "integer", "minimum": 0 },
-        "strategy": { "type": "string", "enum": ["Recreate", "RollingUpdate"] },
-        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
-        "resources": { "type": "object" },
-        "podAnnotations": { "type": "object" },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "revisionHistoryLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "Recreate",
+            "RollingUpdate"
+          ]
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resources": {
+          "type": "object"
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
       }
     },
-
     "migrations": {
       "type": "object",
-      "required": ["enabled"],
+      "required": [
+        "enabled"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "backoffLimit": { "type": "integer", "minimum": 0 },
-        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
-        "resources": { "type": "object" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "backoffLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resources": {
+          "type": "object"
+        }
       }
     }
   }

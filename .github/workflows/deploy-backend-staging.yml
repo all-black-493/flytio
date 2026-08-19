@@ -193,17 +193,28 @@ jobs:
           # which does not exist here - the chart's values-staging.yaml
           # leaves it unset precisely because only Terraform knows the
           # ElastiCache endpoint.
-          redis_host="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+          configmap="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
             get "configmap/${INFRASTRUCTURE_CONFIG_MAP}" \
-            --output "jsonpath={.data.REDIS_HOST}")"
+            --output json)"
 
-          if [[ -z "${redis_host}" ]]; then
-            echo "ERROR: ${INFRASTRUCTURE_CONFIG_MAP} carries no REDIS_HOST." >&2
-            echo "       Run terraform-kubernetes-staging.yml with operation=apply." >&2
-            exit 1
-          fi
+          # REDIS_HOST is the ElastiCache endpoint, ACM_CERTIFICATE_ARN the
+          # certificate the ALB terminates TLS with, and VPC_CIDR the range
+          # uvicorn believes X-Forwarded-For from. All three are known only
+          # to Terraform, all three are needed by the chart, and none is a
+          # secret - so they come back through the ConfigMap rather than
+          # through state this role cannot read.
+          for key in REDIS_HOST ACM_CERTIFICATE_ARN VPC_CIDR; do
+            value="$(jq -r --arg k "${key}" '.data[$k] // ""' <<<"${configmap}")"
 
-          echo "redis_host=${redis_host}" >> "${GITHUB_OUTPUT}"
+            if [[ -z "${value}" ]]; then
+              echo "ERROR: ${INFRASTRUCTURE_CONFIG_MAP} carries no ${key}." >&2
+              echo "       Run terraform-kubernetes-staging.yml with operation=apply;" >&2
+              echo "       a ConfigMap written before that key existed is the usual cause." >&2
+              exit 1
+            fi
+
+            echo "${key,,}=${value}" >> "${GITHUB_OUTPUT}"
+          done
 
       - name: Verify the Doppler-managed secret
         run: |
@@ -219,25 +230,33 @@ jobs:
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
           REDIS_HOST: ${{ steps.infrastructure.outputs.redis_host }}
+          CERTIFICATE_ARN: ${{ steps.infrastructure.outputs.acm_certificate_arn }}
+          VPC_CIDR: ${{ steps.infrastructure.outputs.vpc_cidr }}
         run: |
           helm lint helm/backend --strict \
             -f helm/backend/values-staging.yaml \
             --set-string "image.repository=${IMAGE_REPOSITORY}" \
             --set-string "image.tag=${IMAGE_TAG}" \
-            --set-string "redis.host=${REDIS_HOST}"
+            --set-string "redis.host=${REDIS_HOST}" \
+            --set-string "ingress.certificateArn=${CERTIFICATE_ARN}" \
+            --set-string "api.forwardedAllowIps=${VPC_CIDR}"
 
           helm template "${HELM_RELEASE}" helm/backend \
             --namespace "${KUBERNETES_NAMESPACE}" \
             -f helm/backend/values-staging.yaml \
             --set-string "image.repository=${IMAGE_REPOSITORY}" \
             --set-string "image.tag=${IMAGE_TAG}" \
-            --set-string "redis.host=${REDIS_HOST}" >/dev/null
+            --set-string "redis.host=${REDIS_HOST}" \
+            --set-string "ingress.certificateArn=${CERTIFICATE_ARN}" \
+            --set-string "api.forwardedAllowIps=${VPC_CIDR}" >/dev/null
 
       - name: Deploy the backend with Helm
         env:
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
           REDIS_HOST: ${{ steps.infrastructure.outputs.redis_host }}
+          CERTIFICATE_ARN: ${{ steps.infrastructure.outputs.acm_certificate_arn }}
+          VPC_CIDR: ${{ steps.infrastructure.outputs.vpc_cidr }}
         run: |
           # --wait-for-jobs covers the pre-upgrade migration hook, which
           # gates the rollout: a failed schema change leaves the previous
@@ -248,6 +267,8 @@ jobs:
             --set-string "image.repository=${IMAGE_REPOSITORY}" \
             --set-string "image.tag=${IMAGE_TAG}" \
             --set-string "redis.host=${REDIS_HOST}" \
+            --set-string "ingress.certificateArn=${CERTIFICATE_ARN}" \
+            --set-string "api.forwardedAllowIps=${VPC_CIDR}" \
             --reset-values \
             --wait \
             --wait-for-jobs \

@@ -1,0 +1,43 @@
+# Binds Kubernetes Ingress objects to EKS Auto Mode's built-in ALB
+# controller.
+#
+# Cluster-scoped, and therefore deliberately NOT part of helm/backend -
+# the same reasoning as helm/backend-secrets: an IngressClass installed as
+# a side effect of deploying one application would be removed by that
+# application's `helm uninstall`, taking every other Ingress in the cluster
+# with it, and would be fought over by any second chart that needed one.
+# Applied once by the cluster job in
+# .github/workflows/terraform-kubernetes-staging.yml.
+---
+# AWS-specific settings that have no field in the Ingress API. Referenced
+# by the IngressClass below rather than repeated as annotations on every
+# Ingress, so a change to the scheme is made in one place.
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: alb
+spec:
+  # Public. An internal ALB would need the private-subnet tag
+  # (kubernetes.io/role/internal-elb) instead, which the default VPC's
+  # subnets do not have and do not want.
+  scheme: internet-facing
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: alb
+  # No ingressclass.kubernetes.io/is-default-class here, though the AWS
+  # quickstart sets it. Default means every Ingress created without a
+  # class silently provisions a billable ALB; helm/backend names the class
+  # explicitly, so nothing needs the default and the surprise is not worth
+  # the keystrokes it saves.
+spec:
+  # Auto Mode's in-cluster controller. Not ingress.k8s.aws/alb, which is
+  # the separately-installed AWS Load Balancer Controller - this cluster
+  # has no such controller and an Ingress naming it would sit unfulfilled
+  # with no events explaining why.
+  controller: eks.amazonaws.com/alb
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind: IngressClassParams
+    name: alb
