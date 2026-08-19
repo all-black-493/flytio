@@ -311,21 +311,31 @@ jobs:
                "ingress/${HELM_RELEASE}" --timeout=300s; then
             # kubectl only reports that the condition never came true. Why
             # it did not is in the controller's events, and nowhere else.
-            echo "::error title=No load balancer::The Ingress never received an address."
-            kubectl --namespace "${KUBERNETES_NAMESPACE}" get events \
+            #
+            # Deduplicated, because the controller retries with backoff and
+            # every attempt records the same failure under a fresh
+            # RequestID - so the raw list is a dozen copies of one line,
+            # and dropping the id is what lets uniq see them as one. Only
+            # the newest few survive: an older reason is usually the same
+            # problem before the last fix, not a second problem.
+            events="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" get events \
               --field-selector "involvedObject.kind=Ingress,involvedObject.name=${HELM_RELEASE}" \
-              --sort-by=.lastTimestamp || true
+              --sort-by=.lastTimestamp \
+              --output 'jsonpath={range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null |
+              sed -E 's/, RequestID: [0-9a-f-]+//' | awk 'NF && !seen[$0]++' | tail -2)"
 
+            echo "::error title=No load balancer::The Ingress never received an address."
+            echo "${events:-(the Ingress has no events)}"
             echo
-            echo "UnsupportedCertificate above does not mean the certificate is malformed."
-            echo "It is what ELB returns for a certificate that is not ISSUED, which almost"
-            echo "always means its DNS validation record is missing - flyt.africa is on"
-            echo "Cloudflare, so nothing in AWS can add that record. Take the CNAME from the"
-            echo "infrastructure workflow's summary, add it DNS-only, wait for the"
-            echo "certificate to reach ISSUED, and re-run this job."
-            echo
-            echo "The application itself is already released - the rollout and smoke test"
-            echo "above passed. What is missing is only the public address."
+            echo "The release itself succeeded: the rollout and smoke test above passed."
+
+            case "${events}" in
+              *Certificate*)
+                echo "ELB reports any certificate it cannot use as UnsupportedCertificate or"
+                echo "CertificateNotFound, never as 'not issued yet'. Check the certificate is"
+                echo "ISSUED - a CAA record that omits amazon.com blocks issuance - then re-run."
+                ;;
+            esac
             exit 1
           fi
 
