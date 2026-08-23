@@ -6,6 +6,23 @@
 
 [flyt.africa](https://www.flyt.africa) &nbsp;·&nbsp; Search 300+ carriers, hold the price through checkout, and keep every ticket and receipt in one place.
 
+<img alt="Python" src="https://img.shields.io/badge/Python-0B1526?style=flat-square&logo=python&logoColor=FF4F00">
+<img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0B1526?style=flat-square&logo=fastapi&logoColor=FF4F00">
+<img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-0B1526?style=flat-square&logo=postgresql&logoColor=FF4F00">
+<img alt="Redis" src="https://img.shields.io/badge/Redis-0B1526?style=flat-square&logo=redis&logoColor=FF4F00">
+<img alt="Kafka" src="https://img.shields.io/badge/Kafka-0B1526?style=flat-square&logo=apachekafka&logoColor=FF4F00">
+
+<img alt="Next.js" src="https://img.shields.io/badge/Next.js-0B1526?style=flat-square&logo=nextdotjs&logoColor=FF4F00">
+<img alt="React" src="https://img.shields.io/badge/React-0B1526?style=flat-square&logo=react&logoColor=FF4F00">
+<img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-0B1526?style=flat-square&logo=typescript&logoColor=FF4F00">
+<img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind%20CSS-0B1526?style=flat-square&logo=tailwindcss&logoColor=FF4F00">
+
+<img alt="Docker" src="https://img.shields.io/badge/Docker-0B1526?style=flat-square&logo=docker&logoColor=FF4F00">
+<img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-0B1526?style=flat-square&logo=kubernetes&logoColor=FF4F00">
+<img alt="Terraform" src="https://img.shields.io/badge/Terraform-0B1526?style=flat-square&logo=terraform&logoColor=FF4F00">
+<img alt="AWS" src="https://img.shields.io/badge/AWS-0B1526?style=flat-square&logo=amazonwebservices&logoColor=FF4F00">
+<img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub%20Actions-0B1526?style=flat-square&logo=githubactions&logoColor=FF4F00">
+
 <img src="frontend/public/flyt.png" alt="flyt.africa — flight search and live departures board" width="900">
 
 </div>
