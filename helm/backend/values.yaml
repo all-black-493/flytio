@@ -85,14 +85,31 @@ service:
 
 ingress:
   enabled: false
+  # nginx locally (k3d ships one). On EKS this is `alb`, which is bound to
+  # Auto Mode's built-in controller by k8s/staging/ingress-class.yaml.
   className: nginx
   annotations: {}
     # cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  # ACM certificate the ALB terminates TLS with, rendered as the
+  # alb.ingress.kubernetes.io/certificate-arn annotation. Empty elsewhere:
+  # nginx + cert-manager use the tls block below instead.
+  #
+  # Not known until `terraform apply` has run, so it is passed with --set
+  # from the endpoint the infrastructure workflow publishes - which is why
+  # it is a value of its own rather than another entry in `annotations`,
+  # where --set would need each dot in the key escaped.
+  certificateArn: ""
+
   hosts:
     - host: api.flyt.africa
       paths:
         - path: /
           pathType: Prefix
+
+  # In-cluster TLS termination, for an nginx/cert-manager setup. Leave
+  # empty behind an ALB: there the certificate is ACM's and the ALB
+  # terminates, so a Secret here would be one nothing reads.
   tls: []
     # - secretName: flyt-api-tls
     #   hosts:
@@ -145,6 +162,13 @@ api:
       # No CPU limit on purpose: throttling a request-serving process adds
       # latency without protecting anything the request already reserves.
       memory: 512Mi
+
+  # Range whose X-Forwarded-For uvicorn believes, via FORWARDED_ALLOW_IPS.
+  # Empty by default: with no proxy in front, an unset value leaves
+  # uvicorn's own default of 127.0.0.1, and the peer address is already the
+  # real client. Set it to the VPC CIDR when running behind an ALB - see
+  # templates/deployment-api.yaml for what breaks otherwise.
+  forwardedAllowIps: ""
 
   # Long enough for uvicorn to drain in-flight requests after SIGTERM, AND
   # to cover preStopSleepSeconds before that even begins.

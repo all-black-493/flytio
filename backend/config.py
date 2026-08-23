@@ -7,6 +7,8 @@ missing required var now fails immediately instead of silently becoming
 
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolved relative to this file rather than the process cwd - the app is
@@ -142,6 +144,38 @@ class Settings(BaseSettings):
     # alongside it are for Unsplash's OAuth user-login flow, which this
     # app never does, so they're deliberately not modeled here.
     UNSPLASH_ACCESS_KEY: str = ""
+
+    # Uber Guest Rides - the airport pickup bundled with a flight booking.
+    #
+    # Same optional/empty-default convention as OPENAI_API_KEY, and for a
+    # stronger reason: Guest Rides is not self-serve. It needs an approved
+    # Uber for Business organization, so there is a real period where the
+    # feature is built and the credentials are not available yet. Unset,
+    # external_services/uber.py exposes no service, the ride option is
+    # absent from checkout, and the estimate endpoint 503s - rather than
+    # the app failing to start.
+    #
+    # Client credentials, not a user OAuth flow: flyt books on behalf of a
+    # guest who never signs in to Uber. The trip bills flyt's own Uber
+    # account, which is why its fare has to be collected at checkout like
+    # any other leg.
+    UBER_CLIENT_ID: str = ""
+    UBER_CLIENT_SECRET: str = ""
+    # Sent as x-uber-organizationuuid. Required for third-party apps, and
+    # the request is rejected without it once the other two are set.
+    UBER_ORGANIZATION_UUID: str = ""
+    # Which Uber estate the credentials belong to. An app created as
+    # "Testing" in the developer dashboard exists ONLY in the sandbox, and
+    # authenticating it against the production host fails with
+    # "unauthorized_client: the current application environment is
+    # mismatched with the OAuth server runtime environment" - which reads
+    # like a bad secret rather than a wrong hostname.
+    #
+    # A Literal, so a typo fails at startup rather than silently selecting
+    # the wrong estate. Defaults to sandbox: of the two ways to get this
+    # wrong, the one that cannot dispatch a real car and bill a real
+    # account is the better default.
+    UBER_ENVIRONMENT: Literal["sandbox", "production"] = "sandbox"
 
     # Public URLs - FRONTEND_URL builds links handed to users (password
     # reset, booking confirmation, Pesapal's redirect back into the app);

@@ -21,12 +21,14 @@ way POST /booking/flight-orders does.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, status
+from fastapi import Depends, APIRouter, Path, status
 
 from backend.external_services.car import DuffelAPIError, duffel_car_service
 from backend.schemas.duffel_cars import CarsBookingRequest, CarsSearchRequest
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.guard import guard_deco
+from backend.models.users import UserInDB
+from backend.utils.security import get_current_user
 
 router = APIRouter(prefix="/cars", tags=["Cars"])
 
@@ -75,7 +77,14 @@ async def get_car_quote(
 
 @router.post("/bookings", status_code=status.HTTP_201_CREATED)
 @guard_deco.rate_limit(requests=CARS_IP_LIMIT, window=CARS_WINDOW_SECONDS)
-async def create_car_booking(request: CarsBookingRequest):
+async def create_car_booking(
+    request: CarsBookingRequest,
+    # A booking spends flyt's own Duffel balance and creates a real
+    # reservation with a supplier. Search and quote stay public, as
+    # they do for flights - this is the step that costs money, and it
+    # is also what gives the reservation an owner to show it to later.
+    current_user: UserInDB = Depends(get_current_user),
+):
     """Step 3 of 3: reserve the vehicle against a quote.
 
     No payment object, unlike a flight order: a car reservation is

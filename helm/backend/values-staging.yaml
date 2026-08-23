@@ -44,10 +44,65 @@ api:
     minAvailable: 1
 
 ingress:
-  # EKS Auto Mode provisions AWS load balancers, so this wants the ALB
-  # ingress class and annotations rather than nginx's - a decision to make,
-  # not a default to inherit.
-  enabled: false
+  enabled: true
+
+  # Bound to Auto Mode's in-cluster ALB controller by
+  # k8s/staging/ingress-class.yaml, which the infrastructure workflow
+  # applies. Not nginx: there is no nginx controller on this cluster, and
+  # an Ingress naming a class nothing implements just sits there with no
+  # address and no event saying why.
+  className: alb
+
+  # certificateArn is not set here - it is the ACM certificate's, which
+  # exists only after `terraform apply`, so the deploy workflow reads it
+  # from the backend-infrastructure ConfigMap and passes it with --set.
+  # The same route redis.host takes, and for the same reason.
+
+  hosts:
+    # Must match var.api_hostname in terraform/kubernetes-staging: that is
+    # the name the certificate is issued for, and a mismatch is a
+    # certificate the ALB will not serve for this host.
+    #
+    # Deliberately not api.flyt.africa, which is production on EC2.
+    - host: api-staging.flyt.africa
+      paths:
+        - path: /
+          pathType: Prefix
+
+  annotations:
+    # ip, not instance: registers pod addresses directly, so a request
+    # reaches the pod that answered the health check rather than being
+    # bounced again by kube-proxy - and it is the mode Auto Mode expects,
+    # its nodes not being a managed node group with NodePort reachability
+    # to lean on.
+    alb.ingress.kubernetes.io/target-type: ip
+
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # Every plain HTTP request redirects to HTTPS. The HTTP listener still
+    # has to exist for that to have anywhere to happen, which is why 80 is
+    # in listen-ports above.
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+    # /health/ready, not the default /. The root route answers 200 from a
+    # process whose database is unreachable - exactly the pod this check
+    # exists to pull out of rotation. Readiness returns 503 until Postgres
+    # and Redis both answer.
+    alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+
+    # Longer than the pod's preStopSleepSeconds (5s), so the ALB finishes
+    # draining before the container stops accepting connections; shorter
+    # than terminationGracePeriodSeconds (30s), so the pod is not killed
+    # while the ALB still believes it is draining.
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=15
+
+    # A stable name, so the ALB is identifiable in the console and as the
+    # CNAME target in Cloudflare. 32 characters is the AWS limit.
+    alb.ingress.kubernetes.io/load-balancer-name: flyt-backend-staging
+
+# api.forwardedAllowIps is not set here either - it is the VPC's CIDR,
+# another value only Terraform knows, passed with --set alongside the
+# certificate. Without it uvicorn ignores the ALB's X-Forwarded-For and
+# fastapi-guard sees the whole internet as one client.
 
 migrations:
   enabled: true

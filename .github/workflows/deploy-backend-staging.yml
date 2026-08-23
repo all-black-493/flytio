@@ -146,9 +146,22 @@ jobs:
           # Same tag backend-image.yml publishes (docker/metadata-action's
           # type=sha,format=short is the first 7 characters). That workflow
           # runs concurrently with this one, so the tag may not exist yet.
+          #
+          # This holds because backend-image.yml runs on every push to
+          # main, with no paths filter - see its own header.
           tag="sha-${GITHUB_SHA:0:7}"
 
-          for attempt in $(seq 1 60); do
+          # On a push that build is running alongside this job, so waiting
+          # is the whole point. On a dispatch it ran when the commit
+          # landed, or it failed: either way the tag is not going to appear
+          # in the next ten minutes, and polling only delays the message.
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            attempts=60
+          else
+            attempts=1
+          fi
+
+          for attempt in $(seq 1 "${attempts}"); do
             if aws ecr batch-get-image \
                  --repository-name "${ECR_REPOSITORY}" \
                  --image-ids "imageTag=${tag}" \
@@ -158,10 +171,13 @@ jobs:
               break
             fi
 
-            if [[ "${attempt}" == "60" ]]; then
-              echo "ERROR: ${ECR_REPOSITORY}:${tag} never appeared." >&2
-              echo "       Check the 'Backend image' workflow for this commit;" >&2
-              echo "       it is gated on the ECR_ENABLED repository variable." >&2
+            if [[ "${attempt}" == "${attempts}" ]]; then
+              echo "ERROR: ${ECR_REPOSITORY}:${tag} does not exist." >&2
+              echo "       Every push to main builds one, so this commit's build failed or" >&2
+              echo "       was skipped - check the 'Backend image' workflow, which is gated" >&2
+              echo "       on the ECR_ENABLED repository variable." >&2
+              echo "       To retry a failed deploy of code that has not changed, re-run the" >&2
+              echo "       job rather than dispatching a new one: gh run rerun <id> --failed" >&2
               exit 1
             fi
 
@@ -193,17 +209,28 @@ jobs:
           # which does not exist here - the chart's values-staging.yaml
           # leaves it unset precisely because only Terraform knows the
           # ElastiCache endpoint.
-          redis_host="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+          configmap="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
             get "configmap/${INFRASTRUCTURE_CONFIG_MAP}" \
-            --output "jsonpath={.data.REDIS_HOST}")"
+            --output json)"
 
-          if [[ -z "${redis_host}" ]]; then
-            echo "ERROR: ${INFRASTRUCTURE_CONFIG_MAP} carries no REDIS_HOST." >&2
-            echo "       Run terraform-kubernetes-staging.yml with operation=apply." >&2
-            exit 1
-          fi
+          # REDIS_HOST is the ElastiCache endpoint, ACM_CERTIFICATE_ARN the
+          # certificate the ALB terminates TLS with, and VPC_CIDR the range
+          # uvicorn believes X-Forwarded-For from. All three are known only
+          # to Terraform, all three are needed by the chart, and none is a
+          # secret - so they come back through the ConfigMap rather than
+          # through state this role cannot read.
+          for key in REDIS_HOST ACM_CERTIFICATE_ARN VPC_CIDR; do
+            value="$(jq -r --arg k "${key}" '.data[$k] // ""' <<<"${configmap}")"
 
-          echo "redis_host=${redis_host}" >> "${GITHUB_OUTPUT}"
+            if [[ -z "${value}" ]]; then
+              echo "ERROR: ${INFRASTRUCTURE_CONFIG_MAP} carries no ${key}." >&2
+              echo "       Run terraform-kubernetes-staging.yml with operation=apply;" >&2
+              echo "       a ConfigMap written before that key existed is the usual cause." >&2
+              exit 1
+            fi
+
+            echo "${key,,}=${value}" >> "${GITHUB_OUTPUT}"
+          done
 
       - name: Verify the Doppler-managed secret
         run: |
@@ -219,25 +246,33 @@ jobs:
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
           REDIS_HOST: ${{ steps.infrastructure.outputs.redis_host }}
+          CERTIFICATE_ARN: ${{ steps.infrastructure.outputs.acm_certificate_arn }}
+          VPC_CIDR: ${{ steps.infrastructure.outputs.vpc_cidr }}
         run: |
           helm lint helm/backend --strict \
             -f helm/backend/values-staging.yaml \
             --set-string "image.repository=${IMAGE_REPOSITORY}" \
             --set-string "image.tag=${IMAGE_TAG}" \
-            --set-string "redis.host=${REDIS_HOST}"
+            --set-string "redis.host=${REDIS_HOST}" \
+            --set-string "ingress.certificateArn=${CERTIFICATE_ARN}" \
+            --set-string "api.forwardedAllowIps=${VPC_CIDR}"
 
           helm template "${HELM_RELEASE}" helm/backend \
             --namespace "${KUBERNETES_NAMESPACE}" \
             -f helm/backend/values-staging.yaml \
             --set-string "image.repository=${IMAGE_REPOSITORY}" \
             --set-string "image.tag=${IMAGE_TAG}" \
-            --set-string "redis.host=${REDIS_HOST}" >/dev/null
+            --set-string "redis.host=${REDIS_HOST}" \
+            --set-string "ingress.certificateArn=${CERTIFICATE_ARN}" \
+            --set-string "api.forwardedAllowIps=${VPC_CIDR}" >/dev/null
 
       - name: Deploy the backend with Helm
         env:
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
           REDIS_HOST: ${{ steps.infrastructure.outputs.redis_host }}
+          CERTIFICATE_ARN: ${{ steps.infrastructure.outputs.acm_certificate_arn }}
+          VPC_CIDR: ${{ steps.infrastructure.outputs.vpc_cidr }}
         run: |
           # --wait-for-jobs covers the pre-upgrade migration hook, which
           # gates the rollout: a failed schema change leaves the previous
@@ -248,6 +283,8 @@ jobs:
             --set-string "image.repository=${IMAGE_REPOSITORY}" \
             --set-string "image.tag=${IMAGE_TAG}" \
             --set-string "redis.host=${REDIS_HOST}" \
+            --set-string "ingress.certificateArn=${CERTIFICATE_ARN}" \
+            --set-string "api.forwardedAllowIps=${VPC_CIDR}" \
             --reset-values \
             --wait \
             --wait-for-jobs \
@@ -264,6 +301,78 @@ jobs:
         # rather than liveness, because /health/live answers 200 from a
         # process whose database is unreachable.
         run: helm test "${HELM_RELEASE}" --namespace "${KUBERNETES_NAMESPACE}" --logs
+
+      - name: Report the public address
+        run: |
+          # Skipped rather than failed where the chart has no Ingress - the
+          # default everywhere but staging.
+          if ! kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+               get "ingress/${HELM_RELEASE}" >/dev/null 2>&1; then
+            echo "This release has no Ingress; nothing to report."
+            exit 0
+          fi
+
+          # helm returns as soon as the Ingress object is accepted. The ALB
+          # behind it is provisioned afterwards by the controller, and its
+          # address is empty until that finishes - a minute or two on a
+          # first release, immediate on an update.
+          if ! kubectl --namespace "${KUBERNETES_NAMESPACE}" wait \
+               --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
+               "ingress/${HELM_RELEASE}" --timeout=300s; then
+            # kubectl only reports that the condition never came true. Why
+            # it did not is in the controller's events, and nowhere else.
+            #
+            # Deduplicated, because the controller retries with backoff and
+            # every attempt records the same failure under a fresh
+            # RequestID - so the raw list is a dozen copies of one line,
+            # and dropping the id is what lets uniq see them as one. Only
+            # the newest few survive: an older reason is usually the same
+            # problem before the last fix, not a second problem.
+            events="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" get events \
+              --field-selector "involvedObject.kind=Ingress,involvedObject.name=${HELM_RELEASE}" \
+              --sort-by=.lastTimestamp \
+              --output 'jsonpath={range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null |
+              sed -E 's/, RequestID: [0-9a-f-]+//' | awk 'NF && !seen[$0]++' | tail -2)"
+
+            echo "::error title=No load balancer::The Ingress never received an address."
+            echo "${events:-(the Ingress has no events)}"
+            echo
+            echo "The release itself succeeded: the rollout and smoke test above passed."
+
+            case "${events}" in
+              *Certificate*)
+                echo "ELB reports any certificate it cannot use as UnsupportedCertificate or"
+                echo "CertificateNotFound, never as 'not issued yet'. Check the certificate is"
+                echo "ISSUED - a CAA record that omits amazon.com blocks issuance - then re-run."
+                ;;
+            esac
+            exit 1
+          fi
+
+          address="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get "ingress/${HELM_RELEASE}" \
+            --output 'jsonpath={.status.loadBalancer.ingress[0].hostname}')"
+          host="$(kubectl --namespace "${KUBERNETES_NAMESPACE}" \
+            get "ingress/${HELM_RELEASE}" \
+            --output 'jsonpath={.spec.rules[0].host}')"
+
+          # To stdout as well as the summary: a step summary is readable in
+          # the browser and nowhere else - not in the logs, and not through
+          # the API - so anything only written there cannot be scripted
+          # against or quoted back in a terminal.
+          echo "ALB address: ${address}"
+          echo "Serving host: ${host}"
+
+          {
+            echo '### Public address'
+            echo
+            printf 'Point **%s** at the load balancer, DNS only (not proxied):\n\n' "${host}"
+            echo '```'
+            printf 'CNAME  %s  ->  %s\n' "${host%%.*}" "${address}"
+            echo '```'
+            echo
+            echo 'The address changes if the Ingress is deleted and recreated.'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Diagnose a failed deployment
         if: failure()

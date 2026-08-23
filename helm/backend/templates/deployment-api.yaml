@@ -63,6 +63,23 @@ spec:
               protocol: TCP
           env:
             {{- include "backend.env" . | nindent 12 }}
+            {{- with .Values.api.forwardedAllowIps }}
+            # Only the API: this is uvicorn's, and neither the consumer nor
+            # the migration job serves HTTP.
+            #
+            # `fastapi run` enables proxy headers, but uvicorn's own default
+            # trusts X-Forwarded-For from 127.0.0.1 alone - so behind the ALB
+            # every request would carry the load balancer's address instead
+            # of the caller's. fastapi-guard rate-limits and auto-bans by
+            # client IP, which would then mean one shared bucket for the
+            # whole internet, and an auto-ban able to ban the load balancer.
+            #
+            # The VPC range rather than "*": the pod is only reachable from
+            # inside the VPC, so nothing outside it should be able to assert
+            # whatever address it likes.
+            - name: FORWARDED_ALLOW_IPS
+              value: {{ . | quote }}
+            {{- end }}
           envFrom:
             {{- include "backend.envFrom" . | nindent 12 }}
           # Three probes, three different questions - see routers/health.py.
