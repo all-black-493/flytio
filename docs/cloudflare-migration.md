@@ -1,136 +1,163 @@
-# AWS → Cloudflare migration
+# AWS → Cloudflare Workers
 
-Moving compute off AWS EC2 onto Cloudflare so idle time stops billing.
+Moving compute off AWS EC2 onto Cloudflare Workers so idle time stops billing.
 
-**Decisions taken:** run the existing FastAPI image on **Cloudflare Containers**
-behind a Worker, not a rewrite to Workers. Tear AWS down **only after**
-Cloudflare serves production.
+**Decisions taken**
+- **Workers only. No Containers.** Containers requires the Workers Paid plan;
+  everything below runs on the free tier.
+- **The backend is rewritten in TypeScript.** Python cannot reach Postgres on
+  Workers (see below), so this is a rewrite, not a port.
+- **Strangler fig, not big-bang.** The Worker fronts `api.flyt.africa` and
+  proxies anything it does not implement to the existing EC2 API. Routes move
+  one at a time, under real traffic, and the project can stop at any point
+  without leaving the product broken.
+- **Clean architecture**, because a rewrite is the one moment the boundaries
+  are free.
+- Tear AWS down only after Workers serves production.
 
-**Why not Workers directly:** Python Workers run on Pyodide and support only
-pure-Python, PyEmscripten and Pyodide-bundled packages. This tree has 27 of 106
-distributions shipping compiled binaries, including `psycopg2-binary` and
-`confluent-kafka`. Hyperdrive's supported drivers are all JavaScript, over the
-JS `connect()` TCP API — there is no Python path to Postgres. `threading` and
-`multiprocessing` are non-functional, so the Kafka consumer cannot exist.
-Porting means rewriting 171 files, 339 tests and 16 migrations in TypeScript,
-including the payment reconciliation code. Containers runs the image we
-already ship.
+**Why this is a rewrite.** Python Workers run on Pyodide and take only
+pure-Python, PyEmscripten or Pyodide-bundled packages. This tree has 27 of 106
+distributions shipping compiled binaries, `psycopg2-binary` and
+`confluent-kafka` among them. Hyperdrive's drivers are all JavaScript over the
+JS `connect()` API, so there is no Python path to Postgres, and `threading` is
+non-functional, so the Kafka consumer cannot exist. 171 files, 339 tests and 16
+migrations get rewritten - payment reconciliation and refunds included. That is
+the cost, and it is why the strangler fig matters: it is the difference between
+a long project that ships continuously and one that ships only at the end.
 
 **Not in the blast radius:** the database. `DATABASE_URL` points at Neon, so
-bookings, payments and tickets are not on AWS.
+bookings, payments and tickets stay where they are. The rewrite changes what
+talks to the schema, not the schema.
 
-**Known risks**
-- Containers is **beta**. No SLA, API may change. This carries live payments.
-- Cold start is 2–3s, before Neon's own wake from scale-to-zero.
-- No autoscaling. Load is spread manually via `getRandom()`.
-- Disk is ephemeral; container identity persists, files do not.
+## Platform, and what it costs
+
+Everything here is on the **Workers Free plan**, checked against the docs:
+
+| Service | Free tier | Used for |
+|---|---|---|
+| Workers | 100k requests/day | the API |
+| Hyperdrive | 100k queries/day | pooled Postgres to Neon |
+| Queues | 10k ops/day, 24h retention | the 8 event types |
+| Durable Objects | SQLite-backed only | rate limiting, coordination |
+| Workers KV | 100k reads, **1k writes**/day | cached searches, config |
+| Cron Triggers | included | departure-reminder sweep |
+
+Two of those limits shape the design rather than just sitting in a table. **KV
+allows 1,000 writes a day**, so it cannot back per-request rate limiting - that
+is what the Durable Object is for. And **Queues retains 24h on free** rather
+than 14 days, so a poisoned message needs a durable dead-letter rather than
+being left to age out.
+
+## Architecture
+
+Dependency rule: **domain <- application <- infrastructure**. The domain
+imports nothing. Adapters depend on ports, never the reverse. Hono lives in the
+delivery layer, so the HTTP framework is swappable without touching a use case.
+
+```
+worker/src/
+  domain/           entities, value objects, invariants. Zero imports.
+                    money, pricing, booking state, refund eligibility
+  application/
+    ports/          interfaces the domain needs the world to satisfy:
+                    BookingRepository, FlightSupplier, PaymentGateway,
+                    Mailer, EventBus, Clock
+    use-cases/      one per operation: searchFlights, createOrder,
+                    confirmPayment, refundBooking
+  infrastructure/   adapters implementing ports
+    db/             Hyperdrive + repository implementations
+    suppliers/      duffel/, pesapal/, resend/
+    events/         queue producer and consumer
+    cache/          KV, and the Durable Object rate limiter
+  interfaces/
+    http/           Hono routes, zod request/response schemas, auth
+    queue/          queue consumer handlers
+    scheduled/      cron handlers
+  config/           env parsing, validated with zod at startup
+```
+
+Why this and not the Python layout: the use cases are where the money rules
+live, and they are the part that has to be testable without a network, a
+database or Cloudflare. Ports make that structural rather than a matter of
+discipline - which is what the old `monkeypatch.setattr` supplier fakes were
+not.
 
 ---
 
-## Phase 0 — Prerequisites
+## Phase 0 - Prerequisites
 
-- [ ] **CF-01** `wrangler login`, or supply `CLOUDFLARE_API_TOKEN` for headless use.
-      Blocked on Jeremy — needs a browser. `cloudflared` is the Tunnel daemon and
-      is not this.
-- [ ] **CF-02** (attempted — authorization has not reached this session; only
-      `cloudflare-docs` exposes tools. Likely needs a session restart.)
-      Authorize the Cloudflare MCP servers (`cloudflare-api`,
-      `cloudflare-bindings`, `cloudflare-builds`, `cloudflare-observability`)
-      via `/mcp`. Optional; better than shelling out to wrangler.
-- [ ] **CF-22** **Upgrade to the Workers Paid plan ($5/mo) — blocking.**
-      Containers is not on the Free plan: `wrangler deploy` uploads the Worker
-      fine and then fails the image push with *"You do not have access to
-      Cloudflare Containers. Deploying containers requires the Workers Paid
-      plan."* The $5 includes 25 GiB-hours memory, 375 vCPU-minutes and
-      200 GB-hours disk, so it is not additive to the container cost — but it
-      is a floor, and worth setting against the EC2 bill in CF-03.
-- [ ] **CF-23** Register a workers.dev subdomain. `wrangler deploy` warns
-      *"You need to register a workers.dev subdomain before publishing"*, so
-      there is no preview URL to test CF-08 against until it exists.
-- [ ] **CF-03** Confirm what AWS actually costs today, per service. The EKS
-      staging stack was the expensive part (~$100/mo) and may already be gone;
-      a small EC2 box is $10–20/mo. Worth knowing the number this project is
-      buying back before spending weeks on it.
+- [x] **CF-01** wrangler authenticated (OAuth, account
+      `e19d2d7dae39b3ccd8554afc76416997`) with `workers`, `queues`, `d1` and
+      `workers_scripts` write scopes.
+- [x] **CF-02** Cloudflare MCP available: `cloudflare-api`,
+      `cloudflare-bindings`, `cloudflare-builds`. `cloudflare-observability`
+      still needs authorizing.
+- [x] **CF-22** Workers Paid - **no longer needed.** It was only required for
+      Containers.
+- [ ] **CF-23** Register a workers.dev subdomain. `wrangler deploy` warns there
+      is none, so there is no preview URL to test against.
+- [ ] **CF-03** Confirm what AWS costs today, per service. Sets the value of
+      the whole project.
 
-## Phase 1 — Prove the container runs
+## Phase 1 - Foundation
 
-- [x] **CF-04** Audit `backend/Dockerfile` against Containers: single exposed
-      port, correct entrypoint, image size, no reliance on host state. It
-      already runs unprivileged on 8000 as PID 1, which is most of the work.
-- [x] **CF-05** Redis runs inside the image. Cloudflare has no managed Redis
-      and no sidecar, and fastapi-guard opens Redis during startup and answers
-      500 to every path — health checks included — when it is missing. Started
-      by the entrypoint only on `REDIS_EMBEDDED`, unpersisted, and waited on
-      with PING before the app execs, since losing that race is the
-      500-everything failure.
-- [x] **CF-06** Scaffold `worker/` — `wrangler.jsonc` with the container binding,
-      Durable Object binding and `new_sqlite_classes` migration, plus the
-      `Container` subclass (`defaultPort = 8000`, `enableInternet = true`,
-      `pingEndpoint = "/health/ready"`, `sleepAfter = "15m"`) and `getRandom`
-      load balancing.
-- [ ] **CF-07** `wrangler dev` — blocked by this machine, not by the config.
-      It builds the image, then hangs retrying Docker Hub layer pulls of
-      `cloudflare/proxy-everything`, a local-dev-only component. The image
-      itself is proven: run directly against staging Neon it gives
-      `/health/ready` 200 with database and redis both healthy, PID 1 still
-      uvicorn, and a clean SIGTERM shutdown. Retry when the registry pull
-      works, or skip once CF-08 gives a real preview.
-- [ ] **CF-08** Deploy to a `*.workers.dev` preview. **Half done:** the Worker
-      is live on the account (`flyt-backend`, uploaded in 7.4s, 4ms startup,
-      the BACKEND Durable Object binding resolved). The container image push
-      fails on the plan gate above, so nothing serves yet. Blocked on CF-22
-      and CF-23. Also fixed on the way: `compatibility_date` cannot be in the
-      future — Cloudflare rejected 2026-09-07 against its own clock.
+- [ ] **CF-24** Scaffold the TypeScript Worker on the layout above: Hono,
+      zod-validated config, vitest, and the dependency rule enforced by lint
+      rather than by convention.
+- [ ] **CF-25** Hyperdrive config against Neon; a repository port with one real
+      implementation; `/health/ready` proving database reachability from a
+      Worker.
+- [ ] **CF-26** Proxy fallback: any route the Worker does not implement is
+      forwarded to the EC2 origin unchanged. This is what makes the strangler
+      fig safe, so it lands before any real route.
+- [ ] **CF-27** Deploy to the workers.dev preview and prove both paths: one
+      native route, one proxied.
 
-## Phase 2 — Parity with production
+## Phase 2 - Move routes, cheapest risk first
 
-- [ ] **CF-09** Secrets. Either keep Doppler in the container entrypoint (it
-      already detects `DOPPLER_TOKEN`) or move to Worker secrets. Doppler is
-      less churn and keeps one source of truth across environments.
-- [ ] **CF-10** Migrations. Alembic currently runs as a Helm `pre-upgrade` hook.
-      Decide the equivalent: a one-shot container invocation gated before
-      rollout, so a failed migration cannot leave new code on an old schema.
-- [ ] **CF-11** Kafka consumer → Cloudflare Queues + Cron Triggers.
-      Queue consumers are Workers, so they are JavaScript, while every handler
-      here is Python that sends mail through Resend, issues Pesapal refunds and
-      writes to Postgres. Rewriting them is not on the table.
-      Shape instead: the Worker is only a dispatcher.
+Ordered by blast radius. Nothing that moves money moves early.
 
-      `publish_event` writes to a Queue instead of Kafka. The queue consumer
-      Worker POSTs the message to an internal route on the container, which
-      dispatches through the existing `EVENT_HANDLERS` dict — the registry in
-      `workers/handlers/__init__.py` already maps `event_type` to handler, so
-      the runner is what gets replaced, not the handlers. A Cron Trigger hits a
-      second internal route for `_run_periodic_sweeps` (departure reminders).
-      Both routes need a shared secret; they must not be reachable publicly.
-- [ ] **CF-12** Observability. Prometheus/Grafana/Loki are Compose services that
-      do not come along. Replace with Workers Logs, and Analytics Engine for
-      anything custom.
-- [ ] **CF-13** Exercise the money paths against Duffel test and Pesapal sandbox
-      on the preview deployment: checkout, IPN reconciliation, refund.
+- [ ] **CF-28** Read-only public routes: health, flight search, popular
+      destinations. Cacheable, no writes, no auth.
+- [ ] **CF-29** Auth: register, login, refresh, OAuth callback. Introduces the
+      Durable Object rate limiter and session handling.
+- [ ] **CF-30** Account reads: bookings list, booking detail, tickets.
+- [ ] **CF-31** The 8 event types onto Queues, departure sweep on a Cron
+      Trigger. Handlers rewritten against the ports, so the queue consumer
+      stays a thin adapter.
+- [ ] **CF-32** Checkout, payment confirmation, IPN reconciliation, refunds.
+      Last, deliberately. Ship behind a flag and reconcile both systems against
+      the same Neon rows before switching.
 
-## Phase 3 — Cutover
+## Phase 3 - Cutover
 
 - [ ] **CF-14** Bind `api.flyt.africa` to the Worker. DNS is already on
       Cloudflare, so this is a route, not a delegation change.
-- [ ] **CF-15** Cut over. Keep EC2 running and warm as the rollback target — the
-      cost of a few days' overlap against being able to undo in one DNS change.
-- [ ] **CF-16** Soak. Watch error rate, p95 and cold-start latency under real
-      traffic through at least one booking and one payment settlement.
+- [ ] **CF-15** Cut over with the proxy fallback still in place - the Worker
+      serves what it owns and forwards the rest, so this stays reversible.
+- [ ] **CF-16** Soak through at least one real booking and one payment
+      settlement before removing the fallback.
 
-## Phase 4 — Teardown (only after CF-16 is clean)
+## Phase 4 - Teardown (only after CF-16 is clean)
 
 Order matters. The Terraform state bucket goes **last**, or the ability to
 destroy the rest cleanly goes with it.
 
-- [ ] **CF-17** Destroy the staging stack: EKS, ElastiCache, ACM, the GitHub
-      OIDC roles. Release the ALB by deleting the Ingress first — it is created
-      by the in-cluster controller, is not in Terraform state, and is orphaned
-      (still billing) if the cluster goes first.
+- [ ] **CF-17** Destroy the staging stack: EKS, ElastiCache, ACM, OIDC roles.
+      Delete the Ingress first - the ALB is created by the in-cluster
+      controller, is not in Terraform state, and is orphaned still billing if
+      the cluster goes first.
 - [ ] **CF-18** Destroy production: EC2 instance, Elastic IP, security group.
-- [ ] **CF-19** Delete ECR once no deployment references its images. It holds
-      images and will refuse deletion until emptied.
+- [ ] **CF-19** Delete ECR once nothing references its images.
 - [ ] **CF-20** Delete the S3 Terraform state bucket. **Last.**
 - [ ] **CF-21** Remove `terraform/`, `helm/`, `k8s/`, `k3d/` and the AWS
-      workflows from the repo; update the README's deployment section and
-      badges.
+      workflows; update the README.
+
+## Superseded
+
+- **CF-04/05/06** - Dockerfile audit, embedded Redis, Container scaffold. Done
+  and verified (`/health/ready` 200 against Neon, PID 1 correct, clean
+  SIGTERM), then dropped with Containers. The commits stay in history; the
+  embedded-Redis entrypoint is harmless and gated on `REDIS_EMBEDDED`.
+- **CF-07/08** - `wrangler dev` and the container preview. The Worker deployed
+  (`flyt-backend`); the container image push is what hit the plan gate.
