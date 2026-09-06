@@ -67,6 +67,13 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # /tmp is where the Doppler CLI writes (DOPPLER_CONFIG_DIR above), and
 # .logs is the optional log file - both need to belong to appuser for a
 # non-root process, and neither is needed for the app to serve.
+# Redis rides along in this image for Cloudflare Containers, which runs one
+# image per Container class with no sidecar. Started by the entrypoint only
+# when REDIS_EMBEDDED is set, so Compose and k3d keep using their own.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends redis-server \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 1000 --shell /bin/bash appuser \
     && mkdir -p /backend/.logs /tmp/.doppler \
     && chown -R appuser:appuser /backend /tmp/.doppler
