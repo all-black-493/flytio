@@ -1,3 +1,2 @@
-import { health } from "@interfaces/http/procedures/health";
-
-export const router = { ...health };
+/** Business API procedures. Health is served separately - see health-route.ts. */
+export const router = {};

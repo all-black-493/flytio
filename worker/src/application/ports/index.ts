@@ -11,12 +11,18 @@ export interface Clock {
   now(): Date;
 }
 
-export interface HealthCheck {
-  /** Resolves when the dependency answered, rejects when it did not. */
-  ping(): Promise<void>;
-}
+/** not_configured is a dependency this environment deliberately lacks. */
+export type ServiceStatus = "healthy" | "unhealthy" | "not_configured";
+export type OverallStatus = "healthy" | "degraded" | "down";
 
-export type DependencyStatus = "healthy" | "unhealthy";
+export type ServiceHealth = {
+  status: ServiceStatus;
+  detail: string | null;
+};
+
+export interface HealthCheck {
+  check(): Promise<ServiceHealth>;
+}
 
 export interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;

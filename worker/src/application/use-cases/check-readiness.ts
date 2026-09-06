@@ -1,40 +1,53 @@
-import type { Clock, DependencyStatus, HealthCheck } from "@application/ports";
+import type {
+  Clock,
+  HealthCheck,
+  OverallStatus,
+  ServiceHealth,
+} from "@application/ports";
 
 export type ReadinessReport = {
-  status: DependencyStatus;
-  checkedAt: string;
-  services: Record<string, { status: DependencyStatus }>;
+  status: OverallStatus;
+  checked_at: string;
+  services: Record<string, ServiceHealth>;
 };
 
 /**
- * Readiness, not liveness: this reports unhealthy when a dependency is
- * unreachable, which is the condition worth taking an instance out of
- * rotation for. Shape matches the FastAPI /health/ready response so the two
- * are interchangeable while both serve.
+ * One rule for healthy/degraded/down, ported from routers/health.py so the
+ * two implementations cannot disagree about what the same checks mean.
+ * not_configured is excluded rather than counted as a failure: a dependency
+ * this environment deliberately does not have is not an outage.
  */
-export async function checkReadiness(
-  deps: { clock: Clock; checks: Record<string, HealthCheck> },
-): Promise<ReadinessReport> {
+function overall(services: Record<string, ServiceHealth>): OverallStatus {
+  const checked = Object.values(services).filter((s) => s.status !== "not_configured");
+  const unhealthy = checked.filter((s) => s.status === "unhealthy");
+
+  if (unhealthy.length === 0) return "healthy";
+  return unhealthy.length === checked.length ? "down" : "degraded";
+}
+
+export async function checkReadiness(deps: {
+  clock: Clock;
+  checks: Record<string, HealthCheck>;
+}): Promise<ReadinessReport> {
   const names = Object.keys(deps.checks);
 
   const results = await Promise.all(
-    names.map(async (name): Promise<[string, DependencyStatus]> => {
+    names.map(async (name): Promise<[string, ServiceHealth]> => {
       try {
-        await deps.checks[name]!.ping();
-        return [name, "healthy"];
-      } catch {
-        return [name, "unhealthy"];
+        return [name, await deps.checks[name]!.check()];
+      } catch (error) {
+        // A check that throws is a check that failed; the endpoint reports it
+        // rather than 500ing, which is the whole point of asking.
+        return [name, { status: "unhealthy", detail: String(error) }];
       }
     }),
   );
 
-  const services = Object.fromEntries(
-    results.map(([name, status]) => [name, { status }]),
-  );
+  const services = Object.fromEntries(results);
 
   return {
-    status: results.every(([, s]) => s === "healthy") ? "healthy" : "unhealthy",
-    checkedAt: deps.clock.now().toISOString(),
+    status: overall(services),
+    checked_at: deps.clock.now().toISOString(),
     services,
   };
 }
