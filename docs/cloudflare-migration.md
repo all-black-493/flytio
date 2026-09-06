@@ -37,6 +37,16 @@ bookings, payments and tickets are not on AWS.
       Authorize the Cloudflare MCP servers (`cloudflare-api`,
       `cloudflare-bindings`, `cloudflare-builds`, `cloudflare-observability`)
       via `/mcp`. Optional; better than shelling out to wrangler.
+- [ ] **CF-22** **Upgrade to the Workers Paid plan ($5/mo) — blocking.**
+      Containers is not on the Free plan: `wrangler deploy` uploads the Worker
+      fine and then fails the image push with *"You do not have access to
+      Cloudflare Containers. Deploying containers requires the Workers Paid
+      plan."* The $5 includes 25 GiB-hours memory, 375 vCPU-minutes and
+      200 GB-hours disk, so it is not additive to the container cost — but it
+      is a floor, and worth setting against the EC2 bill in CF-03.
+- [ ] **CF-23** Register a workers.dev subdomain. `wrangler deploy` warns
+      *"You need to register a workers.dev subdomain before publishing"*, so
+      there is no preview URL to test CF-08 against until it exists.
 - [ ] **CF-03** Confirm what AWS actually costs today, per service. The EKS
       staging stack was the expensive part (~$100/mo) and may already be gone;
       a small EC2 box is $10–20/mo. Worth knowing the number this project is
@@ -58,12 +68,19 @@ bookings, payments and tickets are not on AWS.
       `Container` subclass (`defaultPort = 8000`, `enableInternet = true`,
       `pingEndpoint = "/health/ready"`, `sleepAfter = "15m"`) and `getRandom`
       load balancing.
-- [ ] **CF-07** `wrangler dev` locally. The image itself is already proven:
-      running it against staging Neon gives `/health/ready` 200 with database
-      and redis both healthy, PID 1 still uvicorn, clean SIGTERM shutdown.
-      What remains is exercising it through the Worker rather than directly.
-- [ ] **CF-08** Deploy to a `*.workers.dev` preview. Prove `/health/ready`, a
-      flight search, and one authenticated route end to end.
+- [ ] **CF-07** `wrangler dev` — blocked by this machine, not by the config.
+      It builds the image, then hangs retrying Docker Hub layer pulls of
+      `cloudflare/proxy-everything`, a local-dev-only component. The image
+      itself is proven: run directly against staging Neon it gives
+      `/health/ready` 200 with database and redis both healthy, PID 1 still
+      uvicorn, and a clean SIGTERM shutdown. Retry when the registry pull
+      works, or skip once CF-08 gives a real preview.
+- [ ] **CF-08** Deploy to a `*.workers.dev` preview. **Half done:** the Worker
+      is live on the account (`flyt-backend`, uploaded in 7.4s, 4ms startup,
+      the BACKEND Durable Object binding resolved). The container image push
+      fails on the plan gate above, so nothing serves yet. Blocked on CF-22
+      and CF-23. Also fixed on the way: `compatibility_date` cannot be in the
+      future — Cloudflare rejected 2026-09-07 against its own clock.
 
 ## Phase 2 — Parity with production
 
@@ -73,10 +90,19 @@ bookings, payments and tickets are not on AWS.
 - [ ] **CF-10** Migrations. Alembic currently runs as a Helm `pre-upgrade` hook.
       Decide the equivalent: a one-shot container invocation gated before
       rollout, so a failed migration cannot leave new code on an old schema.
-- [ ] **CF-11** Kafka consumer. A long-lived consumer does not fit `sleepAfter`.
-      Either keep it alive with the storage-touch keepalive, or port the 8 event
-      types onto Cloudflare Queues with Cron Triggers for the departure-reminder
-      sweep. Queues is the honest fit; it is also the larger change.
+- [ ] **CF-11** Kafka consumer → Cloudflare Queues + Cron Triggers.
+      Queue consumers are Workers, so they are JavaScript, while every handler
+      here is Python that sends mail through Resend, issues Pesapal refunds and
+      writes to Postgres. Rewriting them is not on the table.
+      Shape instead: the Worker is only a dispatcher.
+
+      `publish_event` writes to a Queue instead of Kafka. The queue consumer
+      Worker POSTs the message to an internal route on the container, which
+      dispatches through the existing `EVENT_HANDLERS` dict — the registry in
+      `workers/handlers/__init__.py` already maps `event_type` to handler, so
+      the runner is what gets replaced, not the handlers. A Cron Trigger hits a
+      second internal route for `_run_periodic_sweeps` (departure reminders).
+      Both routes need a shared secret; they must not be reachable publicly.
 - [ ] **CF-12** Observability. Prometheus/Grafana/Loki are Compose services that
       do not come along. Replace with Workers Logs, and Analytics Engine for
       anything custom.
