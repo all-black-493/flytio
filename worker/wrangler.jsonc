@@ -9,6 +9,19 @@
   // No routes here yet. Adding one binds the Worker to production; the DNS
   // and certificate steps in docs/cloudflare-migration.md come first.
 
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      // Points at Neon's DIRECT endpoint. Hyperdrive pools; stacking it on
+      // Neon's PgBouncer would be pooling twice.
+      //
+      // No localConnectionString here - that would put a database URL in the
+      // repo. `wrangler dev` reads
+      // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE instead.
+      "id": "95658e25decb441087501652e50ca452"
+    }
+  ],
+
   "vars": {
     // NOT api.flyt.africa. Once the Worker serves that hostname, proxying to
     // it loops back into the Worker. origin.* is the direct path to EC2.

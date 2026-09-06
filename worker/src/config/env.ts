@@ -3,6 +3,7 @@ import { z } from "zod";
 /** Validated once at the edge; layers below receive values, not `env`. */
 const schema = z.object({
   ORIGIN_URL: z.url(),
+  HYPERDRIVE: z.object({ connectionString: z.string().min(1) }),
 });
 
 export type Config = z.infer<typeof schema>;

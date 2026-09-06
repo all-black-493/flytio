@@ -125,9 +125,13 @@ not.
 - [ ] **CF-24** Scaffold the TypeScript Worker on the layout above: Hono,
       zod-validated config, vitest, and the dependency rule enforced by lint
       rather than by convention.
-- [ ] **CF-25** Hyperdrive config against Neon; a repository port with one real
-      implementation; `/health/ready` proving database reachability from a
-      Worker.
+- [x] **CF-25** Hyperdrive `flyt-neon-stg` (`95658e25decb4410...`) against Neon's
+      **direct** endpoint - Hyperdrive pools, so pointing it at Neon's
+      PgBouncer would pool twice. `pg` over `nodejs_compat`, a new Client per
+      check because Hyperdrive owns the pool. Verified through `wrangler dev`:
+      `/health/ready` 200 with `database: healthy`, in the FastAPI wire shape.
+      No connection string in the repo - local dev reads
+      `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`.
 - [ ] **CF-26** Proxy fallback: any route the Worker does not implement is
       forwarded to the EC2 origin unchanged. This is what makes the strangler
       fig safe, so it lands before any real route.
@@ -164,11 +168,14 @@ Ordered by blast radius. Nothing that moves money moves early.
 Order matters. The Terraform state bucket goes **last**, or the ability to
 destroy the rest cleanly goes with it.
 
-- [ ] **CF-17** Destroy the staging stack: EKS, ElastiCache, ACM, OIDC roles.
-      Delete the Ingress first - the ALB is created by the in-cluster
-      controller, is not in Terraform state, and is orphaned still billing if
-      the cluster goes first.
+- [x] **CF-17** Staging destroyed 2026-08-19. The `Release the load balancer`
+      step did its job - it succeeded before the cluster went, so the ALB was
+      not orphaned. Only ECR survived, refusing deletion while it holds images,
+      which is the intended outcome.
 - [ ] **CF-18** Destroy production: EC2 instance, Elastic IP, security group.
+      **Deliberately last.** The site is linked from a CV as live, and the
+      Worker implements health only - EC2 keeps serving through the proxy
+      until the rewrite reaches parity.
 - [ ] **CF-19** Delete ECR once nothing references its images.
 - [ ] **CF-20** Delete the S3 Terraform state bucket. **Last.**
 - [ ] **CF-21** Remove `terraform/`, `helm/`, `k8s/`, `k3d/` and the AWS
