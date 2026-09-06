@@ -32,7 +32,9 @@ bookings, payments and tickets are not on AWS.
 - [ ] **CF-01** `wrangler login`, or supply `CLOUDFLARE_API_TOKEN` for headless use.
       Blocked on Jeremy — needs a browser. `cloudflared` is the Tunnel daemon and
       is not this.
-- [ ] **CF-02** Authorize the Cloudflare MCP servers (`cloudflare-api`,
+- [ ] **CF-02** (attempted — authorization has not reached this session; only
+      `cloudflare-docs` exposes tools. Likely needs a session restart.)
+      Authorize the Cloudflare MCP servers (`cloudflare-api`,
       `cloudflare-bindings`, `cloudflare-builds`, `cloudflare-observability`)
       via `/mcp`. Optional; better than shelling out to wrangler.
 - [ ] **CF-03** Confirm what AWS actually costs today, per service. The EKS
@@ -42,21 +44,24 @@ bookings, payments and tickets are not on AWS.
 
 ## Phase 1 — Prove the container runs
 
-- [ ] **CF-04** Audit `backend/Dockerfile` against Containers: single exposed
+- [x] **CF-04** Audit `backend/Dockerfile` against Containers: single exposed
       port, correct entrypoint, image size, no reliance on host state. It
       already runs unprivileged on 8000 as PID 1, which is most of the work.
-- [ ] **CF-05** **Decide the Redis strategy — blocking.** fastapi-guard opens
-      Redis during app startup and answers 500 to every path when it is
-      unreachable, health endpoints included. Cloudflare has no managed Redis.
-      Options: a Redis process inside the same container (rate-limit state is
-      ephemeral anyway), an external serverless Redis, or removing guard's
-      Redis dependency.
-- [ ] **CF-06** Scaffold `worker/` — `wrangler.jsonc` with the container binding,
+- [x] **CF-05** Redis runs inside the image. Cloudflare has no managed Redis
+      and no sidecar, and fastapi-guard opens Redis during startup and answers
+      500 to every path — health checks included — when it is missing. Started
+      by the entrypoint only on `REDIS_EMBEDDED`, unpersisted, and waited on
+      with PING before the app execs, since losing that race is the
+      500-everything failure.
+- [x] **CF-06** Scaffold `worker/` — `wrangler.jsonc` with the container binding,
       Durable Object binding and `new_sqlite_classes` migration, plus the
       `Container` subclass (`defaultPort = 8000`, `enableInternet = true`,
-      `pingEndpoint = "/health/live"`, `sleepAfter`).
-- [ ] **CF-07** `wrangler dev` locally: `/health/ready` returns 200 against real
-      Neon and Redis.
+      `pingEndpoint = "/health/ready"`, `sleepAfter = "15m"`) and `getRandom`
+      load balancing.
+- [ ] **CF-07** `wrangler dev` locally. The image itself is already proven:
+      running it against staging Neon gives `/health/ready` 200 with database
+      and redis both healthy, PID 1 still uvicorn, clean SIGTERM shutdown.
+      What remains is exercising it through the Worker rather than directly.
 - [ ] **CF-08** Deploy to a `*.workers.dev` preview. Prove `/health/ready`, a
       flight search, and one authenticated route end to end.
 
