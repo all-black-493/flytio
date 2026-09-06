@@ -1,2 +1,4 @@
-/** Business API procedures. Health is served separately - see health-route.ts. */
-export const router = {};
+import { routes } from "@interfaces/http/procedures/routes";
+
+/** Business API. Health is served separately - see health-route.ts. */
+export const router = { ...routes };

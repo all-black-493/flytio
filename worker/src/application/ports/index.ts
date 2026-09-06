@@ -20,6 +20,12 @@ export interface HealthCheck {
   check(): Promise<ServiceHealth>;
 }
 
+import type { PopularRoute } from "@domain/routes/popular-route";
+
+export interface RouteRepository {
+  popularRoutes(options: { limit: number; minBookings: number }): Promise<PopularRoute[]>;
+}
+
 export interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;
   error(message: string, fields?: Record<string, unknown>): void;

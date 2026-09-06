@@ -8,7 +8,9 @@ import type { RequestContext } from "@interfaces/http/context";
  */
 export async function handleHealth(
   path: string,
-  context: RequestContext,
+  // Only what it uses, not the whole context - so adding a dependency for
+  // some other route does not ripple through these tests.
+  context: Pick<RequestContext, "clock" | "healthChecks">,
 ): Promise<Response | null> {
   if (path.endsWith("/health/live")) {
     return Response.json({ status: "alive" });

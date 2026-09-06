@@ -138,12 +138,30 @@ not.
 - [ ] **CF-27** Deploy to the workers.dev preview and prove both paths: one
       native route, one proxied.
 
+- [ ] **CF-34** Manage Cloudflare account resources with Terraform
+      (provider v5.24.0): DNS records, Hyperdrive, Queues, KV, Worker routes.
+      **Not** Worker code - wrangler owns that, and wrangler.jsonc is already
+      declarative. Import the two resources that exist rather than recreating
+      (`flyt-backend`, hyperdrive `95658e25decb4410...`).
+      State goes in **R2**, which is S3-compatible, so it does not depend on
+      the S3 bucket this migration is meant to delete.
+      Worth it because DNS has already cost this project three incidents: CAA
+      missing amazon.com, the 200-record cap, and a malformed apex record.
+
 ## Phase 2 - Move routes, cheapest risk first
 
 Ordered by blast radius. Nothing that moves money moves early.
 
 - [ ] **CF-28** Read-only public routes: health, flight search, popular
       destinations. Cacheable, no writes, no auth.
+      Popular destinations **done** and byte-identical to FastAPI, verified
+      with `wrangler dev --remote`. Flight search is next and is different in
+      kind: it needs the Duffel supplier port, not the database.
+
+      Note for later: this machine cannot open TCP 5432 to Neon, so plain
+      `wrangler dev` fails with ETIMEDOUT while `psycopg2` on the same host
+      connects. `--remote` runs on Cloudflare's edge and uses the real
+      Hyperdrive, so it is the verification path here - not a fallback.
 - [ ] **CF-29** Auth: register, login, refresh, OAuth callback. Introduces the
       Durable Object rate limiter and session handling.
 - [ ] **CF-30** Account reads: bookings list, booking detail, tickets.

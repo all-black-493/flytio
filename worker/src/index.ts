@@ -3,6 +3,7 @@ import { onError } from "@orpc/server";
 import { readConfig } from "@config/env";
 import { systemClock } from "@infrastructure/clock";
 import { postgresHealthCheck } from "@infrastructure/db/postgres-health";
+import { postgresRouteRepository } from "@infrastructure/db/route-repository";
 import { handleHealth } from "@interfaces/http/health-route";
 import { router } from "@interfaces/http/router";
 
@@ -33,6 +34,7 @@ export default {
       healthChecks: {
         database: postgresHealthCheck(config.HYPERDRIVE.connectionString),
       },
+      routes: postgresRouteRepository(config.HYPERDRIVE.connectionString),
     };
 
     const health = await handleHealth(new URL(request.url).pathname, context);
