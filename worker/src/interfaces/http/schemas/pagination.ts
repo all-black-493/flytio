@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-/**
- * Cursor pagination, matching what the FastAPI app already returns via
- * sqlakeyset. Composed rather than repeated: `cursorPage(itemSchema)` gives
- * every list endpoint the same envelope.
- */
+/** Matches the envelope sqlakeyset already returns. */
 export const cursorQuery = z.object({
   cursor: z.string().optional(),
   size: z.coerce.number().int().min(1).max(100).default(20),

@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-/**
- * Validated once at the edge. Everything below this file receives values, not
- * `env`, so nothing in domain/ or application/ knows Cloudflare exists.
- */
+/** Validated once at the edge; layers below receive values, not `env`. */
 const schema = z.object({
   ORIGIN_URL: z.url(),
 });

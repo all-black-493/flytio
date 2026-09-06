@@ -1,17 +1,13 @@
 /**
- * What the application needs the world to provide.
- *
- * These are the seams. A use case depends on this file and nothing below it,
- * so it can be exercised with plain objects - no network, no database, no
- * Cloudflare. Adapters in infrastructure/ implement these; nothing here may
- * import from there.
+ * The seams. Use cases depend on this file and nothing below it, so they run
+ * against plain objects. Adapters in infrastructure/ implement these.
  */
 
 export interface Clock {
   now(): Date;
 }
 
-/** not_configured is a dependency this environment deliberately lacks. */
+/** not_configured: a dependency this environment deliberately lacks. */
 export type ServiceStatus = "healthy" | "unhealthy" | "not_configured";
 export type OverallStatus = "healthy" | "degraded" | "down";
 

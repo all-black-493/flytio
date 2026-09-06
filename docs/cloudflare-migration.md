@@ -94,10 +94,31 @@ not.
       still needs authorizing.
 - [x] **CF-22** Workers Paid - **no longer needed.** It was only required for
       Containers.
-- [ ] **CF-23** Register a workers.dev subdomain. `wrangler deploy` warns there
-      is none, so there is no preview URL to test against.
+- [x] **CF-23** workers.dev subdomain - **not needed.** api.flyt.africa is kept
+      and reused, so the Worker binds to a hostname that already exists.
+      Registering one remains an option purely for previews: Workers & Pages ->
+      Subdomain, then `"workers_dev": true` in wrangler.jsonc.
+- [ ] **CF-33** Prepare api.flyt.africa for the Worker. Reusing it needs a
+      second hostname first, because the Worker cannot proxy to the name it
+      serves - that loops. In order:
+      1. DNS: add `origin` A -> 3.131.239.234, **DNS only** (unproxied).
+      2. On EC2: `certbot --nginx -d api.flyt.africa -d origin.flyt.africa
+         --expand` and add origin.flyt.africa to nginx's `server_name`. The
+         current certificate has one SAN, api.flyt.africa, so the Worker's
+         fetch to origin.* fails TLS until this is done.
+      3. Flip `api.flyt.africa` to **Proxied** (orange cloud). A route needs a
+         proxied record; without one requests never reach the Worker.
+      4. Add to wrangler.jsonc and deploy:
+         `"routes": [{ "pattern": "api.flyt.africa/*", "zone_name": "flyt.africa" }]`
+      A route, not a Custom Domain: a Custom Domain makes the Worker the origin
+      and manages the DNS record itself, which is what we want at the *end* of
+      the migration, not while EC2 is still serving most paths.
 - [ ] **CF-03** Confirm what AWS costs today, per service. Sets the value of
-      the whole project.
+      the whole project. Cost Explorer must be enabled once in the console;
+      the API then costs $0.01 per request:
+      `aws ce get-cost-and-usage --time-period Start=2026-06-01,End=2026-09-01
+      --granularity MONTHLY --metrics UnblendedCost
+      --group-by Type=DIMENSION,Key=SERVICE --output table`
 
 ## Phase 1 - Foundation
 

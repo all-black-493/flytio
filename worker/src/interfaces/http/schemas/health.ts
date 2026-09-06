@@ -1,11 +1,7 @@
 import { z } from "zod";
 import { isoDateTime } from "@interfaces/http/schemas/primitives";
 
-/**
- * Mirrors backend/schemas/health.py exactly, snake_case included. Both
- * systems serve this path during the migration, so anything already parsing
- * the FastAPI response has to keep working when the route moves.
- */
+/** Mirrors backend/schemas/health.py, snake_case included. Both serve this path. */
 export const serviceStatus = z.enum(["healthy", "unhealthy", "not_configured"]);
 export const overallStatus = z.enum(["healthy", "degraded", "down"]);
 

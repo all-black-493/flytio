@@ -3,10 +3,8 @@ import { healthResponse } from "@interfaces/http/schemas";
 import type { RequestContext } from "@interfaces/http/context";
 
 /**
- * Served outside oRPC deliberately. /health/ready answers 503 with the same
- * body shape as its 200, and oRPC caps a successful response at 200-399 -
- * expressing this as a typed error would wrap the body in oRPC's error
- * envelope and break anything already parsing it.
+ * Outside oRPC: /health/ready answers 503 with the same body as its 200, and
+ * oRPC caps success at 200-399. A typed error would wrap the body.
  */
 export async function handleHealth(
   path: string,
@@ -22,12 +20,10 @@ export async function handleHealth(
 
   const report = await checkReadiness({ clock: context.clock, checks: context.healthChecks });
 
-  // Parsed on the way out: a drift between the use case and the published
-  // shape should fail here rather than in a caller.
+  // Drift between the use case and the published shape fails here, not in a caller.
   const body = healthResponse.parse(report);
 
-  const readiness = path.endsWith("/health/ready");
   return Response.json(body, {
-    status: readiness && body.status !== "healthy" ? 503 : 200,
+    status: path.endsWith("/health/ready") && body.status !== "healthy" ? 503 : 200,
   });
 }

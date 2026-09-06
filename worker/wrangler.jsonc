@@ -6,9 +6,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
+  // No routes here yet. Adding one binds the Worker to production; the DNS
+  // and certificate steps in docs/cloudflare-migration.md come first.
+
   "vars": {
-    // Everything the Worker does not own yet is forwarded here. Removed once
-    // the last route moves (CF-32).
-    "ORIGIN_URL": "https://api.flyt.africa"
+    // NOT api.flyt.africa. Once the Worker serves that hostname, proxying to
+    // it loops back into the Worker. origin.* is the direct path to EC2.
+    "ORIGIN_URL": "https://origin.flyt.africa"
   }
 }

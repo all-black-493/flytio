@@ -9,11 +9,7 @@ const handler = new OpenAPIHandler(router, {
   interceptors: [onError((error) => console.error(error))],
 });
 
-/**
- * Strangler fig. Routes this Worker owns are served here; everything else is
- * forwarded to the origin unchanged, so migrating a route is additive and
- * reverting one is deleting it. The fallback goes when the last route moves.
- */
+/** Strangler fig: unowned routes go to the origin, so migrating one is additive. */
 async function proxyToOrigin(request: Request, originUrl: string): Promise<Response> {
   const incoming = new URL(request.url);
   const target = new URL(incoming.pathname + incoming.search, originUrl);
@@ -33,8 +29,7 @@ export default {
     const config = readConfig(env);
     const context = {
       clock: systemClock,
-      // Real dependencies land in CF-25. Until then readiness reports on
-      // nothing, which is honest rather than a green light.
+      // Real checks land in CF-25; reporting on nothing beats a false green.
       healthChecks: {},
     };
 
