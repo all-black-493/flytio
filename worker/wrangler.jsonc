@@ -6,9 +6,6 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
-  // No routes here yet. Adding one binds the Worker to production; the DNS
-  // and certificate steps in docs/cloudflare-migration.md come first.
-
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
@@ -26,5 +23,10 @@
     // NOT api.flyt.africa. Once the Worker serves that hostname, proxying to
     // it loops back into the Worker. origin.* is the direct path to EC2.
     "ORIGIN_URL": "https://origin.flyt.africa"
-  }
+  },
+  // Inert until the api.flyt.africa record is proxied - a route never fires on
+  // a DNS-only record. Proxying it is the cutover, and it waits on
+  // origin.flyt.africa holding a certificate, so the proxy fallback has a
+  // target. See CF-33 in docs/cloudflare-migration.md.
+  "routes": [{ "pattern": "api.flyt.africa/*", "zone_name": "flyt.africa" }]
 }

@@ -42,3 +42,15 @@ export interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;
   error(message: string, fields?: Record<string, unknown>): void;
 }
+
+import type { OfferRequestPlan } from "@domain/flights/offer-request";
+import type { SearchResult } from "@domain/flights/offer";
+
+export interface FlightSupplier {
+  searchOffers(plan: OfferRequestPlan): Promise<SearchResult>;
+}
+
+/** The markup in force right now; an admin-scheduled sale can replace it. */
+export interface MarkupPolicy {
+  activeRate(at: Date): Promise<number>;
+}

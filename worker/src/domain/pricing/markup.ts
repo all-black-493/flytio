@@ -1,28 +1,33 @@
-/** Covers Pesapal's fee plus margin. flyt's only revenue mechanism. */
-export const MARKUP_RATE = 0.07;
+import type { Offer } from "@domain/flights/offer";
 
-/** Minor units, so arithmetic never touches a float. */
-export type Money = {
-  readonly amount: bigint;
-  readonly currency: string;
-};
+/**
+ * flyt pays Duffel the raw fare from its own prepaid balance and charges the
+ * customer the marked-up amount; the difference is the entire revenue
+ * mechanism. An admin-scheduled sale can replace the rate for a window, so
+ * every caller passes one in rather than reaching for the default.
+ */
+export const DEFAULT_MARKUP_RATE = 0.07;
 
-export function money(amount: bigint, currency: string): Money {
-  if (!/^[A-Z]{3}$/.test(currency)) {
-    throw new Error(`not an ISO 4217 currency: ${currency}`);
-  }
-  return { amount, currency };
+/** Decimal strings in and out: fares are money, and JSON numbers are doubles. */
+export function markedUpAmount(rawAmount: string, markupRate: number): string {
+  return (Number(rawAmount) * (1 + markupRate)).toFixed(2);
 }
 
 /**
- * Rounds half-up; Python's `:.2f` rounds half-to-even. They differ only on
- * exact half-cents, which no supplier total has produced. Both run for now.
+ * Folds the added margin into tax_amount rather than base_amount, so base +
+ * tax still sums to the new total and base_amount stays the airline's genuine
+ * fare - the convention travel agencies use for a service fee.
  */
-export function markedUp(supplierCost: Money): Money {
-  const rounded = (supplierCost.amount * 107n + 50n) / 100n;
-  return money(rounded, supplierCost.currency);
-}
+export function withMarkup(offer: Offer, markupRate: number): Offer {
+  const rawTotal = Number(offer.total_amount);
+  const newTotal = rawTotal * (1 + markupRate);
 
-export function margin(supplierCost: Money): Money {
-  return money(markedUp(supplierCost).amount - supplierCost.amount, supplierCost.currency);
+  return {
+    ...offer,
+    total_amount: newTotal.toFixed(2),
+    tax_amount:
+      offer.tax_amount === null
+        ? null
+        : (Number(offer.tax_amount) + (newTotal - rawTotal)).toFixed(2),
+  };
 }

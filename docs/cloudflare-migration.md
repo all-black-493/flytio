@@ -98,14 +98,18 @@ not.
       and reused, so the Worker binds to a hostname that already exists.
       Registering one remains an option purely for previews: Workers & Pages ->
       Subdomain, then `"workers_dev": true` in wrangler.jsonc.
-- [ ] **CF-33** Prepare api.flyt.africa for the Worker. Reusing it needs a
+- [ ] **CF-33** Prepare api.flyt.africa for the Worker. Steps 1-2 **done**. Reusing it needs a
       second hostname first, because the Worker cannot proxy to the name it
       serves - that loops. In order:
       1. DNS: add `origin` A -> 3.131.239.234, **DNS only** (unproxied).
       2. On EC2: `certbot --nginx -d api.flyt.africa -d origin.flyt.africa
          --expand` and add origin.flyt.africa to nginx's `server_name`. The
-         current certificate has one SAN, api.flyt.africa, so the Worker's
-         fetch to origin.* fails TLS until this is done.
+         Worker's fetch to origin.* fails TLS until the certificate carries
+         that SAN. Issued 2026-09-06, one certificate with both names, and
+         `https://origin.flyt.africa/health/live` verifies clean.
+         A first attempt failed while the two names still resolved elsewhere
+         from Let's Encrypt's secondary vantage points; retrying once DNS had
+         settled was all it needed.
       3. Flip `api.flyt.africa` to **Proxied** (orange cloud). A route needs a
          proxied record; without one requests never reach the Worker.
       4. Add to wrangler.jsonc and deploy:
@@ -152,16 +156,32 @@ not.
 
 Ordered by blast radius. Nothing that moves money moves early.
 
-- [ ] **CF-28** Read-only public routes: health, flight search, popular
-      destinations. Cacheable, no writes, no auth.
-      Popular destinations **done** and byte-identical to FastAPI, verified
-      with `wrangler dev --remote`. Flight search is next and is different in
-      kind: it needs the Duffel supplier port, not the database.
+- [x] **CF-28** Read-only public routes: health, flight search, popular
+      destinations, place suggestions. Cacheable, no writes, no auth.
 
-      Note for later: this machine cannot open TCP 5432 to Neon, so plain
-      `wrangler dev` fails with ETIMEDOUT while `psycopg2` on the same host
-      connects. `--remote` runs on Cloudflare's edge and uses the real
-      Hyperdrive, so it is the verification path here - not a fallback.
+      Flight search brought over the whole shopping pipeline - markup, facets,
+      filters, the BEST ranking, itinerary grouping and offset pagination -
+      as pure domain code, with Duffel behind a `FlightSupplier` port and the
+      admin-scheduled markup sale behind a `MarkupPolicy` port.
+
+      Verified two ways. `test/search-parity.test.ts` drives the real router
+      against a recorded Duffel response and asserts the JSON matches FastAPI
+      byte-for-byte, key order included, across all five sorts and every
+      filter; regenerate the reference with
+      `PYTHONPATH=. uv run --project backend python worker/test/parity_reference.py`.
+      Then live against real Duffel, comparing the Worker with FastAPI on the
+      same search: 257 key paths on both sides, no difference.
+
+      Not in this ticket, deliberately: price confirmation, seat maps and the
+      loyalty PATCH. They read the same Duffel offers but exist to serve
+      checkout, so they move with CF-32 and its money paths.
+
+      Two notes for later. Offer lists use the Cache API, not KV: the free
+      plan allows 1,000 KV writes a day and a 60-second search cache would
+      spend that by lunchtime. And `wrangler dev --remote` proved unreliable
+      here - its preview served something other than the local source, with a
+      probe route returning the origin's 404 - so local `wrangler dev` against
+      the docker Postgres is the verification path, not `--remote`.
 - [ ] **CF-29** Auth: register, login, refresh, OAuth callback. Introduces the
       Durable Object rate limiter and session handling.
 - [ ] **CF-30** Account reads: bookings list, booking detail, tickets.

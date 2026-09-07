@@ -31,7 +31,7 @@ export const places = {
         ? { text: input.query }
         : { lat: input.lat!, lng: input.lng!, radiusMetres: input.rad! };
 
-    const found = await suggestPlaces({ places: context.places, cache: context.cache }, query);
+    const found = await suggestPlaces({ places: context.places, cache: context.placesCache }, query);
     return { data: found.map(toWire) };
   }),
 };

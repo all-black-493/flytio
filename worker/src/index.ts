@@ -3,11 +3,14 @@ import { matchFastApiValidationStatus } from "@interfaces/http/validation-status
 import { readConfig } from "@config/env";
 import { systemClock } from "@infrastructure/clock";
 import { postgresHealthCheck } from "@infrastructure/db/postgres-health";
+import { postgresMarkupPolicy } from "@infrastructure/db/markup-policy";
 import { postgresRouteRepository } from "@infrastructure/db/route-repository";
-import { duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
+import { duffelFlightSupplier, duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
 import { kvCache, noopCache } from "@infrastructure/cache/kv-cache";
+import { edgeCache } from "@infrastructure/cache/edge-cache";
 import { handleHealth } from "@interfaces/http/health-route";
 import { router } from "@interfaces/http/router";
+import type { RequestContext } from "@interfaces/http/context";
 
 const handler = new OpenAPIHandler(router, {
   interceptors: [matchFastApiValidationStatus],
@@ -31,14 +34,19 @@ async function proxyToOrigin(request: Request, originUrl: string): Promise<Respo
 export default {
   async fetch(request: Request, env: unknown): Promise<Response> {
     const config = readConfig(env);
-    const context = {
+    const connectionString = config.HYPERDRIVE.connectionString;
+
+    const context: RequestContext = {
       clock: systemClock,
       healthChecks: {
-        database: postgresHealthCheck(config.HYPERDRIVE.connectionString),
+        database: postgresHealthCheck(connectionString),
       },
-      routes: postgresRouteRepository(config.HYPERDRIVE.connectionString),
+      routes: postgresRouteRepository(connectionString),
+      markup: postgresMarkupPolicy(connectionString),
       places: duffelPlaceSupplier(config.DUFFEL_API_TOKEN),
-      cache: config.PLACES_CACHE ? kvCache(config.PLACES_CACHE) : noopCache(),
+      flights: duffelFlightSupplier(config.DUFFEL_API_TOKEN),
+      placesCache: config.PLACES_CACHE ? kvCache(config.PLACES_CACHE) : noopCache(),
+      searchCache: edgeCache(caches.default),
     };
 
     const health = await handleHealth(new URL(request.url).pathname, context);
