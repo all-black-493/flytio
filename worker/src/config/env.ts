@@ -4,6 +4,10 @@ import { z } from "zod";
 const schema = z.object({
   ORIGIN_URL: z.url(),
   HYPERDRIVE: z.object({ connectionString: z.string().min(1) }),
+  DUFFEL_API_TOKEN: z.string().min(1),
+  // Optional: without it, reference data is fetched every time rather than
+  // the endpoint failing.
+  PLACES_CACHE: z.custom<KVNamespace>().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

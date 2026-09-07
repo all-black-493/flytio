@@ -26,6 +26,18 @@ export interface RouteRepository {
   popularRoutes(options: { limit: number; minBookings: number }): Promise<PopularRoute[]>;
 }
 
+import type { Place, PlaceQuery } from "@domain/places/place";
+
+export interface PlaceSupplier {
+  suggest(query: PlaceQuery): Promise<Place[]>;
+}
+
+/** Read-through cache. Misses return null rather than throwing. */
+export interface Cache {
+  get<T>(key: string): Promise<T | null>;
+  set<T>(key: string, value: T, ttlSeconds: number): Promise<void>;
+}
+
 export interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;
   error(message: string, fields?: Record<string, unknown>): void;
