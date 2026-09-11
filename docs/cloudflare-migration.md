@@ -176,14 +176,62 @@ Ordered by blast radius. Nothing that moves money moves early.
       loyalty PATCH. They read the same Duffel offers but exist to serve
       checkout, so they move with CF-32 and its money paths.
 
+      Follow-up found while starting CF-29: oRPC's error envelope has no
+      `detail`, which every client reads (`errorDetail` in the frontend's api
+      client), so a 422 reached the user as "Request failed (422)" instead of
+      the reason. Errors are now rewritten into FastAPI's shape on the way
+      out - see `interfaces/http/fastapi-errors.ts`.
+
       Two notes for later. Offer lists use the Cache API, not KV: the free
       plan allows 1,000 KV writes a day and a 60-second search cache would
       spend that by lunchtime. And `wrangler dev --remote` proved unreliable
       here - its preview served something other than the local source, with a
       probe route returning the origin's 404 - so local `wrangler dev` against
       the docker Postgres is the verification path, not `--remote`.
-- [ ] **CF-29** Auth: register, login, refresh, OAuth callback. Introduces the
-      Durable Object rate limiter and session handling.
+- [~] **CF-29** Auth. Split in two by a hard platform limit, and only half of
+      it can move.
+
+      **Done: recognising a session.** Every authenticated route needs this,
+      and it is cheap - an HMAC verify and one indexed lookup. The Worker now
+      verifies HS256 with the same key the Python service signs with, so a
+      session issued by either is honoured by both and the cutover logs
+      nobody out. `GET /me` is migrated and byte-identical, refusals
+      included. The rules from `get_current_user` all came over: purpose
+      (a password-reset token is a validly signed JWT for the same key, and
+      must not work as a session), deleted, banned, and a password reset
+      invalidating tokens issued before it.
+
+      **Blocked: checking a password.** Stored hashes are bcrypt cost 12.
+      Measured: **203 ms of CPU natively**, and pure-JS bcrypt in a Worker is
+      several times slower again. The Workers **free plan allows 10 ms of CPU
+      per request**; Paid allows up to 5 minutes. So sign-in is roughly 20x
+      over budget before the JS penalty.
+
+      Re-hashing does not rescue it. PBKDF2-SHA256 is the only password KDF
+      WebCrypto offers, and at any iteration count worth using it is also far
+      past 10 ms - the budget rules out password verification as such, not
+      bcrypt specifically. Nor can it be moved off the request: a Durable
+      Object carries the same limit.
+
+      So `/token`, `/register/`, `/change-password`, `/reset-password`,
+      `/forgot-password` and `DELETE /me` keep falling through to the origin,
+      which is exactly what the strangler fig is for - and they are the
+      lowest-traffic routes in the app, while the per-request auth check that
+      did move is the highest. `test/route-ownership.test.ts` pins that
+      split, so a later change cannot quietly capture one of them and take
+      down sign-in.
+
+      **This is the decision that gates finishing the migration.** Either
+      Workers Paid ($5/mo - which also reverses CF-22), or EC2 stays alive
+      purely to check passwords. Nothing else in Phase 2 depends on it.
+
+      Still outstanding on this ticket: the OAuth callback, and the Durable
+      Object rate limiter (the origin's fastapi-guard limiter does not follow
+      a route to the edge).
+
+      Deploy note: the Worker needs the signing key -
+      `npx wrangler secret put SECRET_KEY` with the same value the Python
+      service uses, or every existing session reads as invalid.
 - [ ] **CF-30** Account reads: bookings list, booking detail, tickets.
 - [ ] **CF-31** The 8 event types onto Queues, departure sweep on a Cron
       Trigger. Handlers rewritten against the ports, so the queue consumer

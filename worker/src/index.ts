@@ -1,15 +1,18 @@
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
-import { matchFastApiValidationStatus } from "@interfaces/http/validation-status";
+import { asFastApiError, matchFastApiValidationStatus } from "@interfaces/http/fastapi-errors";
 import { readConfig } from "@config/env";
 import { systemClock } from "@infrastructure/clock";
 import { postgresHealthCheck } from "@infrastructure/db/postgres-health";
 import { postgresMarkupPolicy } from "@infrastructure/db/markup-policy";
 import { postgresRouteRepository } from "@infrastructure/db/route-repository";
+import { postgresAccountRepository } from "@infrastructure/db/account-repository";
+import { hs256Verifier } from "@infrastructure/auth/hs256";
 import { duffelFlightSupplier, duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
 import { kvCache, noopCache } from "@infrastructure/cache/kv-cache";
 import { edgeCache } from "@infrastructure/cache/edge-cache";
 import { handleHealth } from "@interfaces/http/health-route";
 import { router } from "@interfaces/http/router";
+import { readCredential } from "@interfaces/http/credentials";
 import type { RequestContext } from "@interfaces/http/context";
 
 const handler = new OpenAPIHandler(router, {
@@ -47,6 +50,9 @@ export default {
       flights: duffelFlightSupplier(config.DUFFEL_API_TOKEN),
       placesCache: config.PLACES_CACHE ? kvCache(config.PLACES_CACHE) : noopCache(),
       searchCache: edgeCache(caches.default),
+      accounts: postgresAccountRepository(connectionString),
+      tokens: hs256Verifier(config.SECRET_KEY, () => systemClock.now()),
+      credential: readCredential(request),
     };
 
     const health = await handleHealth(new URL(request.url).pathname, context);
@@ -57,6 +63,6 @@ export default {
       context,
     });
 
-    return matched ? response : proxyToOrigin(request, config.ORIGIN_URL);
+    return matched ? asFastApiError(response) : proxyToOrigin(request, config.ORIGIN_URL);
   },
 } satisfies ExportedHandler;

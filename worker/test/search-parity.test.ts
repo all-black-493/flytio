@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { router } from "@interfaces/http/router";
-import { matchFastApiValidationStatus } from "@interfaces/http/validation-status";
+import { matchFastApiValidationStatus } from "@interfaces/http/fastapi-errors";
 import { duffelFlightSupplier, duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
 import { noopCache } from "@infrastructure/cache/kv-cache";
 import { systemClock } from "@infrastructure/clock";
@@ -38,6 +38,9 @@ const context: RequestContext = {
   markup: { activeRate: async () => MARKUP_RATE },
   placesCache: noopCache(),
   searchCache: noopCache(),
+  accounts: { byEmail: unreachable },
+  tokens: { verify: unreachable },
+  credential: null,
 };
 
 const handler = new OpenAPIHandler(router, { interceptors: [matchFastApiValidationStatus] });

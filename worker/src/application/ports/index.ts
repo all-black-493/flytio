@@ -54,3 +54,15 @@ export interface FlightSupplier {
 export interface MarkupPolicy {
   activeRate(at: Date): Promise<number>;
 }
+
+import type { Account } from "@domain/auth/account";
+import type { TokenClaims } from "@domain/auth/access-token";
+
+export interface AccountRepository {
+  byEmail(email: string): Promise<Account | null>;
+}
+
+/** Returns null for anything it cannot vouch for: bad signature, expired, malformed. */
+export interface TokenVerifier {
+  verify(token: string): Promise<TokenClaims | null>;
+}
