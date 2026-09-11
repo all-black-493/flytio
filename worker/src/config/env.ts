@@ -8,6 +8,13 @@ const schema = z.object({
   // The same key the Python service signs with, so sessions issued by either
   // are honoured by both while both are serving.
   SECRET_KEY: z.string().min(1),
+  ACCESS_TOKEN_EXPIRE_MINUTES: z.coerce.number().int().positive().default(60),
+  // The shared parent domain in production, so the app and the API both see
+  // the cookie. Unset locally, where a host-only cookie already spans ports.
+  COOKIE_DOMAIN: z.string().min(1).optional(),
+  COOKIE_SECURE: z
+    .union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")])
+    .default(true),
   // Optional: without it, reference data is fetched every time rather than
   // the endpoint failing.
   PLACES_CACHE: z.custom<KVNamespace>().optional(),

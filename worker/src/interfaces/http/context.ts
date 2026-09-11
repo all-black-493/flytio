@@ -1,3 +1,4 @@
+import type { CookiePolicy } from "@interfaces/http/session-cookie";
 import type {
   AccountRepository,
   Cache,
@@ -5,8 +6,10 @@ import type {
   FlightSupplier,
   HealthCheck,
   MarkupPolicy,
+  PasswordHasher,
   PlaceSupplier,
   RouteRepository,
+  TokenSigner,
   TokenVerifier,
 } from "@application/ports";
 
@@ -26,4 +29,7 @@ export type RequestContext = {
   tokens: TokenVerifier;
   /** Whatever the request presented, unverified. Null when it presented none. */
   credential: string | null;
+  passwords: PasswordHasher;
+  signer: TokenSigner;
+  cookiePolicy: CookiePolicy;
 };

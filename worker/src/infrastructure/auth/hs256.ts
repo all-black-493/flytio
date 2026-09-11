@@ -1,4 +1,4 @@
-import type { TokenVerifier } from "@application/ports";
+import type { TokenSigner, TokenVerifier } from "@application/ports";
 import type { TokenClaims, TokenPurpose } from "@domain/auth/access-token";
 
 /**
@@ -32,14 +32,53 @@ function toClaims(payload: Record<string, unknown>): TokenClaims {
   };
 }
 
-export function hs256Verifier(secret: string, now: () => Date): TokenVerifier {
-  const key = crypto.subtle.importKey(
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+}
+
+function hmacKey(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["verify"],
+    [usage],
   );
+}
+
+/**
+ * Claim order matches PyJWT's, so a token minted here is byte-identical to
+ * one the Python service would mint for the same session.
+ */
+export function hs256Signer(secret: string): TokenSigner {
+  const key = hmacKey(secret, "sign");
+
+  return {
+    async sign(claims): Promise<string> {
+      const encode = (value: unknown) =>
+        bytesToBase64Url(new TextEncoder().encode(JSON.stringify(value)));
+
+      const body = [
+        encode({ alg: ALGORITHM, typ: "JWT" }),
+        encode({
+          sub: claims.sub,
+          purpose: claims.purpose,
+          exp: claims.expiresAt,
+          iat: claims.issuedAt,
+        }),
+      ].join(".");
+
+      const signature = await crypto.subtle.sign("HMAC", await key, new TextEncoder().encode(body));
+      return `${body}.${bytesToBase64Url(new Uint8Array(signature))}`;
+    },
+  };
+}
+
+export function hs256Verifier(secret: string, now: () => Date): TokenVerifier {
+  const key = hmacKey(secret, "verify");
 
   return {
     async verify(token: string): Promise<TokenClaims | null> {

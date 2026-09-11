@@ -92,8 +92,10 @@ not.
 - [x] **CF-02** Cloudflare MCP available: `cloudflare-api`,
       `cloudflare-bindings`, `cloudflare-builds`. `cloudflare-observability`
       still needs authorizing.
-- [x] **CF-22** Workers Paid - **no longer needed.** It was only required for
-      Containers.
+- [x] **CF-22** Workers Paid - **needed after all**, for a different reason
+      than Containers. Password verification is ~340 ms of CPU against the
+      free plan's 10 ms; see CF-29. Containers come with it, but nothing
+      here uses them.
 - [x] **CF-23** workers.dev subdomain - **not needed.** api.flyt.africa is kept
       and reused, so the Worker binds to a hostname that already exists.
       Registering one remains an option purely for previews: Workers & Pages ->
@@ -201,7 +203,19 @@ Ordered by blast radius. Nothing that moves money moves early.
       must not work as a session), deleted, banned, and a password reset
       invalidating tokens issued before it.
 
-      **Blocked: checking a password.** Stored hashes are bcrypt cost 12.
+      **Sign-in, once Workers Paid is on.** You chose the upgrade, so this
+      moved too: `POST /token` and `/logout`. bcrypt is pure JS here -
+      measured **~340 ms of CPU** per verify against ~200 ms natively, so it
+      needs the Paid plan's budget rather than the free plan's 10 ms. At that
+      cost the Standard plan's included 30M CPU-ms covers roughly 85,000
+      sign-ins a month before any metered CPU at all.
+
+      Verified live, both directions: a token minted by the Worker is
+      accepted by FastAPI and vice versa, the session cookie is byte-identical
+      to Starlette's for both local and production settings, and the failed
+      login and logout responses match.
+
+      **Why it was nearly blocked, and what it costs to go back.** Stored hashes are bcrypt cost 12.
       Measured: **203 ms of CPU natively**, and pure-JS bcrypt in a Worker is
       several times slower again. The Workers **free plan allows 10 ms of CPU
       per request**; Paid allows up to 5 minutes. So sign-in is roughly 20x
@@ -213,25 +227,23 @@ Ordered by blast radius. Nothing that moves money moves early.
       bcrypt specifically. Nor can it be moved off the request: a Durable
       Object carries the same limit.
 
-      So `/token`, `/register/`, `/change-password`, `/reset-password`,
-      `/forgot-password` and `DELETE /me` keep falling through to the origin,
-      which is exactly what the strangler fig is for - and they are the
-      lowest-traffic routes in the app, while the per-request auth check that
-      did move is the highest. `test/route-ownership.test.ts` pins that
-      split, so a later change cannot quietly capture one of them and take
-      down sign-in.
+      On the free plan none of this is reachable, so dropping back to it
+      means EC2 stays alive purely to check passwords.
+      `test/route-ownership.test.ts` pins which paths this Worker owns, so a
+      later change cannot quietly capture an unmigrated one.
 
-      **This is the decision that gates finishing the migration.** Either
-      Workers Paid ($5/mo - which also reverses CF-22), or EC2 stays alive
-      purely to check passwords. Nothing else in Phase 2 depends on it.
+      Still outstanding on this ticket: `/register/`, the three password
+      routes and `DELETE /me` (all straightforward now - email goes through
+      Resend's HTTP API, which a Worker can call directly); the OAuth
+      callback; and the Durable Object rate limiter, since the origin's
+      fastapi-guard limiter does not follow a route to the edge.
 
-      Still outstanding on this ticket: the OAuth callback, and the Durable
-      Object rate limiter (the origin's fastapi-guard limiter does not follow
-      a route to the edge).
-
-      Deploy note: the Worker needs the signing key -
+      Deploy notes. The Worker needs the signing key -
       `npx wrangler secret put SECRET_KEY` with the same value the Python
-      service uses, or every existing session reads as invalid.
+      service uses, or every existing session reads as invalid. COOKIE_DOMAIN
+      (`.flyt.africa`), COOKIE_SECURE and the token lifetime are plain vars in
+      wrangler.jsonc, mirroring Doppler's `prd` config; the parent domain is
+      what lets the Next.js server read the cookie during SSR.
 - [ ] **CF-30** Account reads: bookings list, booking detail, tickets.
 - [ ] **CF-31** The 8 event types onto Queues, departure sweep on a Cron
       Trigger. Handlers rewritten against the ports, so the queue consumer

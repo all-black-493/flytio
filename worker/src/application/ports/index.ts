@@ -58,11 +58,28 @@ export interface MarkupPolicy {
 import type { Account } from "@domain/auth/account";
 import type { TokenClaims } from "@domain/auth/access-token";
 
+/** The hash never travels with the account; only sign-in has any use for it. */
+export type Credential = {
+  account: Account;
+  /** Null for an account that only ever signed in through a provider. */
+  passwordHash: string | null;
+};
+
 export interface AccountRepository {
   byEmail(email: string): Promise<Account | null>;
+  credentialByEmail(email: string): Promise<Credential | null>;
 }
 
 /** Returns null for anything it cannot vouch for: bad signature, expired, malformed. */
 export interface TokenVerifier {
   verify(token: string): Promise<TokenClaims | null>;
+}
+
+export interface TokenSigner {
+  sign(claims: TokenClaims): Promise<string>;
+}
+
+export interface PasswordHasher {
+  /** False rather than throwing when there is no hash to check against. */
+  verify(plain: string, hash: string | null): Promise<boolean>;
 }

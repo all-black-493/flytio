@@ -65,3 +65,8 @@ export function queryList<T extends z.ZodType>(item: T) {
     z.array(item),
   );
 }
+
+/** oRPC's detailed output envelope, for a response whose headers carry meaning. */
+export function withHeaders<T extends z.ZodType>(body: T) {
+  return z.object({ headers: z.record(z.string(), z.string()), body });
+}

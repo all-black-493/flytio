@@ -22,7 +22,14 @@
   "vars": {
     // NOT api.flyt.africa. Once the Worker serves that hostname, proxying to
     // it loops back into the Worker. origin.* is the direct path to EC2.
-    "ORIGIN_URL": "https://origin.flyt.africa"
+    "ORIGIN_URL": "https://origin.flyt.africa",
+
+    // The session cookie has to look the same whichever service sets it, so
+    // these mirror the Python service's production config. The parent domain
+    // is what lets the Next.js server read the cookie during SSR.
+    "COOKIE_DOMAIN": ".flyt.africa",
+    "COOKIE_SECURE": "true",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": "60"
   },
   // Inert until the api.flyt.africa record is proxied - a route never fires on
   // a DNS-only record. Proxying it is the cutover, and it waits on

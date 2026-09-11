@@ -1,9 +1,9 @@
 /**
- * Which paths this Worker answers and which it hands to the origin. Password
- * verification is bcrypt at cost 12 - 203 ms of CPU measured natively, and
- * pure-JS bcrypt is slower again - against a 10 ms CPU budget on the Workers
- * free plan. Those routes stay behind until that budget changes, so a change
- * that quietly captured one here would take down sign-in.
+ * Which paths this Worker answers and which it hands to the origin.
+ *
+ * Sign-in costs ~340 ms of CPU here, all of it bcrypt at cost 12, which needs
+ * the Paid plan's budget rather than the free plan's 10 ms. Anything still
+ * listed as the origin's is unmigrated work, not a platform limit.
  */
 import { describe, expect, it } from "vitest";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
@@ -35,17 +35,17 @@ describe("route ownership", () => {
 
   it.each([
     ["POST", "/api/v1/token"],
+    ["POST", "/api/v1/logout"],
+  ])("answers %s %s", async (method, path) => {
+    expect(await matches(method, path)).toBe(true);
+  });
+
+  it.each([
     ["POST", "/api/v1/register/"],
     ["POST", "/api/v1/change-password"],
     ["POST", "/api/v1/reset-password"],
     ["POST", "/api/v1/forgot-password"],
     ["DELETE", "/api/v1/me"],
-  ])("leaves %s %s to the origin, which can afford bcrypt", async (method, path) => {
-    expect(await matches(method, path)).toBe(false);
-  });
-
-  it.each([
-    ["POST", "/api/v1/logout"],
     ["GET", "/api/v1/bookings"],
     ["POST", "/api/v1/payments/checkout"],
   ])("leaves %s %s to the origin, not yet migrated", async (method, path) => {

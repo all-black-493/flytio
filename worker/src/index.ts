@@ -6,7 +6,8 @@ import { postgresHealthCheck } from "@infrastructure/db/postgres-health";
 import { postgresMarkupPolicy } from "@infrastructure/db/markup-policy";
 import { postgresRouteRepository } from "@infrastructure/db/route-repository";
 import { postgresAccountRepository } from "@infrastructure/db/account-repository";
-import { hs256Verifier } from "@infrastructure/auth/hs256";
+import { hs256Signer, hs256Verifier } from "@infrastructure/auth/hs256";
+import { bcryptHasher } from "@infrastructure/auth/bcrypt";
 import { duffelFlightSupplier, duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
 import { kvCache, noopCache } from "@infrastructure/cache/kv-cache";
 import { edgeCache } from "@infrastructure/cache/edge-cache";
@@ -53,6 +54,13 @@ export default {
       accounts: postgresAccountRepository(connectionString),
       tokens: hs256Verifier(config.SECRET_KEY, () => systemClock.now()),
       credential: readCredential(request),
+      passwords: bcryptHasher(),
+      signer: hs256Signer(config.SECRET_KEY),
+      cookiePolicy: {
+        domain: config.COOKIE_DOMAIN ?? null,
+        secure: config.COOKIE_SECURE,
+        lifetimeMinutes: config.ACCESS_TOKEN_EXPIRE_MINUTES,
+      },
     };
 
     const health = await handleHealth(new URL(request.url).pathname, context);

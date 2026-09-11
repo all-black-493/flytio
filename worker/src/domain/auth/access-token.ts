@@ -31,3 +31,14 @@ export function survivedPasswordChange(claims: TokenClaims, account: Account): b
   if (account.passwordChangedAtEpoch === null || claims.issuedAt === null) return true;
   return claims.issuedAt >= account.passwordChangedAtEpoch;
 }
+
+/** What the Python service puts in a login token, minted the same way here. */
+export function accessTokenFor(email: string, now: Date, lifetimeMinutes: number): TokenClaims {
+  const issuedAt = Math.floor(now.getTime() / 1000);
+  return {
+    sub: email,
+    purpose: "access",
+    issuedAt,
+    expiresAt: issuedAt + lifetimeMinutes * 60,
+  };
+}

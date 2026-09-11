@@ -38,9 +38,12 @@ const context: RequestContext = {
   markup: { activeRate: async () => MARKUP_RATE },
   placesCache: noopCache(),
   searchCache: noopCache(),
-  accounts: { byEmail: unreachable },
+  accounts: { byEmail: unreachable, credentialByEmail: unreachable },
   tokens: { verify: unreachable },
   credential: null,
+  passwords: { verify: unreachable },
+  signer: { sign: unreachable },
+  cookiePolicy: { domain: null, secure: true, lifetimeMinutes: 60 },
 };
 
 const handler = new OpenAPIHandler(router, { interceptors: [matchFastApiValidationStatus] });

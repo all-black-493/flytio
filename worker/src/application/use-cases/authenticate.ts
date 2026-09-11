@@ -10,7 +10,9 @@ import { isAccessToken, survivedPasswordChange } from "@domain/auth/access-token
  * same way, and a caller that could tell them apart would leak which.
  */
 export async function authenticate(
-  deps: { tokens: TokenVerifier; accounts: AccountRepository },
+  // Only the lookup it uses: recognising a session has no business with a
+  // password hash, and saying so here keeps it that way.
+  deps: { tokens: TokenVerifier; accounts: Pick<AccountRepository, "byEmail"> },
   credential: string | null,
 ): Promise<Account | null> {
   if (!credential) return null;

@@ -5,3 +5,4 @@ export * from "@interfaces/http/schemas/routes";
 export * from "@interfaces/http/schemas/places";
 export * from "@interfaces/http/schemas/flights";
 export * from "@interfaces/http/schemas/account";
+export * from "@interfaces/http/schemas/auth";
