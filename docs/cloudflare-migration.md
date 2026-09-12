@@ -329,9 +329,40 @@ Ordered by blast radius. Nothing that moves money moves early.
       queue consumer here would sit idle while Kafka keeps serving them. Two
       of the handlers also initiate real refunds through Pesapal, which is
       CF-32's machinery. They move with their producers.
-- [ ] **CF-32** Checkout, payment confirmation, IPN reconciliation, refunds.
-      Last, deliberately. Ship behind a flag and reconcile both systems against
-      the same Neon rows before switching.
+- [~] **CF-32** Checkout, payment confirmation, IPN reconciliation, refunds.
+      Split along the line that matters: **quoting money is migrated, moving
+      it is not.**
+
+      Done: `POST /payments/discounts/preview` and
+      `GET /booking/flight-orders/by-id/{id}/refund`. Both read-only. The
+      discount rules came over as pure domain code - the four ways a code can
+      be refused, and the floor that stops a discount reaching below the raw
+      fare. That floor is sharper than it looks: against a 7% markup anything
+      above ~6.5% is absorbed entirely, so a 10% code and a 50% code both
+      leave the customer paying exactly the airline's fare. Checked against
+      the Python function directly: 5% → 101.65, 10% → 100.00, 50% → 100.00.
+
+      Verified live on a real Duffel offer, with fixtures for an active code
+      and a requested refund: eight cases, all matching - a valid code, the
+      same code lowercased, an inactive one, an unissued one, the
+      unauthenticated refusal, a refund that exists, a booking with none, and
+      someone else's booking. The one difference is cosmetic: Python renders
+      `discount_percentage` as `5.0` and JavaScript as `5`. Same JSON number,
+      and the frontend reads it with `z.number()`. Fixtures removed.
+
+      **Still at the origin, deliberately: everything that charges or refunds
+      a customer.** `/payments/checkout`, `/checkout/card`, `/{id}/confirm-card`,
+      `/{id}/status`, `/ipn`, and order cancellation. Those share one function,
+      `_complete_booking`, which replays the order to Duffel, persists the
+      booking, redeems the discount and publishes the completion events - and
+      it cannot be exercised without creating real airline orders and taking
+      real money. `test/route-ownership.test.ts` pins every one of them on the
+      origin's side of the line.
+
+      That is also where the rest of CF-31's queue work lives: those events are
+      published from this flow, and two of their handlers initiate Pesapal
+      refunds. Both move together, behind a flag, reconciled against the same
+      Neon rows before anything switches.
 
 ## Phase 3 - Cutover
 

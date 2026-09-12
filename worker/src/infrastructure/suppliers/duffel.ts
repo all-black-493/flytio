@@ -1,4 +1,4 @@
-import type { FlightSupplier, PlaceSupplier } from "@application/ports";
+import type { FlightSupplier, OfferPricer, PlaceSupplier } from "@application/ports";
 import type { Place, PlaceQuery } from "@domain/places/place";
 import type {
   Aircraft,
@@ -355,6 +355,24 @@ export function duffelFlightSupplier(apiToken: string): FlightSupplier {
         offerRequest: toOfferRequestSummary(body.data),
         offers: list<Raw>(body.data.offers).map(toOffer),
       };
+    },
+  };
+}
+
+/**
+ * Duffel has no separate pricing endpoint: re-fetching a single offer returns
+ * its up-to-date total, which is why this is a read and not a quote call.
+ */
+export function duffelOfferPricer(apiToken: string): OfferPricer {
+  return {
+    async confirmPrice(offerId: string) {
+      const body = await duffelRequest<{ data: { total_amount: string; total_currency: string } }>(
+        apiToken,
+        "GET",
+        `/air/offers/${offerId}`,
+        { query: { return_available_services: "true" } },
+      );
+      return { totalAmount: body.data.total_amount, totalCurrency: body.data.total_currency };
     },
   };
 }

@@ -2,14 +2,17 @@ import type { CookiePolicy } from "@interfaces/http/session-cookie";
 import type {
   AccountRepository,
   BookingRepository,
+  DiscountRepository,
   Cache,
   Clock,
   FlightSupplier,
   HealthCheck,
   Mailer,
   MarkupPolicy,
+  OfferPricer,
   PasswordHasher,
   PlaceSupplier,
+  RefundRepository,
   RouteRepository,
   TokenSigner,
   TokenVerifier,
@@ -29,6 +32,9 @@ export type RequestContext = {
   searchCache: Cache;
   accounts: AccountRepository;
   bookings: BookingRepository;
+  discounts: DiscountRepository;
+  refunds: RefundRepository;
+  offers: OfferPricer;
   tokens: TokenVerifier;
   /** Whatever the request presented, unverified. Null when it presented none. */
   credential: string | null;

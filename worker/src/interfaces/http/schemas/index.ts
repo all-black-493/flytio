@@ -7,3 +7,4 @@ export * from "@interfaces/http/schemas/flights";
 export * from "@interfaces/http/schemas/account";
 export * from "@interfaces/http/schemas/auth";
 export * from "@interfaces/http/schemas/bookings";
+export * from "@interfaces/http/schemas/payments";

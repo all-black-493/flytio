@@ -43,6 +43,8 @@ describe("route ownership", () => {
     ["GET", "/api/v1/booking/flight-orders"],
     ["GET", "/api/v1/booking/flight-orders/by-id/6f1b0e7e-6d5c-4a1e-9a4a-1d2c3b4a5e6f"],
     ["GET", "/api/v1/booking/flight-orders/by-ticket/0571234567890"],
+    ["GET", "/api/v1/booking/flight-orders/by-id/6f1b0e7e-6d5c-4a1e-9a4a-1d2c3b4a5e6f/refund"],
+    ["POST", "/api/v1/payments/discounts/preview"],
   ])("answers %s %s", async (method, path) => {
     expect(await matches(method, path)).toBe(true);
   });
@@ -52,8 +54,21 @@ describe("route ownership", () => {
     // waits for CF-31's queue rather than dropping it silently.
     ["POST", "/api/v1/register/"],
     ["POST", "/api/v1/booking/flight-orders"],
-    ["POST", "/api/v1/payments/checkout"],
   ])("leaves %s %s to the origin, not yet migrated", async (method, path) => {
+    expect(await matches(method, path)).toBe(false);
+  });
+
+  it.each([
+    ["POST", "/api/v1/payments/checkout"],
+    ["POST", "/api/v1/payments/checkout/card"],
+    ["POST", "/api/v1/payments/6f1b0e7e-6d5c-4a1e-9a4a-1d2c3b4a5e6f/confirm-card"],
+    ["GET", "/api/v1/payments/6f1b0e7e-6d5c-4a1e-9a4a-1d2c3b4a5e6f/status"],
+    ["POST", "/api/v1/payments/ipn"],
+    ["POST", "/api/v1/booking/flight-orders/ord_1/cancellations"],
+  ])("leaves %s %s to the origin, because it moves money", async (method, path) => {
+    // Quoting a price is migrated; charging for one is not. Anything that
+    // takes or returns a customer's money still runs where it always has,
+    // until both systems have been reconciled against the same rows.
     expect(await matches(method, path)).toBe(false);
   });
 });

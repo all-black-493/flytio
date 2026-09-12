@@ -178,3 +178,28 @@ export type HtmlMailMessage = {
 export interface HtmlMailer {
   sendHtml(message: HtmlMailMessage): Promise<void>;
 }
+
+import type { DiscountCode } from "@domain/pricing/discount";
+
+export interface DiscountRepository {
+  /** Codes are stored and looked up uppercased, so FLYT10 and flyt10 are one. */
+  byCode(code: string): Promise<DiscountCode | null>;
+}
+
+/** A traveller's own view of the refund owed on a cancelled booking. */
+export type CustomerRefund = {
+  amount: string;
+  currency: string;
+  /** Pesapal never confirms a refund landed, so "paid" only comes from staff. */
+  status: "paid" | "processing";
+  created_at: string;
+};
+
+export interface RefundRepository {
+  forBooking(accountId: string, bookingId: string): Promise<CustomerRefund | null>;
+}
+
+/** Re-fetching an offer is how Duffel reports its live price. */
+export interface OfferPricer {
+  confirmPrice(offerId: string): Promise<{ totalAmount: string; totalCurrency: string }>;
+}

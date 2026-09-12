@@ -8,13 +8,21 @@ import { postgresRouteRepository } from "@infrastructure/db/route-repository";
 import { postgresAccountRepository } from "@infrastructure/db/account-repository";
 import { postgresBookingRepository } from "@infrastructure/db/booking-repository";
 import {
+  postgresDiscountRepository,
+  postgresRefundRepository,
+} from "@infrastructure/db/pricing-repository";
+import {
   postgresDepartureReminderRepository,
   postgresNotificationRepository,
 } from "@infrastructure/db/reminder-repository";
 import { hs256Signer, hs256Verifier } from "@infrastructure/auth/hs256";
 import { bcryptHasher } from "@infrastructure/auth/bcrypt";
 import { resendHtmlMailer, resendMailer } from "@infrastructure/mail/resend";
-import { duffelFlightSupplier, duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
+import {
+  duffelFlightSupplier,
+  duffelOfferPricer,
+  duffelPlaceSupplier,
+} from "@infrastructure/suppliers/duffel";
 import { kvCache, noopCache } from "@infrastructure/cache/kv-cache";
 import { edgeCache } from "@infrastructure/cache/edge-cache";
 import { handleHealth } from "@interfaces/http/health-route";
@@ -61,6 +69,9 @@ export default {
       searchCache: edgeCache(caches.default),
       accounts: postgresAccountRepository(connectionString),
       bookings: postgresBookingRepository(connectionString),
+      discounts: postgresDiscountRepository(connectionString),
+      refunds: postgresRefundRepository(connectionString),
+      offers: duffelOfferPricer(config.DUFFEL_API_TOKEN),
       tokens: hs256Verifier(config.SECRET_KEY, () => systemClock.now()),
       credential: readCredential(request),
       passwords: bcryptHasher(),
