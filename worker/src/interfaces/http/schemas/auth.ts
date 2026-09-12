@@ -19,3 +19,24 @@ export const token = z.object({
 });
 
 export const message = z.object({ message: z.string() });
+
+/**
+ * Eight characters, as the Python schemas require. Registration deliberately
+ * has no such rule there, so nothing is imposed on it here either - that
+ * asymmetry is worth fixing, but not silently during a migration.
+ */
+const newPassword = z.string().min(8);
+
+export const forgotPasswordRequest = z.object({ email: z.email() });
+
+export const resetPasswordRequest = z.object({
+  token: z.string().min(1),
+  new_password: newPassword,
+});
+
+export const changePasswordRequest = z.object({
+  current_password: z.string().min(1),
+  new_password: newPassword,
+});
+
+export const deleteAccountRequest = z.object({ password: z.string().min(1) });

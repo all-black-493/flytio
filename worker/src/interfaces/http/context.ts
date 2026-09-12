@@ -5,6 +5,7 @@ import type {
   Clock,
   FlightSupplier,
   HealthCheck,
+  Mailer,
   MarkupPolicy,
   PasswordHasher,
   PlaceSupplier,
@@ -32,4 +33,7 @@ export type RequestContext = {
   passwords: PasswordHasher;
   signer: TokenSigner;
   cookiePolicy: CookiePolicy;
+  mail: Mailer;
+  /** Where links handed to a user point - password resets, mostly. */
+  frontendUrl: string;
 };

@@ -1,8 +1,18 @@
 import { ORPCError } from "@orpc/server";
 
+/** Only a schema failure carries issues; a deliberate 400 does not. */
+function isValidationFailure(error: ORPCError<string, unknown>): boolean {
+  const data = error.data as { issues?: unknown[] } | null | undefined;
+  return Array.isArray(data?.issues);
+}
+
 /**
  * FastAPI answers 422 for a validation failure; oRPC answers 400. Both serve
  * these paths during the migration, so the status has to match.
+ *
+ * Narrowed to actual schema failures. Rewriting every 400 also caught the
+ * deliberate ones - "Current password is incorrect." came back 422 where the
+ * service it replaces says 400.
  */
 export async function matchFastApiValidationStatus<T>(
   options: { next(): Promise<T> },
@@ -10,7 +20,12 @@ export async function matchFastApiValidationStatus<T>(
   try {
     return await options.next();
   } catch (error) {
-    if (error instanceof ORPCError && error.code === "BAD_REQUEST" && error.status === 400) {
+    if (
+      error instanceof ORPCError &&
+      error.code === "BAD_REQUEST" &&
+      error.status === 400 &&
+      isValidationFailure(error)
+    ) {
       throw new ORPCError("BAD_REQUEST", {
         status: 422,
         message: error.message,

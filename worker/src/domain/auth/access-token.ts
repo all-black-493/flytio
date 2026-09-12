@@ -32,13 +32,25 @@ export function survivedPasswordChange(claims: TokenClaims, account: Account): b
   return claims.issuedAt >= account.passwordChangedAtEpoch;
 }
 
+function tokenFor(
+  email: string,
+  purpose: TokenPurpose,
+  now: Date,
+  lifetimeMinutes: number,
+): TokenClaims {
+  const issuedAt = Math.floor(now.getTime() / 1000);
+  return { sub: email, purpose, issuedAt, expiresAt: issuedAt + lifetimeMinutes * 60 };
+}
+
 /** What the Python service puts in a login token, minted the same way here. */
 export function accessTokenFor(email: string, now: Date, lifetimeMinutes: number): TokenClaims {
-  const issuedAt = Math.floor(now.getTime() / 1000);
-  return {
-    sub: email,
-    purpose: "access",
-    issuedAt,
-    expiresAt: issuedAt + lifetimeMinutes * 60,
-  };
+  return tokenFor(email, "access", now, lifetimeMinutes);
+}
+
+/** Long enough to reach an inbox and be acted on, short enough that a
+ * forwarded or prefetched link is not a standing key to the account. */
+export const PASSWORD_RESET_LIFETIME_MINUTES = 30;
+
+export function passwordResetTokenFor(email: string, now: Date): TokenClaims {
+  return tokenFor(email, "password_reset", now, PASSWORD_RESET_LIFETIME_MINUTES);
 }

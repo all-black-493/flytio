@@ -68,6 +68,36 @@ export type Credential = {
 export interface AccountRepository {
   byEmail(email: string): Promise<Account | null>;
   credentialByEmail(email: string): Promise<Credential | null>;
+  /**
+   * Also stamps password_changed_at, which is what ends every session issued
+   * before now - including the one that asked for the change.
+   */
+  setPassword(accountId: string, hash: string, at: Date): Promise<void>;
+  /**
+   * Soft delete. The row stays so bookings and payments stay linked; the
+   * identity is scrubbed instead, which also frees the address for reuse.
+   */
+  scrub(account: Account, placeholderHash: string, at: Date): Promise<void>;
+}
+
+/** Which address an email goes out under - the Python service picks per purpose. */
+export type MailSender = "welcome" | "transactional" | "bookings" | "support";
+
+export type MailMessage = {
+  to: string;
+  subject: string;
+  /** Blank-line-separated paragraphs, escaped and wrapped by the adapter. */
+  bodyText: string;
+  from: MailSender;
+};
+
+/**
+ * Fire and forget by contract, matching the BackgroundTasks this replaces: a
+ * failed send must never undo the change that triggered it, and nobody should
+ * wait on an inbox to get a response.
+ */
+export interface Mailer {
+  send(message: MailMessage): void;
 }
 
 /** Returns null for anything it cannot vouch for: bad signature, expired, malformed. */
@@ -82,4 +112,5 @@ export interface TokenSigner {
 export interface PasswordHasher {
   /** False rather than throwing when there is no hash to check against. */
   verify(plain: string, hash: string | null): Promise<boolean>;
+  hash(plain: string): Promise<string>;
 }

@@ -15,7 +15,7 @@ import { accessTokenFor } from "@domain/auth/access-token";
 export async function signIn(
   deps: {
     accounts: Pick<AccountRepository, "credentialByEmail">;
-    passwords: PasswordHasher;
+    passwords: Pick<PasswordHasher, "verify">;
     tokens: TokenSigner;
   },
   request: { email: string; password: string; now: Date; lifetimeMinutes: number },

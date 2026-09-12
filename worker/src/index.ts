@@ -8,6 +8,7 @@ import { postgresRouteRepository } from "@infrastructure/db/route-repository";
 import { postgresAccountRepository } from "@infrastructure/db/account-repository";
 import { hs256Signer, hs256Verifier } from "@infrastructure/auth/hs256";
 import { bcryptHasher } from "@infrastructure/auth/bcrypt";
+import { resendMailer } from "@infrastructure/mail/resend";
 import { duffelFlightSupplier, duffelPlaceSupplier } from "@infrastructure/suppliers/duffel";
 import { kvCache, noopCache } from "@infrastructure/cache/kv-cache";
 import { edgeCache } from "@infrastructure/cache/edge-cache";
@@ -36,7 +37,7 @@ async function proxyToOrigin(request: Request, originUrl: string): Promise<Respo
 }
 
 export default {
-  async fetch(request: Request, env: unknown): Promise<Response> {
+  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
     const config = readConfig(env);
     const connectionString = config.HYPERDRIVE.connectionString;
 
@@ -61,6 +62,18 @@ export default {
         secure: config.COOKIE_SECURE,
         lifetimeMinutes: config.ACCESS_TOKEN_EXPIRE_MINUTES,
       },
+      mail: resendMailer(
+        {
+          apiKey: config.RESEND_API_KEY,
+          domain: config.MAIL_DOMAIN,
+          fromName: config.MAIL_FROM_NAME,
+          frontendUrl: config.FRONTEND_URL,
+        },
+        // Outlives the response without delaying it. A failed send must not
+        // undo the change that triggered it, so the rejection stops here.
+        (work) => ctx.waitUntil(work.catch(() => {})),
+      ),
+      frontendUrl: config.FRONTEND_URL,
     };
 
     const health = await handleHealth(new URL(request.url).pathname, context);

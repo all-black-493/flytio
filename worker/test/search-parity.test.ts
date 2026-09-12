@@ -38,12 +38,14 @@ const context: RequestContext = {
   markup: { activeRate: async () => MARKUP_RATE },
   placesCache: noopCache(),
   searchCache: noopCache(),
-  accounts: { byEmail: unreachable, credentialByEmail: unreachable },
+  accounts: { byEmail: unreachable, credentialByEmail: unreachable, setPassword: unreachable, scrub: unreachable },
   tokens: { verify: unreachable },
   credential: null,
-  passwords: { verify: unreachable },
+  passwords: { verify: unreachable, hash: unreachable },
   signer: { sign: unreachable },
   cookiePolicy: { domain: null, secure: true, lifetimeMinutes: 60 },
+  mail: { send: unreachable },
+  frontendUrl: "https://flyt.africa",
 };
 
 const handler = new OpenAPIHandler(router, { interceptors: [matchFastApiValidationStatus] });

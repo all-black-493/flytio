@@ -36,16 +36,18 @@ describe("route ownership", () => {
   it.each([
     ["POST", "/api/v1/token"],
     ["POST", "/api/v1/logout"],
+    ["POST", "/api/v1/change-password"],
+    ["POST", "/api/v1/reset-password"],
+    ["POST", "/api/v1/forgot-password"],
+    ["DELETE", "/api/v1/me"],
   ])("answers %s %s", async (method, path) => {
     expect(await matches(method, path)).toBe(true);
   });
 
   it.each([
+    // Registration publishes the event that sends the welcome email, so it
+    // waits for CF-31's queue rather than dropping it silently.
     ["POST", "/api/v1/register/"],
-    ["POST", "/api/v1/change-password"],
-    ["POST", "/api/v1/reset-password"],
-    ["POST", "/api/v1/forgot-password"],
-    ["DELETE", "/api/v1/me"],
     ["GET", "/api/v1/bookings"],
     ["POST", "/api/v1/payments/checkout"],
   ])("leaves %s %s to the origin, not yet migrated", async (method, path) => {

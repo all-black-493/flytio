@@ -232,13 +232,30 @@ Ordered by blast radius. Nothing that moves money moves early.
       `test/route-ownership.test.ts` pins which paths this Worker owns, so a
       later change cannot quietly capture an unmigrated one.
 
-      Still outstanding on this ticket: `/register/`, the three password
-      routes and `DELETE /me` (all straightforward now - email goes through
-      Resend's HTTP API, which a Worker can call directly); the OAuth
-      callback; and the Durable Object rate limiter, since the origin's
-      fastapi-guard limiter does not follow a route to the edge.
+      **The password routes.** `/change-password`, `/forgot-password`,
+      `/reset-password` and `DELETE /me` all moved. Email turned out not to be
+      a blocker at all: it goes through Resend's HTTP API, which a Worker
+      calls directly, with the branded shell ported from
+      `templates/emails/_shell.html` and sends scheduled on `waitUntil` so a
+      failed one cannot undo the change that triggered it - the same shape as
+      the BackgroundTasks it replaces.
 
-      Deploy notes. The Worker needs the signing key -
+      Checked live against the running service on real accounts, down to the
+      rows left behind: refusal statuses and bodies, the reissued cookie on a
+      change, the scrubbed `deleted-{id}@flyt.africa` address and both
+      timestamps on a delete, and a login token being refused as a reset
+      token. One bug came out of it - the 400-to-422 rewrite was catching
+      deliberate 400s as well as schema failures, so "Current password is
+      incorrect." was answering 422 where the service says 400.
+
+      Still outstanding: `/register/`, which publishes the event that sends
+      the welcome email and so waits for CF-31's queue rather than dropping
+      it silently; the OAuth callback; and the Durable Object rate limiter,
+      since the origin's fastapi-guard limiter does not follow a route to the
+      edge.
+
+      Deploy notes. Secrets are set (`SECRET_KEY`, `DUFFEL_API_TOKEN`);
+      `RESEND_API_KEY` still needs one. The Worker needs the signing key -
       `npx wrangler secret put SECRET_KEY` with the same value the Python
       service uses, or every existing session reads as invalid. COOKIE_DOMAIN
       (`.flyt.africa`), COOKIE_SECURE and the token lifetime are plain vars in

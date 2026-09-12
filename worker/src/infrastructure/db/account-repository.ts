@@ -24,6 +24,28 @@ const BY_EMAIL = `
 
 const CREDENTIAL_BY_EMAIL = BY_EMAIL.replace("    id::text,", "    password,\n    id::text,");
 
+const SET_PASSWORD = `
+  UPDATE userindb
+  SET password = $2, password_changed_at = $3::timestamp
+  WHERE id = $1::uuid
+`;
+
+/**
+ * Never a real DELETE: bookings and payments reference this row, and the
+ * address is freed for reuse by replacing it rather than removing it.
+ * password_changed_at ends every other session the account had open.
+ */
+const SCRUB = `
+  UPDATE userindb
+  SET email = $2, password = $3, deleted_at = $4::timestamp, password_changed_at = $4::timestamp
+  WHERE id = $1::uuid
+`;
+
+/** The column is timestamp-without-time-zone holding UTC, as Python writes it. */
+function naiveUtc(at: Date): string {
+  return at.toISOString().slice(0, 23).replace("T", " ");
+}
+
 type Row = {
   password?: string | null;
   id: string;
@@ -49,14 +71,21 @@ function toAccount(row: Row): Account {
 }
 
 export function postgresAccountRepository(connectionString: string): AccountRepository {
-  async function findOne(sql: string, email: string): Promise<Row | undefined> {
+  async function run<T extends Record<string, unknown>>(
+    sql: string,
+    values: unknown[],
+  ): Promise<T[]> {
     const client = new Client({ connectionString });
     try {
       await client.connect();
-      return (await client.query<Row>(sql, [email])).rows[0];
+      return (await client.query<T>(sql, values)).rows;
     } finally {
       await client.end().catch(() => {});
     }
+  }
+
+  async function findOne(sql: string, email: string): Promise<Row | undefined> {
+    return (await run<Row>(sql, [email]))[0];
   }
 
   return {
@@ -68,6 +97,19 @@ export function postgresAccountRepository(connectionString: string): AccountRepo
     async credentialByEmail(email: string): Promise<Credential | null> {
       const row = await findOne(CREDENTIAL_BY_EMAIL, email);
       return row ? { account: toAccount(row), passwordHash: row.password ?? null } : null;
+    },
+
+    async setPassword(accountId: string, hash: string, at: Date): Promise<void> {
+      await run(SET_PASSWORD, [accountId, hash, naiveUtc(at)]);
+    },
+
+    async scrub(account: Account, placeholderHash: string, at: Date): Promise<void> {
+      await run(SCRUB, [
+        account.id,
+        `deleted-${account.id}@flyt.africa`,
+        placeholderHash,
+        naiveUtc(at),
+      ]);
     },
   };
 }
