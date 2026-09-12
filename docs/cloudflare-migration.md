@@ -128,9 +128,11 @@ not.
 
 ## Phase 1 - Foundation
 
-- [ ] **CF-24** Scaffold the TypeScript Worker on the layout above: Hono,
+- [x] **CF-24** Scaffold the TypeScript Worker on the layout above:
       zod-validated config, vitest, and the dependency rule enforced by lint
-      rather than by convention.
+      rather than by convention. oRPC rather than Hono, decided after this was
+      written - contract-first, so the schemas are the API description instead
+      of something written alongside it.
 - [x] **CF-25** Hyperdrive `flyt-neon-stg` (`95658e25decb4410...`) against Neon's
       **direct** endpoint - Hyperdrive pools, so pointing it at Neon's
       PgBouncer would pool twice. `pg` over `nodejs_compat`, a new Client per
@@ -138,9 +140,10 @@ not.
       `/health/ready` 200 with `database: healthy`, in the FastAPI wire shape.
       No connection string in the repo - local dev reads
       `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`.
-- [ ] **CF-26** Proxy fallback: any route the Worker does not implement is
+- [x] **CF-26** Proxy fallback: any route the Worker does not implement is
       forwarded to the EC2 origin unchanged. This is what makes the strangler
-      fig safe, so it lands before any real route.
+      fig safe, so it lands before any real route. `test/route-ownership.test.ts`
+      pins which side of the line each path is on.
 - [ ] **CF-27** Deploy to the workers.dev preview and prove both paths: one
       native route, one proxied.
 
