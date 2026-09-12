@@ -6,6 +6,7 @@ import { postgresHealthCheck } from "@infrastructure/db/postgres-health";
 import { postgresMarkupPolicy } from "@infrastructure/db/markup-policy";
 import { postgresRouteRepository } from "@infrastructure/db/route-repository";
 import { postgresAccountRepository } from "@infrastructure/db/account-repository";
+import { postgresBookingRepository } from "@infrastructure/db/booking-repository";
 import { hs256Signer, hs256Verifier } from "@infrastructure/auth/hs256";
 import { bcryptHasher } from "@infrastructure/auth/bcrypt";
 import { resendMailer } from "@infrastructure/mail/resend";
@@ -53,6 +54,7 @@ export default {
       placesCache: config.PLACES_CACHE ? kvCache(config.PLACES_CACHE) : noopCache(),
       searchCache: edgeCache(caches.default),
       accounts: postgresAccountRepository(connectionString),
+      bookings: postgresBookingRepository(connectionString),
       tokens: hs256Verifier(config.SECRET_KEY, () => systemClock.now()),
       credential: readCredential(request),
       passwords: bcryptHasher(),

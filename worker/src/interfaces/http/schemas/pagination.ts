@@ -9,7 +9,9 @@ export const cursorQuery = z.object({
 export function cursorPage<T extends z.ZodType>(item: T) {
   return z.object({
     items: z.array(item),
+    total: z.number().int(),
     current_page: z.string().nullable(),
+    current_page_backwards: z.string().nullable(),
     previous_page: z.string().nullable(),
     next_page: z.string().nullable(),
   });

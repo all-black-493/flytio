@@ -264,7 +264,37 @@ Ordered by blast radius. Nothing that moves money moves early.
       (`.flyt.africa`), COOKIE_SECURE and the token lifetime are plain vars in
       wrangler.jsonc, mirroring Doppler's `prd` config; the parent domain is
       what lets the Next.js server read the cookie during SSR.
-- [ ] **CF-30** Account reads: bookings list, booking detail, tickets.
+- [x] **CF-30** Account reads: bookings list, booking detail by id, booking
+      detail by ticket number. All three scoped to the signed-in account, and
+      a booking somebody else owns reads as not found rather than forbidden -
+      telling those apart confirms the id exists.
+
+      The whole nested record is assembled in Postgres with jsonb rather than
+      stitched from four result sets: each query from a Worker is a round trip
+      through Hyperdrive, and a booking is four levels deep.
+
+      Cursor pagination reproduces sqlakeyset's format rather than inventing
+      one, so a cursor issued by either service is understood by both -
+      verified by fetching a page with the other's cursor. Decoded, it is a
+      direction marker plus the sort key: `>dt:<timestamp>~uuid:<id>`.
+
+      Three bugs the comparison caught, none of which a unit test would have:
+      SQLAlchemy stores a Python enum by NAME, so the column holds `CONFIRMED`
+      while every reader expects `confirmed` - filters had to compare on the
+      same lowered text. node-postgres reads `timestamp without time zone` in
+      the server's local zone, so a booking stored at 03:13 came back as
+      00:13Z with the microseconds rounded off - which would also have
+      corrupted every cursor, since the cursor is built from created_at. And
+      the origin/destination filter needed EXISTS rather than a join: a join
+      multiplies a booking by its matching slices and then needs DISTINCT to
+      undo that, which does not survive a projection this wide.
+
+      Verified against the running service on its real data: 16 requests
+      compared deep and whole - every page forwards, every page back, and
+      every filter - plus the detail routes, the ownership boundary, the
+      unauthenticated refusal and a mangled cursor. The only remaining
+      difference anywhere is the wording inside a 422 body, which carries
+      zod's vocabulary rather than pydantic's.
 - [ ] **CF-31** The 8 event types onto Queues, departure sweep on a Cron
       Trigger. Handlers rewritten against the ports, so the queue consumer
       stays a thin adapter.

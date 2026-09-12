@@ -1,10 +1,12 @@
 import { z } from "zod";
 import {
   airlineCode,
+  cabinClass,
   currencyCode,
   decimalAmount,
   iataCodeInput,
   isoDateTime,
+  passengerType,
   queryList,
   upcomingDate,
 } from "@interfaces/http/schemas/primitives";
@@ -12,8 +14,6 @@ import { offsetMeta, offsetQuery } from "@interfaces/http/schemas/pagination";
 
 /* ---------- shared vocabulary ---------- */
 
-export const cabinClass = z.enum(["first", "business", "premium_economy", "economy"]);
-export const passengerType = z.enum(["adult", "child", "infant_without_seat"]);
 export const offerSortKey = z.enum(["best", "price", "duration", "departure", "arrival"]);
 export const departureWindow = z.enum(["morning", "afternoon", "evening", "night"]);
 

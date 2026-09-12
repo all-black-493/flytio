@@ -114,3 +114,19 @@ export interface PasswordHasher {
   verify(plain: string, hash: string | null): Promise<boolean>;
   hash(plain: string): Promise<string>;
 }
+
+import type { Booking, BookingFilters } from "@domain/bookings/booking";
+import type { Cursor, KeysetPage } from "@domain/pagination/keyset";
+
+/**
+ * Every read is scoped to one account. Not owning a booking reads as not
+ * finding it, so a guessed id cannot be used to confirm one exists.
+ */
+export interface BookingRepository {
+  pageFor(
+    accountId: string,
+    request: { filters: BookingFilters; cursor: Cursor; size: number },
+  ): Promise<KeysetPage<Booking>>;
+  byIdFor(accountId: string, bookingId: string): Promise<Booking | null>;
+  byTicketNumberFor(accountId: string, ticketNumber: string): Promise<Booking | null>;
+}

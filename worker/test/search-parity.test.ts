@@ -39,6 +39,7 @@ const context: RequestContext = {
   placesCache: noopCache(),
   searchCache: noopCache(),
   accounts: { byEmail: unreachable, credentialByEmail: unreachable, setPassword: unreachable, scrub: unreachable },
+  bookings: { pageFor: unreachable, byIdFor: unreachable, byTicketNumberFor: unreachable },
   tokens: { verify: unreachable },
   credential: null,
   passwords: { verify: unreachable, hash: unreachable },

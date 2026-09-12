@@ -1,6 +1,7 @@
 import type { CookiePolicy } from "@interfaces/http/session-cookie";
 import type {
   AccountRepository,
+  BookingRepository,
   Cache,
   Clock,
   FlightSupplier,
@@ -27,6 +28,7 @@ export type RequestContext = {
   /** Offer lists, cached for a minute - a different store for a reason. */
   searchCache: Cache;
   accounts: AccountRepository;
+  bookings: BookingRepository;
   tokens: TokenVerifier;
   /** Whatever the request presented, unverified. Null when it presented none. */
   credential: string | null;

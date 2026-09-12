@@ -40,6 +40,9 @@ describe("route ownership", () => {
     ["POST", "/api/v1/reset-password"],
     ["POST", "/api/v1/forgot-password"],
     ["DELETE", "/api/v1/me"],
+    ["GET", "/api/v1/booking/flight-orders"],
+    ["GET", "/api/v1/booking/flight-orders/by-id/6f1b0e7e-6d5c-4a1e-9a4a-1d2c3b4a5e6f"],
+    ["GET", "/api/v1/booking/flight-orders/by-ticket/0571234567890"],
   ])("answers %s %s", async (method, path) => {
     expect(await matches(method, path)).toBe(true);
   });
@@ -48,7 +51,7 @@ describe("route ownership", () => {
     // Registration publishes the event that sends the welcome email, so it
     // waits for CF-31's queue rather than dropping it silently.
     ["POST", "/api/v1/register/"],
-    ["GET", "/api/v1/bookings"],
+    ["POST", "/api/v1/booking/flight-orders"],
     ["POST", "/api/v1/payments/checkout"],
   ])("leaves %s %s to the origin, not yet migrated", async (method, path) => {
     expect(await matches(method, path)).toBe(false);

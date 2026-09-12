@@ -70,3 +70,7 @@ export function queryList<T extends z.ZodType>(item: T) {
 export function withHeaders<T extends z.ZodType>(body: T) {
   return z.object({ headers: z.record(z.string(), z.string()), body });
 }
+
+/** Shared travel vocabulary: the same values whether shopping or booked. */
+export const cabinClass = z.enum(["first", "business", "premium_economy", "economy"]);
+export const passengerType = z.enum(["adult", "child", "infant_without_seat"]);
