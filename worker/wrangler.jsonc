@@ -24,6 +24,10 @@
   // here - offer lists use the Cache API instead.
   "kv_namespaces": [{ "binding": "PLACES_CACHE", "id": "0c482d8d521145abba2f0f8cf47d6f31" }],
 
+  // The departure-reminder sweep. See src/interfaces/scheduled.ts for why
+  // this interval and not a shorter one.
+  "triggers": { "crons": ["*/15 * * * *"] },
+
   "vars": {
     // NOT api.flyt.africa. Once the Worker serves that hostname, proxying to
     // it loops back into the Worker. origin.* is the direct path to EC2.
@@ -40,7 +44,8 @@
     // the key itself is a secret, these are not.
     "MAIL_DOMAIN": "flyt.africa",
     "MAIL_FROM_NAME": "flyt.africa",
-    "FRONTEND_URL": "https://flyt.africa"
+    "FRONTEND_URL": "https://flyt.africa",
+    "BACKEND_PUBLIC_URL": "https://api.flyt.africa"
   },
   // Inert until the api.flyt.africa record is proxied - a route never fires on
   // a DNS-only record. Proxying it is the cutover, and it waits on

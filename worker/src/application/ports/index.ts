@@ -130,3 +130,51 @@ export interface BookingRepository {
   byIdFor(accountId: string, bookingId: string): Promise<Booking | null>;
   byTicketNumberFor(accountId: string, ticketNumber: string): Promise<Booking | null>;
 }
+
+import type { DueDeparture } from "@domain/reminders/departure";
+
+export type NotificationType =
+  | "booking_confirmed"
+  | "booking_failed"
+  | "airline_change"
+  | "cancellation_confirmed"
+  | "change_confirmed"
+  | "departure_reminder"
+  | "support_request"
+  | "discount_redemption_failed";
+
+export type Notification = {
+  userId: string;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  linkUrl: string | null;
+};
+
+export interface NotificationRepository {
+  create(notification: Notification): Promise<void>;
+}
+
+export interface DepartureReminderRepository {
+  due(now: Date, leadTimeHours: number): Promise<DueDeparture[]>;
+  /**
+   * Stamps a leg as reminded, and says whether this caller is the one that
+   * got it. Claimed before anything is sent and conditional on the column
+   * still being empty, so two sweeps racing over one leg produce one winner.
+   */
+  claim(sliceId: string, at: Date): Promise<boolean>;
+  /** Hands a leg back after a failed send, so the next sweep retries it. */
+  release(sliceId: string): Promise<void>;
+}
+
+/** Rendered mail, for the messages that are markup rather than paragraphs. */
+export type HtmlMailMessage = {
+  to: string;
+  subject: string;
+  html: string;
+  from: MailSender;
+};
+
+export interface HtmlMailer {
+  sendHtml(message: HtmlMailMessage): Promise<void>;
+}

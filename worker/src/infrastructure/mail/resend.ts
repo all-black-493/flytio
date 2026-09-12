@@ -1,4 +1,5 @@
-import type { MailMessage, MailSender, Mailer } from "@application/ports";
+import type { HtmlMailMessage, HtmlMailer, MailMessage, MailSender, Mailer } from "@application/ports";
+import { emailShell, escapeHtml, paragraphs } from "@infrastructure/mail/shell";
 
 export type MailConfig = {
   apiKey: string;
@@ -21,91 +22,59 @@ const SENDERS: Record<MailSender, string> = {
   support: "support",
 };
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-/** Blank lines separate paragraphs, same as the Jinja helper it replaces. */
-function paragraphs(text: string): string {
-  return text
-    .split("\n\n")
-    .filter((paragraph) => paragraph.trim())
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
-    .join("");
-}
-
-/**
- * flyt's branded shell, ported from templates/emails/_shell.html. Tables
- * rather than flex or grid, because that is what email clients actually
- * render. `preheader` is the hidden preview text inboxes show beside the
- * subject. `inner` is already-escaped markup.
- */
-function shell(preheader: string, inner: string, logoUrl: string): string {
-  return `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:32px 0;font-family:Helvetica,Arial,sans-serif;">
-  <tr>
-    <td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #d8e0e8;">
-        <tr>
-          <td style="background:#0b1526;padding:20px 32px;">
-            <img src="${escapeHtml(logoUrl)}" alt="flyt" width="32" height="32" style="vertical-align:middle;border-radius:8px;" />
-            <span style="font-size:20px;font-weight:bold;color:#ffffff;vertical-align:middle;margin-left:10px;">flyt</span>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:32px;color:#0b1526;font-size:14px;line-height:1.6;">
-            ${inner}
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 32px;border-top:1px solid #d8e0e8;color:#55677c;font-size:12px;">
-            <p style="margin:0;">Safe travels, from the flyt team.</p>
-            <p style="margin:8px 0 0;">This is an automated message - please don't reply directly to this email.</p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>`;
-}
-
 export function renderEmail(message: MailMessage, logoUrl: string): string {
   const heading = `<h2 style='margin:0 0 16px;font-size:18px;'>${escapeHtml(message.subject)}</h2>`;
-  return shell(message.subject, heading + paragraphs(message.bodyText), logoUrl);
+  return emailShell(message.subject, heading + paragraphs(message.bodyText), logoUrl);
 }
 
 /**
  * `schedule` is what makes this fire-and-forget - the Worker's waitUntil, so
  * the send outlives the response without delaying it.
  */
+function deliver(config: MailConfig, message: { from: MailSender; to: string; subject: string; html: string }) {
+  return fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `${config.fromName} <${SENDERS[message.from]}@${config.domain}>`,
+      to: [message.to],
+      subject: message.subject,
+      html: message.html,
+    }),
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(`Resend refused the message: ${response.status} ${await response.text()}`);
+    }
+  });
+}
+
 export function resendMailer(
   config: MailConfig,
   schedule: (work: Promise<unknown>) => void,
 ): Mailer {
   return {
     send(message: MailMessage): void {
-      const payload = {
-        from: `${config.fromName} <${SENDERS[message.from]}@${config.domain}>`,
-        to: [message.to],
-        subject: message.subject,
-        html: renderEmail(message, `${config.frontendUrl}/logo-email.png`),
-      };
-
       schedule(
-        fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
+        deliver(config, {
+          ...message,
+          html: renderEmail(message, `${config.frontendUrl}/logo-email.png`),
         }),
       );
+    },
+  };
+}
+
+/**
+ * Awaited rather than scheduled. The sweep has no request to outlive, and it
+ * has to know a send failed so it can hand the leg back for the next one.
+ */
+export function resendHtmlMailer(config: MailConfig): HtmlMailer {
+  return {
+    sendHtml(message: HtmlMailMessage): Promise<void> {
+      return deliver(config, message);
     },
   };
 }

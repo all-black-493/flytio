@@ -24,6 +24,9 @@ const schema = z.object({
   MAIL_DOMAIN: z.string().min(1),
   MAIL_FROM_NAME: z.string().default("flyt"),
   FRONTEND_URL: z.url(),
+  // Links that land in an inbox and are clicked long afterwards, so they
+  // point at the public API rather than wherever this happens to be running.
+  BACKEND_PUBLIC_URL: z.url(),
   // Optional: without it, reference data is fetched every time rather than
   // the endpoint failing.
   PLACES_CACHE: z.custom<KVNamespace>().optional(),

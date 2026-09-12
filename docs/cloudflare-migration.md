@@ -295,9 +295,40 @@ Ordered by blast radius. Nothing that moves money moves early.
       unauthenticated refusal and a mangled cursor. The only remaining
       difference anywhere is the wording inside a 422 body, which carries
       zod's vocabulary rather than pydantic's.
-- [ ] **CF-31** The 8 event types onto Queues, departure sweep on a Cron
-      Trigger. Handlers rewritten against the ports, so the queue consumer
-      stays a thin adapter.
+- [~] **CF-31** The departure sweep is **done**, on a Cron Trigger every
+      fifteen minutes - which is also its worst-case lateness, so a reminder
+      lands in [3h, 3h15m] before departure and never after it. Not every five
+      minutes: Neon suspends its compute after ~5 idle minutes and bills for
+      time awake, so a sweep that often would hold it on around the clock for
+      a handful of emails a day.
+
+      The whole due-leg selection now happens in SQL, per-row time zone
+      included. The Python version pulls a coarse ±14h band and filters in
+      application code, on a stated belief that "SQL can't do the conversion
+      because the zone lives on the row" - Postgres can:
+      `f.departing_at AT TIME ZONE f.origin_time_zone`. A zone it does not
+      recognise would abort the query rather than skip a row, so those are
+      excluded by name, which is the same outcome Python reaches by returning
+      None.
+
+      Verified against the database with three fixture legs in Africa/Nairobi,
+      America/New_York and Asia/Tokyo - three different local clock times that
+      all mean the same instant, so a naive comparison could not get them
+      right. Both sweeps agreed on all four probe times, including the exact
+      3h boundary and a leg that had already departed. Claim/release was
+      exercised too: the second claim on a leg loses, a claimed leg drops out
+      of the due set, and releasing puts it back. Fixtures removed afterwards.
+
+      Worth knowing: **every flight row currently has a null
+      origin_time_zone**, so no reminder can fire for existing bookings in
+      either implementation. That column was added later than the data.
+
+      **Still open: the 8 event types onto Queues.** Deliberately not started,
+      because every producer except `user_registered` is a route still on the
+      origin - checkout, the Duffel webhook, support, cancellation - so a
+      queue consumer here would sit idle while Kafka keeps serving them. Two
+      of the handlers also initiate real refunds through Pesapal, which is
+      CF-32's machinery. They move with their producers.
 - [ ] **CF-32** Checkout, payment confirmation, IPN reconciliation, refunds.
       Last, deliberately. Ship behind a flag and reconcile both systems against
       the same Neon rows before switching.
