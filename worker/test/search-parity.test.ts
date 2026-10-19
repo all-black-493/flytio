@@ -38,7 +38,7 @@ const context: RequestContext = {
   markup: { activeRate: async () => MARKUP_RATE },
   placesCache: noopCache(),
   searchCache: noopCache(),
-  accounts: { byEmail: unreachable, credentialByEmail: unreachable, setPassword: unreachable, scrub: unreachable },
+  accounts: { byEmail: unreachable, credentialByEmail: unreachable, setPassword: unreachable, scrub: unreachable, create: unreachable },
   bookings: { pageFor: unreachable, byIdFor: unreachable, byTicketNumberFor: unreachable },
   discounts: { byCode: unreachable },
   refunds: { forBooking: unreachable },

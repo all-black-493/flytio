@@ -1,5 +1,6 @@
 import { implement, ORPCError } from "@orpc/server";
 import { changePassword } from "@application/use-cases/change-password";
+import { register } from "@application/use-cases/register";
 import { deleteAccount } from "@application/use-cases/delete-account";
 import { requestPasswordReset, resetPassword } from "@application/use-cases/reset-password";
 import { accountContract } from "@interfaces/http/contract/account";
@@ -16,13 +17,27 @@ function badRequest(message: string): never {
   throw new ORPCError("BAD_REQUEST", { status: 400, message });
 }
 
+function toWire(account: { id: string; email: string; isStaff: boolean; isSuperuser: boolean }) {
+  return {
+    id: account.id,
+    email: account.email,
+    is_staff: account.isStaff,
+    is_superuser: account.isSuperuser,
+  };
+}
+
 export const account = {
-  me: os.me.use(requireAccount).handler(({ context }) => ({
-    id: context.account.id,
-    email: context.account.email,
-    is_staff: context.account.isStaff,
-    is_superuser: context.account.isSuperuser,
-  })),
+  register: os.register.handler(async ({ context, input }) => {
+    const outcome = await register(
+      { accounts: context.accounts, passwords: context.passwords, mail: context.mail },
+      { email: input.email, password: input.password, now: context.clock.now() },
+    );
+
+    if (!outcome.ok) badRequest("Email already registered");
+    return toWire(outcome.account);
+  }),
+
+  me: os.me.use(requireAccount).handler(({ context }) => toWire(context.account)),
 
   forgotPassword: os.forgotPassword.handler(async ({ context, input }) => {
     await requestPasswordReset(

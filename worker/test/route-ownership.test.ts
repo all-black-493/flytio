@@ -45,14 +45,12 @@ describe("route ownership", () => {
     ["GET", "/api/v1/booking/flight-orders/by-ticket/0571234567890"],
     ["GET", "/api/v1/booking/flight-orders/by-id/6f1b0e7e-6d5c-4a1e-9a4a-1d2c3b4a5e6f/refund"],
     ["POST", "/api/v1/payments/discounts/preview"],
+    ["POST", "/api/v1/register/"],
   ])("answers %s %s", async (method, path) => {
     expect(await matches(method, path)).toBe(true);
   });
 
   it.each([
-    // Registration publishes the event that sends the welcome email, so it
-    // waits for CF-31's queue rather than dropping it silently.
-    ["POST", "/api/v1/register/"],
     ["POST", "/api/v1/booking/flight-orders"],
   ])("leaves %s %s to the origin, not yet migrated", async (method, path) => {
     expect(await matches(method, path)).toBe(false);

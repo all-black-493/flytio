@@ -5,11 +5,23 @@ import {
   forgotPasswordRequest,
   message,
   resetPasswordRequest,
+  userCreate,
   userRead,
   withHeaders,
 } from "@interfaces/http/schemas";
 
 export const accountContract = {
+  // The trailing slash is the real path on the service this replaces.
+  register: oc
+    .route({
+      method: "POST",
+      path: "/register/",
+      tags: ["Auth"],
+      summary: "Create an account",
+    })
+    .input(userCreate)
+    .output(userRead),
+
   me: oc
     .route({ method: "GET", path: "/me", tags: ["Auth"], summary: "The signed-in account" })
     .output(userRead),

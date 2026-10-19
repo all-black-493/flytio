@@ -40,3 +40,14 @@ export const changePasswordRequest = z.object({
 });
 
 export const deleteAccountRequest = z.object({ password: z.string().min(1) });
+
+/**
+ * No minimum length, matching the service this replaces: `UserCreate` sets
+ * none, while the reset and change schemas require eight. That asymmetry is
+ * worth fixing, but not silently during a migration - it would start refusing
+ * sign-ups that work today.
+ */
+export const userCreate = z.object({
+  email: z.email(),
+  password: z.string().min(1),
+});

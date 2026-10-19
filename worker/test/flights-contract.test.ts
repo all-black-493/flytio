@@ -6,7 +6,9 @@ import {
   offerRequestCreate,
 } from "../src/interfaces/http/schemas";
 
-const AHEAD = "2026-10-07";
+// Computed, not written down: a literal date here passes until it does not,
+// and then fails for a reason that has nothing to do with the schema.
+const AHEAD = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
 const TRIP = { origin: "NBO", destination: "DXB", departure_date: AHEAD };
 
 describe("offer list query", () => {

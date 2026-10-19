@@ -28,3 +28,14 @@ export function passwordResetLink(email: string, resetUrl: string): MailMessage 
       `ignore this email.`,
   };
 }
+
+export function welcomeNotice(email: string): MailMessage {
+  return {
+    to: email,
+    from: "welcome",
+    subject: "Welcome to flyt!",
+    bodyText:
+      `Hello ${email},\n\nThank you for registering with us. We are excited ` +
+      `to have you on board!`,
+  };
+}

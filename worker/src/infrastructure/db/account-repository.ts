@@ -41,6 +41,25 @@ const SCRUB = `
   WHERE id = $1::uuid
 `;
 
+/**
+ * ON CONFLICT rather than a prior lookup: the email index is unique, so this
+ * lets the database answer a race instead of a read that was true a moment
+ * ago. No rows back means the address is taken.
+ */
+const CREATE = `
+  INSERT INTO userindb (id, email, password, created_at, is_staff, is_superuser)
+  VALUES (gen_random_uuid(), $1, $2, $3::timestamp, false, false)
+  ON CONFLICT (email) DO NOTHING
+  RETURNING
+    id::text,
+    email,
+    is_staff,
+    is_superuser,
+    deleted_at,
+    banned_at,
+    EXTRACT(EPOCH FROM password_changed_at)::bigint AS password_changed_at_epoch
+`;
+
 /** The column is timestamp-without-time-zone holding UTC, as Python writes it. */
 function naiveUtc(at: Date): string {
   return at.toISOString().slice(0, 23).replace("T", " ");
@@ -101,6 +120,11 @@ export function postgresAccountRepository(connectionString: string): AccountRepo
 
     async setPassword(accountId: string, hash: string, at: Date): Promise<void> {
       await run(SET_PASSWORD, [accountId, hash, naiveUtc(at)]);
+    },
+
+    async create(email: string, passwordHash: string, at: Date): Promise<Account | null> {
+      const row = (await run<Row>(CREATE, [email, passwordHash, naiveUtc(at)]))[0];
+      return row ? toAccount(row) : null;
     },
 
     async scrub(account: Account, placeholderHash: string, at: Date): Promise<void> {

@@ -78,6 +78,13 @@ export interface AccountRepository {
    * identity is scrubbed instead, which also frees the address for reuse.
    */
   scrub(account: Account, placeholderHash: string, at: Date): Promise<void>;
+  /**
+   * Null when the address is already taken. The email column is uniquely
+   * indexed, so this reports the collision the index found rather than a
+   * check made a moment earlier - two simultaneous sign-ups for the same
+   * address both get a straight answer.
+   */
+  create(email: string, passwordHash: string, at: Date): Promise<Account | null>;
 }
 
 /** Which address an email goes out under - the Python service picks per purpose. */
