@@ -24,12 +24,31 @@ It is not a task list.
   are free.
 - Tear AWS down only after Workers serves production.
 
-**Why this is a rewrite.** Python Workers run on Pyodide and take only
-pure-Python, PyEmscripten or Pyodide-bundled packages. This tree has 27 of 106
-distributions shipping compiled binaries, `psycopg2-binary` and
-`confluent-kafka` among them. Hyperdrive's drivers are all JavaScript over the
-JS `connect()` API, so there is no Python path to Postgres, and `threading` is
-non-functional, so the Kafka consumer cannot exist.
+**Why this is a rewrite.** Re-examined 2026-10-19, because the original
+reason expired: Python Workers now run FastAPI through an official ASGI
+entrypoint, and `asyncpg` reaches Postgres through Hyperdrive. Both were
+verified by spike, not read - a Python Worker queried this project's own
+database and counted its 15 bookings.
+
+What still forces a rewrite is narrower and sharper: **`greenlet` has no wasm
+wheel**, and SQLAlchemy's async bridge requires it.
+
+    sqlmodel_async -> ValueError: the greenlet library is required to use
+                      this function. No module named 'greenlet'
+
+Every one of the 92 synchronous functions in `crud/` is SQLModel, so none of
+them run on Workers. Sync SQLAlchemy is not an escape either - it needs a sync
+DBAPI, which means psycopg2, which means real sockets. Reaching the database
+from Python means raw `asyncpg` and hand-written SQL, which is the same work
+as the TypeScript port, in a different language.
+
+So the data layer is rewritten either way. What Python *would* preserve is
+everything above it: pydantic schemas, pricing, offer filtering, email
+templates, PDF generation. That matters least for the routes already migrated
+and most for the ones that are not - see the Python Workers note on CF-32.
+
+`confluent-kafka` and `threading` remain unavailable regardless, so the Kafka
+consumer cannot exist in either language.
 
 **Not in the blast radius:** the database. `DATABASE_URL` points at Neon, so
 bookings, payments and tickets stay where they are. The rewrite changes what
@@ -124,6 +143,14 @@ fixtures would have passed while every one of the bugs below shipped.
 - **The discount floor is sharper than it reads.** Against a 7% markup anything
   above ~6.5% is absorbed entirely, so a 10% code and a 50% code both leave the
   customer paying exactly the airline's fare.
+- **Python Workers were re-evaluated on 2026-10-19 and the answer changed
+  shape.** FastAPI, pydantic, SQLModel, pyjwt, httpx, resend and asyncpg all
+  import and run; raw asyncpg reached this project's database through
+  Hyperdrive. Two details cost real time: Hyperdrive from Python needs
+  `compatibility_date` **2026-09-08 or later** (an earlier date fails with
+  "asyncpg has no usable wheels", which reads like a missing package rather
+  than a date), and `pywrangler` needs **uv >= 0.12.3**. The blocker is
+  `greenlet` alone.
 - **Every `flight` row has a null `origin_time_zone`**, so no departure
   reminder can fire for existing bookings in either implementation. The column
   was added after the data.
