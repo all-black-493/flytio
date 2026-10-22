@@ -1,0 +1,32 @@
+# Vercel's CLI uploads the working directory, and `backend/.env` is read by
+# backend/config.py's SettingsConfigDict(env_file=...). Without this, a local
+# dev .env ships to production and supplies every value the platform does not
+# override - which is how a preview deployment came up announcing
+# `http://localhost:3000` as an allowed CORS origin.
+.env
+.env.*
+*.env
+backend/.env
+backend/.env.*
+
+# Not needed at runtime, and they are most of the bundle.
+.git
+.github
+docs
+frontend
+backend/tests
+# backend/alembic is deliberately NOT excluded: #36 runs migrations as a
+# deploy step, and .vercelignore drops files from the upload entirely, so
+# excluding them would leave the build with nothing to migrate from.
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+.vercel/output
+
+# Local tooling and leftovers.
+.claude
+.vscode
+.logs
+*.deb
+Makefile
