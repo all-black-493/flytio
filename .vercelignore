@@ -10,10 +10,17 @@ backend/.env
 backend/.env.*
 
 # Not needed at runtime, and they are most of the bundle.
+#
+# `frontend` must NOT go here. Vercel applies this file to every project in
+# the repository, including the frontend's own Git deployments - it logs
+# "Found .vercelignore (repository root)" and strips the matches before the
+# build runs. Listing it here deleted the frontend's source out of its own
+# build, which then failed with "Couldn't find any pages or app directory".
+# The backend keeps it out of the function bundle through excludeFiles in
+# vercel.json instead, which is scoped to the backend's own function.
 .git
 .github
 docs
-frontend
 backend/tests
 # backend/alembic is deliberately NOT excluded: #36 runs migrations as a
 # deploy step, and .vercelignore drops files from the upload entirely, so
