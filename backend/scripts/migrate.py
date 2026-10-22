@@ -18,8 +18,8 @@ migrated from nothing, and any caller that needs one needs the other.
 import sys
 
 from alembic import command
-from alembic.config import Config
 
+from backend.scripts.alembic_config import alembic_config
 from backend.scripts.init_db import main as bootstrap_schema
 from backend.utils.log_manager import get_app_logger
 
@@ -35,7 +35,7 @@ def main() -> int:
         return result
 
     logger.info("Applying migrations")
-    command.upgrade(Config("alembic.ini"), "head")
+    command.upgrade(alembic_config(), "head")
     logger.info("Schema is up to date")
     return 0
 
