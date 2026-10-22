@@ -32,7 +32,12 @@ class Settings(BaseSettings):
     # both", which is correct for a plain Postgres that has no pooler.
     DATABASE_MIGRATION_URL: str = ""
 
-    # Redis cache
+    # Redis cache. A full connection string wins when present, because that
+    # is what a managed provider hands over - Upstash injects REDIS_URL into
+    # the Vercel project, credentials included, and the host/port pair below
+    # cannot express a password at all. The pair stays for Compose, where
+    # there is no auth and a bare host is simpler.
+    REDIS_URL: str = ""
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     # Managed Redis (ElastiCache with transit encryption, Upstash, etc)
@@ -198,6 +203,8 @@ class Settings(BaseSettings):
 
         `rediss://` (two s's) is the TLS scheme. `redis://` against a
         TLS-only endpoint fails at connect time, not at startup."""
+        if self.REDIS_URL:
+            return self.REDIS_URL
         scheme = "rediss" if self.REDIS_TLS else "redis"
         return f"{scheme}://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
 
