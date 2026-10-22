@@ -120,3 +120,32 @@ authenticates with `Authorization: Bearer $CRON_SECRET`, which is Vercel
 Cron's own convention. If this account moves to Pro, the scheduler can become
 a `crons` entry in `vercel.json` and no application code changes.
 
+## Observability, after Prometheus
+
+`Instrumentator().instrument(app).expose(app)` served Prometheus metrics at
+`/metrics`, which on serverless measured almost nothing: each invocation is a
+fresh process, so the counters reset constantly and the endpoint described one
+instance's brief life rather than the service. Prometheus, Grafana, Loki and
+promtail went with it — they only ever ran under Compose, scraping an app that
+no longer exposes anything.
+
+What replaces it is Vercel's own request logs, which aggregate across
+invocations because the platform records them rather than the process. The
+question worth being able to answer — how many 5xx in the last hour — is:
+
+```bash
+vercel logs <production-deployment-url> --json \
+  | grep '"responseStatusCode"' \
+  | python3 -c "import json,sys,collections,datetime; \
+now=datetime.datetime.now(datetime.UTC).timestamp()*1000; \
+c=collections.Counter(json.loads(l)['responseStatusCode'] for l in sys.stdin \
+  if l.startswith('{') and json.loads(l).get('timestamp',0)>=now-3600*1000 \
+  and json.loads(l).get('responseStatusCode')); \
+print(dict(sorted(c.items())), '5xx:', sum(n for k,n in c.items() if k>=500))"
+```
+
+The dashboard answers the same question without the pipeline. Note the log
+retention on this plan is short — the window above is about an hour, which is
+exactly the question being asked and not much more. Anything needing longer
+history needs a log drain.
+

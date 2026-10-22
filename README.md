@@ -73,7 +73,7 @@ The API publishes events fire-and-forget and serves every request without waitin
 | **Data** | PostgreSQL 17 (Neon in deployed environments), Redis |
 | **AI** | pydantic-ai concierge, streamed over the Vercel AI SDK protocol |
 | **Infrastructure** | Vercel (functions, queues, cron), Neon, Docker for local |
-| **Observability** | Vercel observability; Prometheus, Grafana and Loki locally |
+| **Observability** | Vercel observability (logs, metrics, traces) |
 
 ## Repository layout
 
@@ -95,7 +95,7 @@ cp .env.example .env        # fill in the required values; see backend/config.py
 docker compose up -d --build
 ```
 
-The API is on `:8000` and Grafana on `:3001`. Secrets come from `.env`, or from Doppler when `DOPPLER_TOKEN` is set — the entrypoint detects it rather than assuming it.
+The API is on `:8000`. Secrets come from `.env`, or from Doppler when `DOPPLER_TOKEN` is set — the entrypoint detects it rather than assuming it.
 
 **Frontend**:
 
