@@ -28,3 +28,14 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+.vercel
+# Added by `vercel pull`, which writes .env.local from the project's
+# environment. Kept, but with the example files exempted: the pattern matches
+# a basename at any depth, so it would silently swallow a new
+# backend/.env.example - which the README tells people to copy - while the
+# existing one survives only because it is already tracked.
+.env*
+!.env.example
+!*.env.example
+!.env.sample
+!*.env.sample
