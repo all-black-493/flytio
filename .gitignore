@@ -1,7 +1,3 @@
-terraform/.terraform
-terraform/*.tfstate
-terraform/*.tfstate.*
-terraform/terraform.tfvars
 
 .playwright-mcp
 .kombai
@@ -15,11 +11,9 @@ mprocs.log
 # binaries - the AWS provider alone is 675MB, which GitHub rejects outright
 # (100MB limit). It is a local cache rebuilt by `terraform init`, never
 # source.
-**/.terraform/
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
-.terraform.lock.hcl.bak
 crash.log
 crash.*.log
 *.tfvars
