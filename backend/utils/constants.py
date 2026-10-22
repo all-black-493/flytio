@@ -42,19 +42,30 @@ JOBS_PATHS = [f"{API_V1_PREFIX}{DEPARTURE_REMINDERS_PATH}"]
 
 
 class EventTopics:
-    USER_EVENTS = "user.events"
-    SUPPORT_EVENTS = "support.events"
+    """Topic names, which Vercel Queues restricts to ^[A-Za-z0-9_-]+$.
+
+    These were dotted ("payment-events") under Kafka, which has no such
+    rule. The SDK rejects a dotted name at publish time, and
+    utils/events.py swallows publish failures so the request it was
+    fired from still succeeds - so every event silently went nowhere:
+    no welcome emails, no booking notifications, no refunds, no support
+    replies. test_events.py validates these against the SDK's own
+    pattern so it cannot happen again.
+    """
+
+    USER_EVENTS = "user-events"
+    SUPPORT_EVENTS = "support-events"
     # Booking-lifecycle events (cancel/change/airline-change) - published
     # by routers/bookings.py and routers/webhooks.py once the underlying
     # booking mutation has already committed.
-    BOOKING_EVENTS = "booking.events"
+    BOOKING_EVENTS = "booking-events"
     # Payment-outcome events - published by crud/payments.py's
     # _publish_booking_completion_events, after its own session.commit().
     # Kept separate from BOOKING_EVENTS despite also being
     # booking-shaped: these are produced from the payment/checkout flow
     # (keyed by payment_id), not a booking action a user/admin took
     # directly, and may warrant different retention/scaling later.
-    PAYMENT_EVENTS = "payment.events"
+    PAYMENT_EVENTS = "payment-events"
 
 
 class EventTypes:

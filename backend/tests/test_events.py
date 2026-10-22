@@ -9,8 +9,11 @@ import datetime
 import decimal
 import uuid
 
+import pytest
+
 
 from backend.utils import events
+from backend.utils.constants import EventTopics
 
 
 def test_envelope_has_the_shape_every_handler_reads():
@@ -34,10 +37,10 @@ def test_publish_sends_the_envelope_to_the_topic(monkeypatch):
         return "msg_1"
 
     monkeypatch.setattr(events, "send", fake_send)
-    asyncio.run(events.publish_event("payment.events", "booking_confirmed", {"id": 1}))
+    asyncio.run(events.publish_event("payment-events", "booking_confirmed", {"id": 1}))
 
     topic, payload = sent[0]
-    assert topic == "payment.events"
+    assert topic == "payment-events"
     assert payload["event_type"] == "booking_confirmed"
     assert payload["data"] == {"id": 1}
 
@@ -55,7 +58,7 @@ def test_values_json_cannot_carry_are_coerced_to_strings(monkeypatch):
     monkeypatch.setattr(events, "send", fake_send)
     asyncio.run(
         events.publish_event(
-            "booking.events",
+            "booking-events",
             "booking_cancelled",
             {
                 "booking_id": uuid.UUID(int=7),
@@ -83,7 +86,7 @@ def test_a_queue_outage_does_not_reach_the_caller(monkeypatch):
 
     monkeypatch.setattr(events, "send", exploding_send)
     asyncio.run(
-        events.publish_event("user.events", "user_registered", {"email": "a@b.c"})
+        events.publish_event("user-events", "user_registered", {"email": "a@b.c"})
     )
 
 
@@ -103,3 +106,31 @@ def test_nested_structures_are_coerced_too(monkeypatch):
 
     assert sent[0]["data"]["passengers"][0]["id"].startswith("00000000")
     assert sent[0]["data"]["meta"] == {"n": 1}
+
+
+def test_every_topic_is_a_name_vercel_queues_accepts():
+    """The SDK's own validator, not a copy of its pattern.
+
+    Dotted Kafka-style names ("payment.events") are rejected at publish
+    time, and publish_event swallows failures so the request still
+    succeeds - so every event went nowhere, silently, in production.
+    """
+    from vercel.queue._internal.names import validate_topic_name
+
+    topics = [
+        value
+        for name, value in vars(EventTopics).items()
+        if not name.startswith("_") and isinstance(value, str)
+    ]
+    assert topics
+
+    for topic in topics:
+        validate_topic_name(topic)
+
+
+def test_a_dotted_topic_would_still_be_rejected():
+    """Guards the guard: proves the validator above is doing something."""
+    from vercel.queue._internal.names import validate_topic_name
+
+    with pytest.raises(ValueError):
+        validate_topic_name("payment.events")
