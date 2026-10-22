@@ -18,7 +18,11 @@ from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
 
-redis = aioredis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
+# settings.redis_url, not REDIS_HOST/REDIS_PORT: a managed endpoint is
+# configured as a single URL, and those two fall back to localhost when it
+# is, so this client quietly connected to nothing in production while the
+# health check - which uses the sync client - reported Redis healthy.
+redis = aioredis.Redis.from_url(settings.redis_url)
 
 # One channel per user, not one global channel - a bare "notifications"
 # channel would deliver every user's (and every admin's) events to every
