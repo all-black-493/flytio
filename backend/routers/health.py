@@ -29,7 +29,6 @@ from backend.crud.db import get_session
 from backend.utils.constants import HEALTH_PREFIX
 from backend.external_services.cache import redis_cache
 from backend.schemas.health import HealthResponse, ServiceHealth
-from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
@@ -55,31 +54,12 @@ def _check_redis() -> ServiceHealth:
         return ServiceHealth(status="unhealthy")
 
 
-def _check_kafka() -> ServiceHealth:
-    # None means the producer was never successfully started - either
-    # KAFKA_BOOTSTRAP_SERVERS isn't set in this environment (an
-    # intentionally supported state, see config.py) or the broker was
-    # unreachable at startup. Either way, list_topics() would just raise
-    # AttributeError on None - this is the same outcome reported more
-    # precisely.
-    if kafka_producer.producer is None:
-        return ServiceHealth(status="not_configured")
-    try:
-        metadata = kafka_producer.producer.list_topics(timeout=1)
-        if not metadata.brokers:
-            return ServiceHealth(status="unhealthy", detail="no brokers")
-        return ServiceHealth(status="healthy")
-    except Exception as e:
-        logger.warning("Health check: kafka unreachable: %s", e)
-        return ServiceHealth(status="unhealthy")
-
-
 def _overall_status(services: dict[str, ServiceHealth]) -> str:
     """One rule for "healthy / degraded / down", shared by every endpoint
     below so they can never disagree about what the same set of checks
     means. "not_configured" is excluded rather than counted as a failure -
-    a dependency this environment deliberately doesn't have (see
-    _check_kafka) is not an outage."""
+    a dependency this environment deliberately doesn't have is not an
+    outage."""
     checked = [s for s in services.values() if s.status != "not_configured"]
     unhealthy = [s for s in checked if s.status == "unhealthy"]
     if not unhealthy:
@@ -102,9 +82,10 @@ def readiness(response: Response, session: Session = Depends(get_session)):
     orchestrator can stop routing to this instance. The body is the same
     shape as GET /health, so anything already parsing that keeps working.
 
-    Kafka is excluded on purpose: the API publishes events fire-and-forget
-    (utils/kafka.py) and serves every read and write without a broker, so
-    a Kafka outage must not take the whole API out of rotation."""
+    Event publishing is excluded on purpose: it is fire-and-forget
+    (utils/events.py), and the API serves every read and write whether or
+    not the queue is reachable, so a queue outage must not take the whole
+    API out of rotation."""
     services = {
         "database": _check_database(session),
         "redis": _check_redis(),
@@ -120,8 +101,8 @@ def readiness(response: Response, session: Session = Depends(get_session)):
 @router.get("", response_model=HealthResponse)
 def health_check(session: Session = Depends(get_session)):
     """A plain `def`, not `async def` - every check below is a blocking
-    synchronous client call (SQLModel's Session, redis-py, confluent-
-    kafka's Producer all block the caller). FastAPI runs a sync route
+    synchronous client call (SQLModel's Session and redis-py both block
+    the caller). FastAPI runs a sync route
     handler in its own threadpool automatically; wrapping the same
     blocking calls in `async def` would instead stall the event loop for
     every other in-flight request each time this one polls its
@@ -129,7 +110,6 @@ def health_check(session: Session = Depends(get_session)):
     services = {
         "database": _check_database(session),
         "redis": _check_redis(),
-        "kafka": _check_kafka(),
     }
 
     return HealthResponse(

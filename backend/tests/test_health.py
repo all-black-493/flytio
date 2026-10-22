@@ -1,8 +1,8 @@
 """Router-level tests for GET /health (routers/health.py) - the shared
 api_client fixture (conftest.py) with get_session overridden to an
-in-memory SQLite DB, and redis_cache/kafka_producer's underlying
-clients swapped for fakes via monkeypatch so no real Redis/Kafka
-connectivity is needed to exercise the aggregation logic itself."""
+in-memory SQLite DB, and redis_cache's underlying client swapped for a
+fake via monkeypatch so no real Redis connectivity is needed to exercise
+the aggregation logic itself."""
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -46,25 +46,8 @@ class _FakeRedis:
         return True
 
 
-class _FakeMetadata:
-    def __init__(self, brokers):
-        self.brokers = brokers
-
-
-class _FakeKafkaProducer:
-    def __init__(self, *, raises: bool = False, brokers: dict | None = None):
-        self.raises = raises
-        self.brokers = brokers if brokers is not None else {1: object()}
-
-    def list_topics(self, timeout):
-        if self.raises:
-            raise Exception("kafka unreachable")
-        return _FakeMetadata(self.brokers)
-
-
 def test_health_check_all_healthy(db_client, monkeypatch):
     monkeypatch.setattr(health_module.redis_cache, "r", _FakeRedis())
-    monkeypatch.setattr(health_module.kafka_producer, "producer", _FakeKafkaProducer())
 
     response = db_client.get("/health")
 
@@ -73,27 +56,10 @@ def test_health_check_all_healthy(db_client, monkeypatch):
     assert body["status"] == "healthy"
     assert body["services"]["database"] == {"status": "healthy", "detail": None}
     assert body["services"]["redis"] == {"status": "healthy", "detail": None}
-    assert body["services"]["kafka"] == {"status": "healthy", "detail": None}
-
-
-def test_health_check_kafka_not_configured_does_not_degrade(db_client, monkeypatch):
-    """Kafka being unconfigured (producer is None - see config.py's own
-    comment on KAFKA_BOOTSTRAP_SERVERS's empty default) is an expected
-    state in some environments, not a degradation."""
-    monkeypatch.setattr(health_module.redis_cache, "r", _FakeRedis())
-    monkeypatch.setattr(health_module.kafka_producer, "producer", None)
-
-    response = db_client.get("/health")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "healthy"
-    assert body["services"]["kafka"]["status"] == "not_configured"
 
 
 def test_health_check_one_service_down_is_degraded_not_down(db_client, monkeypatch):
     monkeypatch.setattr(health_module.redis_cache, "r", _FakeRedis(raises=True))
-    monkeypatch.setattr(health_module.kafka_producer, "producer", _FakeKafkaProducer())
 
     response = db_client.get("/health")
 
@@ -104,28 +70,10 @@ def test_health_check_one_service_down_is_degraded_not_down(db_client, monkeypat
     assert body["services"]["database"]["status"] == "healthy"
 
 
-def test_health_check_kafka_no_brokers_is_unhealthy(db_client, monkeypatch):
-    monkeypatch.setattr(health_module.redis_cache, "r", _FakeRedis())
-    monkeypatch.setattr(
-        health_module.kafka_producer,
-        "producer",
-        _FakeKafkaProducer(brokers={}),
-    )
-
-    response = db_client.get("/health")
-
-    body = response.json()
-    assert body["services"]["kafka"] == {"status": "unhealthy", "detail": "no brokers"}
-    assert body["status"] == "degraded"
-
-
-def test_health_check_redis_and_kafka_down_is_still_degraded(db_client, monkeypatch):
+def test_health_check_redis_down_is_still_degraded(db_client, monkeypatch):
     """Database - the one service still healthy - keeps this from being
     "down": down means every *checked* service failed, not just most."""
     monkeypatch.setattr(health_module.redis_cache, "r", _FakeRedis(raises=True))
-    monkeypatch.setattr(
-        health_module.kafka_producer, "producer", _FakeKafkaProducer(raises=True)
-    )
 
     response = db_client.get("/health")
 
@@ -141,11 +89,36 @@ def test_health_check_every_checked_service_down_is_down(db_client, monkeypatch)
         lambda session: ServiceHealth(status="unhealthy"),
     )
     monkeypatch.setattr(health_module.redis_cache, "r", _FakeRedis(raises=True))
-    # not_configured, not unhealthy - must not count toward "checked".
-    monkeypatch.setattr(health_module.kafka_producer, "producer", None)
 
     response = db_client.get("/health")
 
     body = response.json()
     assert body["status"] == "down"
-    assert body["services"]["kafka"]["status"] == "not_configured"
+
+
+def test_not_configured_is_not_counted_as_a_failure():
+    """The rule used to be exercised through Kafka, which was legitimately
+    absent in some environments. Nothing reports not_configured now that the
+    broker is gone, so the rule is pinned directly rather than left to rot:
+    a dependency this environment deliberately lacks is not an outage."""
+    assert (
+        health_module._overall_status(
+            {
+                "database": ServiceHealth(status="healthy"),
+                "absent": ServiceHealth(status="not_configured"),
+            }
+        )
+        == "healthy"
+    )
+
+
+def test_down_means_every_checked_service_failed():
+    assert (
+        health_module._overall_status(
+            {
+                "database": ServiceHealth(status="unhealthy"),
+                "absent": ServiceHealth(status="not_configured"),
+            }
+        )
+        == "down"
+    )

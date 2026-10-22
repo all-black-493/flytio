@@ -1,4 +1,4 @@
-"""Handlers for KafkaTopics.SUPPORT_EVENTS (backend/utils/constants.py)."""
+"""Handlers for EventTopics.SUPPORT_EVENTS (backend/utils/constants.py)."""
 
 from typing import Any
 
@@ -7,7 +7,7 @@ from sqlmodel import Session
 from backend.crud.db import engine
 from backend.crud.notifications import notify_staff
 from backend.models.notifications import NotificationType
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.email import (
     SENDER_SUPPORT,
     SENDER_TRANSACTIONAL,
@@ -18,7 +18,7 @@ from backend.utils.email_templates import (
     support_request_email_html,
 )
 
-TOPIC = KafkaTopics.SUPPORT_EVENTS
+TOPIC = EventTopics.SUPPORT_EVENTS
 
 
 async def _handle_support_request_received(data: dict[str, Any]) -> None:
@@ -56,5 +56,5 @@ async def _handle_support_request_received(data: dict[str, Any]) -> None:
 
 
 HANDLERS = {
-    KafkaEventTypes.SUPPORT_REQUEST_RECEIVED: _handle_support_request_received,
+    EventTypes.SUPPORT_REQUEST_RECEIVED: _handle_support_request_received,
 }

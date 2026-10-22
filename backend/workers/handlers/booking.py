@@ -1,4 +1,4 @@
-"""Handlers for KafkaTopics.BOOKING_EVENTS (backend/utils/constants.py) -
+"""Handlers for EventTopics.BOOKING_EVENTS (backend/utils/constants.py) -
 booking-lifecycle notifications published by routers/bookings.py and
 routers/webhooks.py, once the underlying booking mutation has already
 committed. Payment-outcome events (booking confirmed/failed after
@@ -17,14 +17,14 @@ from backend.crud.refunds import initiate_refund
 from backend.models.notifications import NotificationType
 from backend.models.refunds import RefundStatus
 from backend.models.users import UserInDB
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import airline_change_email_html
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
 
-TOPIC = KafkaTopics.BOOKING_EVENTS
+TOPIC = EventTopics.BOOKING_EVENTS
 
 
 async def _handle_booking_cancelled(data: dict[str, Any]) -> None:
@@ -157,7 +157,7 @@ async def _handle_airline_change_detected(data: dict[str, Any]) -> None:
 
 
 HANDLERS = {
-    KafkaEventTypes.BOOKING_CANCELLED: _handle_booking_cancelled,
-    KafkaEventTypes.BOOKING_CHANGE_CONFIRMED: _handle_booking_change_confirmed,
-    KafkaEventTypes.AIRLINE_CHANGE_DETECTED: _handle_airline_change_detected,
+    EventTypes.BOOKING_CANCELLED: _handle_booking_cancelled,
+    EventTypes.BOOKING_CHANGE_CONFIRMED: _handle_booking_change_confirmed,
+    EventTypes.AIRLINE_CHANGE_DETECTED: _handle_airline_change_detected,
 }

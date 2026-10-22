@@ -1,0 +1,111 @@
+name: Test
+
+# The backend test suite, as a gate on every pull request.
+#
+# Extracted from deploy-backend-staging.yml, which was the only place these
+# ever ran in CI and is being deleted with the rest of the AWS estate. Vercel
+# replaces deployment but does not run the suite: it builds and deploys, and
+# putting pytest in the build command would conflate "the build failed" with
+# "a test failed" - and make a red test block a deploy you may actively want,
+# such as a revert.
+#
+# pre-commit runs the same checks locally, but on the committer's machine, and
+# `--no-verify` skips it. It had also silently stopped working for a while
+# (its own venv lost its packages), which is the argument for having this.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Backend
+    if: github.repository == 'all-black-493/flytio'
+    runs-on: ubuntu-latest
+
+    # Redis only. The suite overrides the session dependency and runs against
+    # in-memory SQLite, so DATABASE_URL never has to resolve - but
+    # fastapi-guard opens its Redis connection during app startup, and
+    # without one every request through the shared TestClient answers 500.
+    services:
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Lint
+        run: backend/.venv/bin/ruff check backend
+
+      - name: Check formatting
+        run: backend/.venv/bin/ruff format --check backend
+
+      - name: Run backend tests
+        # Every name here exists in backend/config.py - the ones without a
+        # default are what would otherwise fail pydantic validation at import.
+        # All values are throwaway: nothing in the suite reaches a real
+        # service, so this job needs no secrets and no secret store.
+        #
+        # GUARD_API_KEY is deliberately absent: setting it switches on
+        # fastapi-guard's hosted agent (utils/guard.py), which would have CI
+        # reporting traffic to api.guard-core.com under a fake key.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5999/unused
+          SECRET_KEY: ci-only-secret-key
+          ALGORITHM: HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+          AUTO_BAN_THRESHOLD: "10"
+          AUTO_BAN_DURATION: "3600"
+          DUFFEL_API_TOKEN: ci-only-duffel-token
+          RESEND_API_KEY: ci-only-resend-key
+          MAIL_DOMAIN: example.com
+          PESAPAL_CONSUMER_KEY: ci-only-consumer-key
+          PESAPAL_CONSUMER_SECRET: ci-only-consumer-secret
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "6379"
+          REDIS_TLS: "false"
+          CORS_ORIGINS: http://localhost:3000
+          # Defaults to true, and TestClient speaks plain HTTP - a Secure
+          # cookie is set but never sent back, so the OAuth state check fails
+          # and the callback bounces to ?error=google_auth_failed.
+          COOKIE_SECURE: "false"
+          # test_oauth.py asserts the login redirect actually points at
+          # accounts.google.com, so these need real endpoints rather than
+          # placeholders. The client id/secret only have to be non-empty: the
+          # token and userinfo calls are monkeypatched, so nothing here
+          # reaches Google.
+          GOOGLE_CLIENT_ID: ci-only-client-id
+          GOOGLE_CLIENT_SECRET: ci-only-client-secret
+          GOOGLE_AUTH_URL: https://accounts.google.com/o/oauth2/v2/auth
+          GOOGLE_TOKEN_URL: https://oauth2.googleapis.com/token
+          GOOGLE_USERINFO_URL: https://www.googleapis.com/oauth2/v2/userinfo
+        run: backend/.venv/bin/pytest backend/tests

@@ -34,7 +34,7 @@ class Refund(SQLModel, table=True):
     )
     # Unique, not just indexed: Pesapal permits exactly one refund per
     # payment (see its RefundRequest docs), so the DB enforces that same
-    # rule. It doubles as the idempotency guard for the Kafka consumer
+    # rule. It doubles as the idempotency guard for the subscriber
     # that creates these - at-least-once delivery means a redelivered
     # booking_cancelled event would otherwise refund a customer twice.
     payment_id: uuid.UUID = Field(

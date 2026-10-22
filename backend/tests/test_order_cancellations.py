@@ -17,8 +17,9 @@ from backend.main import app
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.payments import Payment, PaymentStatus
 from backend.models.users import UserInDB
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.security import create_access_token
+from backend.tests.event_helpers import recording_publisher
 
 
 @pytest.fixture
@@ -85,9 +86,9 @@ def test_confirm_order_cancellation_publishes_event(
 
     published = []
     monkeypatch.setattr(
-        bookings_module.kafka_producer,
+        bookings_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     response = db_client.post(
@@ -105,8 +106,8 @@ def test_confirm_order_cancellation_publishes_event(
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.BOOKING_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_CANCELLED
+    assert topic == EventTopics.BOOKING_EVENTS
+    assert event_type == EventTypes.BOOKING_CANCELLED
     # The Duffel refund figures ride along on the event so the consumer
     # can work out the customer's refund (crud/refunds.py) without a
     # second round trip to Duffel for a quote that may have expired.
@@ -134,9 +135,9 @@ def test_confirm_order_cancellation_rejects_already_cancelled(
     )
     published = []
     monkeypatch.setattr(
-        bookings_module.kafka_producer,
+        bookings_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     response = db_client.post(

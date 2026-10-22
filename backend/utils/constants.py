@@ -28,7 +28,7 @@ HEALTH_PATHS = [
 ]
 
 
-class KafkaTopics:
+class EventTopics:
     USER_EVENTS = "user.events"
     SUPPORT_EVENTS = "support.events"
     # Booking-lifecycle events (cancel/change/airline-change) - published
@@ -44,7 +44,7 @@ class KafkaTopics:
     PAYMENT_EVENTS = "payment.events"
 
 
-class KafkaEventTypes:
+class EventTypes:
     USER_REGISTERED = "user_registered"
 
     SUPPORT_REQUEST_RECEIVED = "support_request_received"

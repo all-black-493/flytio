@@ -42,8 +42,8 @@ from backend.schemas.duffel_orders import (
     OrderChangeSliceRemove,
     OrderChangeSlices,
 )
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
-from backend.utils.kafka import kafka_producer
+from backend.utils.constants import EventTypes, EventTopics
+from backend.utils.events import publish_event
 from backend.utils.offer_filtering import build_flight_search_response
 from backend.utils.pricing import get_active_markup_rate
 
@@ -305,9 +305,9 @@ if concierge_agent is not None:
             # (routers/bookings.py) - without it, a booking cancelled
             # through the concierge would notify nobody and, more
             # importantly, never refund the customer.
-            kafka_producer.publish_event(
-                KafkaTopics.BOOKING_EVENTS,
-                KafkaEventTypes.BOOKING_CANCELLED,
+            await publish_event(
+                EventTopics.BOOKING_EVENTS,
+                EventTypes.BOOKING_CANCELLED,
                 {
                     "user_id": _require_user(ctx.deps.user).id,
                     "booking_id": booking.id,
