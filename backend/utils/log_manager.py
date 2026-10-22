@@ -78,9 +78,9 @@ class LogManager:
         # Have one file/timed-rotating handler.
         #
         # Best-effort, never fatal. stdout above is the real log stream -
-        # it's what `docker logs` and `kubectl logs` read, and what any log
-        # collector scrapes. The file is a convenience for the Compose
-        # setup, where promtail tails ./.logs.
+        # it's what `docker logs` reads, and what the platform collects in
+        # a deployed environment. The file is a local convenience for
+        # grepping back through a run.
         #
         # A container writing here as root leaves a root-owned file on the
         # host through the bind mount, and the next host-run command dies

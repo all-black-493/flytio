@@ -94,8 +94,6 @@ dependencies = [
     "packaging==26.2",
     "passlib==1.7.4",
     "pillow==12.3.0",
-    "prometheus-client==0.26.0",
-    "prometheus-fastapi-instrumentator==8.1.0",
     "propcache==0.5.2",
     "psycopg2-binary==2.9.12",
     "pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'",
