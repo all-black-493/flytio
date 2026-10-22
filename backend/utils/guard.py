@@ -17,6 +17,10 @@ too. Accepted trade-off for having exactly one rate-limiting mechanism in
 the app.
 """
 
+import os
+import tempfile
+from pathlib import Path
+
 from guard import SecurityConfig, SecurityDecorator
 
 from backend.config import settings
@@ -36,6 +40,43 @@ logger = get_app_logger(__name__)
 # Gating on the key keeps an unconfigured environment (local, CI, a fresh
 # clone) working with local protection only.
 _agent_enabled = bool(settings.GUARD_API_KEY)
+
+
+# guard_agent resolves its install id under Path.home() and creates the
+# parent directory to store it. That mkdir is not inside the try/except
+# guarding the write (guard_agent/install_id.py), so a read-only home
+# raises OSError straight through agent initialisation - which guard_core
+# catches, logs, and then continues without the agent.
+#
+# The effect is the worst shape a failure can take: the log says the agent
+# is enabled and reporting, and nothing reports. It ran that way in
+# production until the deploy logs were read for an unrelated reason.
+#
+# Every serverless filesystem is read-only apart from a temp directory, so
+# point HOME at one when the real one cannot be written. Checked rather
+# than set unconditionally: a normal host (local, Docker, CI) has a
+# writable home and keeps a stable install id across restarts, which is
+# what the id is for. There is no way to pass one explicitly -
+# SecurityConfig.to_agent_config() does not forward AgentConfig's
+# install_id.
+def ensure_writable_home() -> str | None:
+    """Points HOME at a temp directory when the real one is read-only.
+
+    Returns the new value, or None when nothing needed changing.
+    """
+    if os.access(Path.home(), os.W_OK):
+        return None
+    os.environ["HOME"] = tempfile.gettempdir()
+    logger.info(
+        "Home directory is not writable; pointing HOME at %s so the "
+        "guard agent can store its install id",
+        os.environ["HOME"],
+    )
+    return os.environ["HOME"]
+
+
+if _agent_enabled:
+    ensure_writable_home()
 if _agent_enabled:
     logger.info("fastapi-guard agent enabled, reporting to %s", "api.guard-core.com")
     if not settings.GUARD_PROJECT_ID:
