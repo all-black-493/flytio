@@ -29,12 +29,12 @@ working without rewriting the chain.
 import sys
 
 from alembic import command
-from alembic.config import Config
 from sqlalchemy import inspect
 from sqlmodel import SQLModel, create_engine
 
 import backend.models  # noqa: F401 - registers every table on SQLModel.metadata
 from backend.config import settings
+from backend.scripts.alembic_config import alembic_config
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
@@ -62,8 +62,7 @@ def main() -> int:
     # Stamp rather than upgrade: the schema just created already
     # incorporates every migration, so replaying them would fail on the
     # first ALTER of a column that is already in its final shape.
-    config = Config("alembic.ini")
-    command.stamp(config, "head")
+    command.stamp(alembic_config(), "head")
     logger.info("Schema created and stamped at head")
     return 0
 

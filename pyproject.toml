@@ -146,3 +146,15 @@ dependencies = [
 
 [[tool.vercel.subscribers]]
 entrypoint = "backend.queues.events"
+
+# Runs after dependencies are installed and before the deployment serves
+# traffic, which is the only point in a serverless deploy that corresponds to
+# Compose's `migrate` service. A function is the app, so there is no "before
+# the app starts" at runtime: migrating from a request would instead run
+# concurrently across however many instances happen to cold start together.
+#
+# A failure here fails the deploy, which is the behaviour we want - the
+# previous deployment keeps serving rather than a new one meeting a schema it
+# does not match.
+[tool.vercel.scripts]
+build = "python -m backend.scripts.migrate"
