@@ -14,7 +14,7 @@ from backend.external_services.car import duffel_car_service
 from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
 from backend.utils.log_manager import get_app_logger
-from backend.routers import notifications
+from backend.routers import jobs, notifications
 
 from .routers import (
     admin,
@@ -109,6 +109,7 @@ api_v1_router.include_router(support.router)
 api_v1_router.include_router(admin.router)
 api_v1_router.include_router(concierge.router)
 api_v1_router.include_router(notifications.router)
+api_v1_router.include_router(jobs.router)
 api_v1_router.include_router(health.router)
 api_v1_router.include_router(oauth.router)
 

@@ -27,6 +27,19 @@ HEALTH_PATHS = [
     for sub in _HEALTH_SUBPATHS
 ]
 
+# Scheduled work, triggered by an external scheduler rather than a user.
+# Declared here for the same reason as the health paths: routers/jobs.py
+# serves them and utils/guard.py must exempt them.
+#
+# The exemption matters because guard_core is fail-secure - unreachable
+# Redis means 500 for everything - and a sweep that 500s is a reminder
+# nobody receives, silently, until someone notices the absence. These
+# endpoints do not need Redis and they are not open: each verifies a
+# shared secret in constant time before doing any work.
+JOBS_PREFIX = "/jobs"
+DEPARTURE_REMINDERS_PATH = f"{JOBS_PREFIX}/departure-reminders"
+JOBS_PATHS = [f"{API_V1_PREFIX}{DEPARTURE_REMINDERS_PATH}"]
+
 
 class EventTopics:
     USER_EVENTS = "user.events"

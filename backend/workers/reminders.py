@@ -5,10 +5,11 @@ This is time-triggered, not event-triggered, which is why it doesn't live
 in workers/handlers/ with the event handlers - nothing *happens* three
 hours before a flight, the clock just reaches it.
 
-It currently has no caller. The tick that used to drive it lived in the
-Kafka consumer's poll loop, which went away with the consumer: there is
-no long-running process on Vercel to hold one. Issue #34 gives it back a
-trigger as a scheduled function.
+Its trigger is an HTTP endpoint (routers/jobs.py) called every fifteen
+minutes by an external scheduler, because there is no long-running
+process on Vercel to hold a timer in. That interval is also the sweep's
+worst-case lateness, which is why LEAD_TIME's window is stated as a
+range rather than an instant.
 
 Safe to run concurrently: each leg is claimed with a conditional UPDATE
 before anything is sent, so a second sweep finds nothing to do.

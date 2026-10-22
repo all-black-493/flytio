@@ -20,7 +20,7 @@ the app.
 from guard import SecurityConfig, SecurityDecorator
 
 from backend.config import settings
-from backend.utils.constants import HEALTH_PATHS
+from backend.utils.constants import HEALTH_PATHS, JOBS_PATHS
 from backend.utils.log_manager import get_app_logger
 
 try:
@@ -65,7 +65,7 @@ security_config = SecurityConfig(
     #
     # Safe to leave open: routers/health.py returns dependency reachability
     # and nothing else, and it is already public and unauthenticated.
-    exclude_paths=HEALTH_PATHS,
+    exclude_paths=HEALTH_PATHS + JOBS_PATHS,
     # IP banning stays off deliberately: this API sits behind nginx and
     # serves users on shared/mobile NAT, where banning an address can take
     # out a whole network. Detection still runs (below) - it just reports
