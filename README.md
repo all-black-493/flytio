@@ -17,10 +17,9 @@
 <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-0B1526?style=flat-square&logo=typescript&logoColor=FF4F00">
 <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind%20CSS-0B1526?style=flat-square&logo=tailwindcss&logoColor=FF4F00">
 
+<img alt="Vercel" src="https://img.shields.io/badge/Vercel-0B1526?style=flat-square&logo=vercel&logoColor=FF4F00">
+<img alt="Neon" src="https://img.shields.io/badge/Neon-0B1526?style=flat-square&logo=neon&logoColor=FF4F00">
 <img alt="Docker" src="https://img.shields.io/badge/Docker-0B1526?style=flat-square&logo=docker&logoColor=FF4F00">
-<img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-0B1526?style=flat-square&logo=kubernetes&logoColor=FF4F00">
-<img alt="Terraform" src="https://img.shields.io/badge/Terraform-0B1526?style=flat-square&logo=terraform&logoColor=FF4F00">
-<img alt="AWS" src="https://img.shields.io/badge/AWS-0B1526?style=flat-square&logo=amazonwebservices&logoColor=FF4F00">
 <img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub%20Actions-0B1526?style=flat-square&logo=githubactions&logoColor=FF4F00">
 
 <img src="frontend/public/flyt.png" alt="flyt.africa — flight search and live departures board" width="900">
@@ -39,7 +38,7 @@ The interesting parts are not the search box. They are the three places where mo
 
 **A Duffel refund credits flyt, not the traveller.** Cancelling an order returns money to flyt's own Duffel balance; getting the customer their money back is an independent movement down the rail they actually paid on. Pesapal also refunds M-Pesa only in full, so partial mobile-money refunds are routed to a staff queue rather than silently failing.
 
-**Schema changes gate the release.** Migrations run as a Helm `pre-upgrade` hook — once per release rather than once per pod — so a migration that fails leaves the previous version serving instead of rolling out code its schema cannot support.
+**Schema changes gate the release.** Migrations run once per deploy rather than once per instance, so a migration that fails leaves the previous version serving instead of rolling out code its schema cannot support.
 
 ## Architecture
 
@@ -74,8 +73,8 @@ The API publishes events fire-and-forget and serves every request without a brok
 | **Backend** | Python 3.12, FastAPI, SQLModel, Alembic, fastapi-guard |
 | **Data** | PostgreSQL 17 (Neon in deployed environments), Redis, Kafka |
 | **AI** | pydantic-ai concierge, streamed over the Vercel AI SDK protocol |
-| **Infrastructure** | Terraform, Docker, Kubernetes (EKS + Helm), Doppler |
-| **Observability** | Prometheus, Grafana, Loki |
+| **Infrastructure** | Vercel (functions, queues, cron), Neon, Docker for local |
+| **Observability** | Vercel observability; Prometheus, Grafana and Loki locally |
 
 ## Repository layout
 
@@ -84,10 +83,7 @@ backend/      FastAPI service — routers, crud, models, schemas,
               external_services (Duffel, Pesapal, Uber, Resend, OpenAI),
               workers (Kafka consumer), alembic (16 revisions)
 frontend/     Next.js app
-helm/         backend (API, consumer, migration job) + backend-secrets (Doppler)
-terraform/    EC2 production, and kubernetes-staging (EKS, ECR, ElastiCache, ACM)
-k8s/          cluster-scoped manifests (ALB IngressClass)
-k3d/          local Kubernetes cluster definition
+docs/         decision records, including where the backend runs and why
 ```
 
 ## Running it locally
@@ -110,15 +106,6 @@ npm install
 npm run dev                 # :3000
 ```
 
-**On Kubernetes**, locally, via k3d:
-
-```bash
-make k3d-up        # cluster + Postgres + Redis
-make k3d-deploy    # build, import, secret, install
-make k3d-test      # proves the Service routes to a ready pod
-make help          # everything else
-```
-
 ## Tests
 
 ```bash
@@ -130,17 +117,15 @@ backend/.venv/bin/pytest backend/tests
 
 ## Deployment
 
-Two environments, both deployed by GitHub Actions using **OIDC role assumption** — no long-lived AWS keys anywhere.
+Both halves run on **Vercel**: the Next.js app, and the FastAPI backend as a
+Python function (`backend.main:app`, configured in `vercel.json` and the root
+`pyproject.toml`). Data lives in **Neon** Postgres, which no platform move has
+touched. Deploys come from git — a preview per pull request, production on
+merge, rollback by promoting an earlier deployment.
 
-| | Production | Staging |
-|---|---|---|
-| Host | AWS EC2, Terraform-provisioned | AWS EKS (Auto Mode) |
-| Edge | nginx + Let's Encrypt | ALB ingress + ACM |
-| Runtime | Docker Compose | Helm — API, consumer and migration job as separate workloads |
-| Cache | Redis container | ElastiCache |
-| Secrets | Doppler (`prd`) | Doppler (`stg`), synced by the Doppler Kubernetes operator |
-
-Images are published to ECR with **immutable tags**, so a tag is written once and always means the same image; a rollback is naming an earlier `sha-` tag.
+It did not start there. AWS EC2 and EKS came first, then two attempts at
+Cloudflare Workers, each abandoned for a reason worth reading before anyone
+proposes a fourth platform — see [docs/backend-platform.md](docs/backend-platform.md).
 
 ## Status
 
