@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -215,12 +215,10 @@ dependencies = [
     { name = "pydantic-ai-slim", extra = ["ag-ui", "openai"] },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
-    { name = "pytest" },
     { name = "python-dotenv" },
     { name = "qrcode", extra = ["pil"] },
     { name = "redis" },
     { name = "resend" },
-    { name = "ruff" },
     { name = "sqlakeyset" },
     { name = "sqlmodel" },
     { name = "typer" },
@@ -229,6 +227,8 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pypdf" },
+    { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -248,19 +248,21 @@ requires-dist = [
     { name = "pydantic-ai-slim", extras = ["ag-ui", "openai"], specifier = ">=2.19.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "pyjwt", specifier = ">=2.13.0" },
-    { name = "pytest", specifier = ">=9.1.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "qrcode", extras = ["pil"], specifier = ">=8.2" },
     { name = "redis", specifier = ">=8.0.1" },
     { name = "resend", specifier = ">=2.16.0" },
-    { name = "ruff", specifier = ">=0.15.22" },
     { name = "sqlakeyset", specifier = ">=2.0.1775222100" },
     { name = "sqlmodel", specifier = ">=0.0.39" },
     { name = "typer", specifier = ">=0.26.8" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pypdf", specifier = ">=6.15.0" }]
+dev = [
+    { name = "pypdf", specifier = ">=6.15.0" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "ruff", specifier = ">=0.15.22" },
+]
 
 [[package]]
 name = "cachetools"

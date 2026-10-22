@@ -1,0 +1,55 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "flyt-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      // Points at Neon's DIRECT endpoint. Hyperdrive pools; stacking it on
+      // Neon's PgBouncer would be pooling twice.
+      //
+      // No localConnectionString here - that would put a database URL in the
+      // repo. `wrangler dev` reads
+      // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE instead.
+      "id": "95658e25decb441087501652e50ca452"
+    }
+  ],
+
+  // Airport and city reference data, cached for a day. KV allows 1,000 writes
+  // a day on the free plan, which is why only long-lived reference data lives
+  // here - offer lists use the Cache API instead.
+  "kv_namespaces": [{ "binding": "PLACES_CACHE", "id": "0c482d8d521145abba2f0f8cf47d6f31" }],
+
+  // The departure-reminder sweep. See src/interfaces/scheduled.ts for why
+  // this interval and not a shorter one.
+  "triggers": { "crons": ["*/15 * * * *"] },
+
+  "vars": {
+    // NOT api.flyt.africa. Once the Worker serves that hostname, proxying to
+    // it loops back into the Worker. origin.* is the direct path to EC2.
+    "ORIGIN_URL": "https://origin.flyt.africa",
+
+    // The session cookie has to look the same whichever service sets it, so
+    // these mirror the Python service's production config. The parent domain
+    // is what lets the Next.js server read the cookie during SSR.
+    "COOKIE_DOMAIN": ".flyt.africa",
+    "COOKIE_SECURE": "true",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": "60",
+
+    // Outbound mail and the links inside it. Mirrors Doppler's prd config;
+    // the key itself is a secret, these are not.
+    "MAIL_DOMAIN": "flyt.africa",
+    "MAIL_FROM_NAME": "flyt.africa",
+    "FRONTEND_URL": "https://flyt.africa",
+    "BACKEND_PUBLIC_URL": "https://api.flyt.africa"
+  },
+  // Inert until the api.flyt.africa record is proxied - a route never fires on
+  // a DNS-only record. Proxying it is the cutover, and it waits on
+  // origin.flyt.africa holding a certificate, so the proxy fallback has a
+  // target. See CF-33 in docs/cloudflare-migration.md.
+  "routes": [{ "pattern": "api.flyt.africa/*", "zone_name": "flyt.africa" }]
+}
