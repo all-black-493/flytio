@@ -42,7 +42,7 @@ from backend.schemas.duffel_orders import (
     OrderChangeSliceRemove,
     OrderChangeSlices,
 )
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.events import publish_event
 from backend.utils.offer_filtering import build_flight_search_response
 from backend.utils.pricing import get_active_markup_rate
@@ -306,8 +306,8 @@ if concierge_agent is not None:
             # through the concierge would notify nobody and, more
             # importantly, never refund the customer.
             await publish_event(
-                KafkaTopics.BOOKING_EVENTS,
-                KafkaEventTypes.BOOKING_CANCELLED,
+                EventTopics.BOOKING_EVENTS,
+                EventTypes.BOOKING_CANCELLED,
                 {
                     "user_id": _require_user(ctx.deps.user).id,
                     "booking_id": booking.id,

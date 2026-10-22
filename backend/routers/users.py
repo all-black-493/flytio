@@ -28,7 +28,7 @@ from backend.schemas.auth import (
     Token,
 )
 from backend.schemas.users import UserCreate, UserRead
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.email import send_email_async
 from backend.utils.guard import guard_deco
 from backend.utils.events import publish_event
@@ -106,11 +106,11 @@ async def register(
         )
     user = create_user(session, email=user_in.email, password=user_in.password)
 
-    # Fire-and-forget: the welcome email is sent by a separate consumer
-    # (backend/workers/kafka_consumer.py), out of the request path.
+    # Fire-and-forget: the welcome email is sent by the queue subscriber
+    # (backend/queues/events.py), out of the request path.
     await publish_event(
-        KafkaTopics.USER_EVENTS,
-        KafkaEventTypes.USER_REGISTERED,
+        EventTopics.USER_EVENTS,
+        EventTypes.USER_REGISTERED,
         {"user_id": user.id, "email": user.email},
     )
     return user

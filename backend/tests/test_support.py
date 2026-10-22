@@ -1,10 +1,10 @@
 """Router-level tests for the support contact form (routers/support.py) -
 the actual email/notification side effects live in the Kafka consumer
-(backend/workers/kafka_consumer.py, tested separately), so this only
+(backend/queues/events.py, tested separately), so this only
 checks that the right event is published."""
 
 from backend.routers import support as support_router
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 
 
 def test_contact_support_publishes_event(api_client, monkeypatch):
@@ -33,8 +33,8 @@ def test_contact_support_publishes_event(api_client, monkeypatch):
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.SUPPORT_EVENTS
-    assert event_type == KafkaEventTypes.SUPPORT_REQUEST_RECEIVED
+    assert topic == EventTopics.SUPPORT_EVENTS
+    assert event_type == EventTypes.SUPPORT_REQUEST_RECEIVED
     assert data == {
         "name": "Amelia Earhart",
         "email": "amelia@example.com",

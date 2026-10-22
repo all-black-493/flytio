@@ -45,7 +45,7 @@ from backend.schemas.duffel_orders import (
     OrderCreate,
     OrderResponse,
 )
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.itinerary_pdf import booking_qr_png, build_itinerary_pdf
 from backend.utils.events import publish_event
@@ -410,9 +410,9 @@ async def confirm_order_cancellation(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     # mark_booking_cancelled commits before this runs, so it's safe to
-    # publish immediately - the consumer (backend/workers/
-    # kafka_consumer.py) never needs to look the booking up itself, since
-    # everything create_notification needs is already in the event.
+    # publish immediately - the subscriber (backend/queues/events.py)
+    # never needs to look the booking up itself, since everything
+    # create_notification needs is already in the event.
     #
     # refund_amount is Duffel's, i.e. what comes back to *flyt's* balance
     # - the consumer turns it into what the customer gets (see
@@ -421,8 +421,8 @@ async def confirm_order_cancellation(
     mark_booking_cancelled(session, booking)
     quote = OrderCancellationQuote.model_validate(response["data"])
     await publish_event(
-        KafkaTopics.BOOKING_EVENTS,
-        KafkaEventTypes.BOOKING_CANCELLED,
+        EventTopics.BOOKING_EVENTS,
+        EventTypes.BOOKING_CANCELLED,
         {
             "user_id": current_user.id,
             "booking_id": booking.id,
@@ -556,8 +556,8 @@ async def confirm_order_change(
     # anyway (just the reference text), so this is safe to publish even
     # when the resync above failed.
     await publish_event(
-        KafkaTopics.BOOKING_EVENTS,
-        KafkaEventTypes.BOOKING_CHANGE_CONFIRMED,
+        EventTopics.BOOKING_EVENTS,
+        EventTypes.BOOKING_CHANGE_CONFIRMED,
         {
             "user_id": current_user.id,
             "booking_id": booking.id,

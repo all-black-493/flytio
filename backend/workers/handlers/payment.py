@@ -1,4 +1,4 @@
-"""Handlers for KafkaTopics.PAYMENT_EVENTS (backend/utils/constants.py) -
+"""Handlers for EventTopics.PAYMENT_EVENTS (backend/utils/constants.py) -
 published by crud/payments.py's _publish_booking_completion_events,
 after its own session.commit()."""
 
@@ -12,14 +12,14 @@ from backend.crud.db import engine
 from backend.crud.notifications import create_notification, notify_staff
 from backend.models.notifications import NotificationType
 from backend.models.users import UserInDB
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.email import SENDER_BOOKINGS, send_html_email_async
 from backend.utils.email_templates import booking_confirmation_email_html
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
 
-TOPIC = KafkaTopics.PAYMENT_EVENTS
+TOPIC = EventTopics.PAYMENT_EVENTS
 
 
 async def _handle_booking_confirmed(data: dict[str, Any]) -> None:
@@ -117,7 +117,7 @@ async def _handle_discount_redemption_failed(data: dict[str, Any]) -> None:
 
 
 HANDLERS = {
-    KafkaEventTypes.BOOKING_CONFIRMED: _handle_booking_confirmed,
-    KafkaEventTypes.BOOKING_FAILED: _handle_booking_failed,
-    KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED: _handle_discount_redemption_failed,
+    EventTypes.BOOKING_CONFIRMED: _handle_booking_confirmed,
+    EventTypes.BOOKING_FAILED: _handle_booking_failed,
+    EventTypes.DISCOUNT_REDEMPTION_FAILED: _handle_discount_redemption_failed,
 }

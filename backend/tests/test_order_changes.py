@@ -16,7 +16,7 @@ from backend.external_services.flight import duffel_flight_service
 from backend.main import app
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.security import create_access_token
 from backend.tests.event_helpers import recording_publisher
 
@@ -245,8 +245,8 @@ def test_confirm_order_change_publishes_event(session, db_client, monkeypatch):
     assert response.status_code == 200
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.BOOKING_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_CHANGE_CONFIRMED
+    assert topic == EventTopics.BOOKING_EVENTS
+    assert event_type == EventTypes.BOOKING_CHANGE_CONFIRMED
     assert data == {
         "user_id": booking.user_id,
         "booking_id": booking.id,

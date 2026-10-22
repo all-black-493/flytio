@@ -1,11 +1,11 @@
-"""Handlers for KafkaTopics.USER_EVENTS (backend/utils/constants.py)."""
+"""Handlers for EventTopics.USER_EVENTS (backend/utils/constants.py)."""
 
 from typing import Any
 
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.email import SENDER_WELCOME, send_email_async
 
-TOPIC = KafkaTopics.USER_EVENTS
+TOPIC = EventTopics.USER_EVENTS
 
 
 async def _handle_user_registered(data: dict[str, Any]) -> None:
@@ -19,5 +19,5 @@ async def _handle_user_registered(data: dict[str, Any]) -> None:
 
 
 HANDLERS = {
-    KafkaEventTypes.USER_REGISTERED: _handle_user_registered,
+    EventTypes.USER_REGISTERED: _handle_user_registered,
 }

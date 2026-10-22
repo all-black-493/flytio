@@ -33,7 +33,7 @@ from backend.models.tickets import Ticket
 from backend.schemas.duffel_orders import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 from backend.schemas.pesapal import PesapalTransactionStatusResponse
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.tests.event_helpers import recording_publisher
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
@@ -257,8 +257,8 @@ def test_finalize_payment_publishes_booking_confirmed(session, monkeypatch):
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.PAYMENT_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
+    assert topic == EventTopics.PAYMENT_EVENTS
+    assert event_type == EventTypes.BOOKING_CONFIRMED
     assert data == {
         "payment_id": result.id,
         "booking_id": result.booking_id,
@@ -295,8 +295,8 @@ def test_finalize_payment_publishes_booking_failed(session, monkeypatch):
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.PAYMENT_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_FAILED
+    assert topic == EventTopics.PAYMENT_EVENTS
+    assert event_type == EventTypes.BOOKING_FAILED
     assert data["payment_id"] == result.id
     assert data["user_id"] == result.user_id
     assert "offer expired" in data["failure_reason"]
@@ -704,8 +704,8 @@ def test_confirm_card_payment_completed(session, monkeypatch):
     # confirms confirm_card_payment actually calls it, after its own commit.
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.PAYMENT_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
+    assert topic == EventTopics.PAYMENT_EVENTS
+    assert event_type == EventTypes.BOOKING_CONFIRMED
     assert data == {
         "payment_id": result.id,
         "booking_id": result.booking_id,
@@ -831,8 +831,8 @@ def test_create_admin_booking_completes_without_real_payment_collection(
     # publish is unconditional - see crud/payments.py's own docstring.
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.PAYMENT_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_CONFIRMED
+    assert topic == EventTopics.PAYMENT_EVENTS
+    assert event_type == EventTypes.BOOKING_CONFIRMED
     assert data["user_id"] == customer_user_id
     assert data["booking_id"] == result.booking_id
 
@@ -866,8 +866,8 @@ def test_create_admin_booking_booking_failed_when_duffel_errors(session, monkeyp
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.PAYMENT_EVENTS
-    assert event_type == KafkaEventTypes.BOOKING_FAILED
+    assert topic == EventTopics.PAYMENT_EVENTS
+    assert event_type == EventTypes.BOOKING_FAILED
     assert data["payment_id"] == result.id
     assert "offer expired" in data["failure_reason"]
 
@@ -1095,12 +1095,12 @@ def test_finalize_payment_publishes_discount_redemption_failed(session, monkeypa
     assert len(published) == 2
     event_types = {event_type for _, event_type, _ in published}
     assert event_types == {
-        KafkaEventTypes.BOOKING_CONFIRMED,
-        KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED,
+        EventTypes.BOOKING_CONFIRMED,
+        EventTypes.DISCOUNT_REDEMPTION_FAILED,
     }
     redemption_event = next(
         data
         for _, event_type, data in published
-        if event_type == KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED
+        if event_type == EventTypes.DISCOUNT_REDEMPTION_FAILED
     )
     assert redemption_event == {"payment_id": result.id, "discount_code": "BREAKME"}

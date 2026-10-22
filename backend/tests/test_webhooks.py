@@ -24,7 +24,7 @@ from backend.crud.db import get_session
 from backend.main import app
 from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.duffel_webhooks import verify_duffel_signature
 from backend.tests.event_helpers import recording_publisher
 
@@ -149,8 +149,8 @@ def test_duffel_webhook_records_change_and_publishes_event(
 
     assert len(published) == 1
     topic, event_type, data = published[0]
-    assert topic == KafkaTopics.BOOKING_EVENTS
-    assert event_type == KafkaEventTypes.AIRLINE_CHANGE_DETECTED
+    assert topic == EventTopics.BOOKING_EVENTS
+    assert event_type == EventTypes.AIRLINE_CHANGE_DETECTED
     assert data == {"booking_id": booking.id, "user_id": booking.user_id}
 
 

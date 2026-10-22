@@ -1,13 +1,13 @@
 """Config-sanity tests for workers/handlers/__init__.py's composition -
 not testing any one handler's behavior (see the per-domain
-test_kafka_handlers_*.py files for that), just that every domain module
-is wired in correctly: every KafkaEventTypes constant has exactly one
-handler, and every KafkaTopics constant a domain module claims is
+test_event_handlers_*.py files for that), just that every domain module
+is wired in correctly: every EventTypes constant has exactly one
+handler, and every EventTopics constant a domain module claims is
 actually subscribed to."""
 
 import inspect
 
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.workers.handlers import (
     EVENT_HANDLERS,
     SUBSCRIBED_TOPICS,
@@ -20,17 +20,15 @@ from backend.workers.handlers import (
 _DOMAIN_MODULES = [user, support, booking, payment]
 
 _ALL_EVENT_TYPES = {
-    value
-    for name, value in inspect.getmembers(KafkaEventTypes)
-    if not name.startswith("_")
+    value for name, value in inspect.getmembers(EventTypes) if not name.startswith("_")
 }
 _ALL_TOPICS = {
-    value for name, value in inspect.getmembers(KafkaTopics) if not name.startswith("_")
+    value for name, value in inspect.getmembers(EventTopics) if not name.startswith("_")
 }
 
 
 def test_every_event_type_has_exactly_one_handler():
-    """Catches two mistakes at once: a new KafkaEventTypes constant added
+    """Catches two mistakes at once: a new EventTypes constant added
     without a handler, and two domain modules accidentally handling the
     same event_type (the second would silently shadow the first in the
     dict merge, otherwise easy to miss)."""

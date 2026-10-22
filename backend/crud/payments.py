@@ -16,7 +16,7 @@ from backend.external_services.payment import PesapalAPIError, pesapal_payment_s
 from backend.models.payments import Payment, PaymentProvider, PaymentStatus
 from backend.schemas.duffel_orders import Order, OrderCreate, OrderPayment
 from backend.schemas.payments import CheckoutRequest
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.events import publish_event
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pricing import (
@@ -257,9 +257,9 @@ async def _complete_booking(session: Session, payment: Payment) -> bool:
     `payment.discount_code` was set). Nothing here sends an email or
     creates a notification directly - every caller does that afterwards,
     via _publish_booking_completion_events, and only once its own
-    session.commit() has actually happened. The Kafka consumer that acts
-    on those events (backend/workers/kafka_consumer.py) runs in a
-    separate process with its own DB connection - publishing before
+    session.commit() has actually happened. The subscriber that acts on
+    those events (backend/queues/events.py) runs as a separate invocation
+    with its own DB connection - publishing before
     commit would let it query for a booking/payment row that doesn't
     exist yet from its point of view.
     """
@@ -374,8 +374,8 @@ async def _publish_booking_completion_events(
     _complete_booking's docstring for why)."""
     if payment.status == PaymentStatus.COMPLETED:
         await publish_event(
-            KafkaTopics.PAYMENT_EVENTS,
-            KafkaEventTypes.BOOKING_CONFIRMED,
+            EventTopics.PAYMENT_EVENTS,
+            EventTypes.BOOKING_CONFIRMED,
             {
                 "payment_id": payment.id,
                 "booking_id": payment.booking_id,
@@ -384,8 +384,8 @@ async def _publish_booking_completion_events(
         )
     elif payment.status == PaymentStatus.BOOKING_FAILED:
         await publish_event(
-            KafkaTopics.PAYMENT_EVENTS,
-            KafkaEventTypes.BOOKING_FAILED,
+            EventTopics.PAYMENT_EVENTS,
+            EventTypes.BOOKING_FAILED,
             {
                 "payment_id": payment.id,
                 "user_id": payment.user_id,
@@ -395,8 +395,8 @@ async def _publish_booking_completion_events(
 
     if discount_redemption_failed:
         await publish_event(
-            KafkaTopics.PAYMENT_EVENTS,
-            KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED,
+            EventTopics.PAYMENT_EVENTS,
+            EventTypes.DISCOUNT_REDEMPTION_FAILED,
             {"payment_id": payment.id, "discount_code": payment.discount_code},
         )
 

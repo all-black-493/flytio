@@ -4,8 +4,8 @@ Vercel compiles this into a private, queue-triggered function at build time -
 no public URL, invokable only by the queue infrastructure. The module path is
 declared under [[tool.vercel.subscribers]] in the root pyproject.toml.
 
-It replaces workers/kafka_consumer.py's poll loop. The dispatch is the same
-table that loop used, so the handlers in workers/handlers/ are untouched.
+It replaces the Kafka consumer's poll loop. The dispatch is the same table
+that loop used, so the handlers in workers/handlers/ are untouched.
 
 Nothing but the queue SDK and the standard library is imported at module
 scope, and that is load-bearing: Vercel introspects this module at build time

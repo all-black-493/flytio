@@ -10,7 +10,6 @@
 <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0B1526?style=flat-square&logo=fastapi&logoColor=FF4F00">
 <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-0B1526?style=flat-square&logo=postgresql&logoColor=FF4F00">
 <img alt="Redis" src="https://img.shields.io/badge/Redis-0B1526?style=flat-square&logo=redis&logoColor=FF4F00">
-<img alt="Kafka" src="https://img.shields.io/badge/Kafka-0B1526?style=flat-square&logo=apachekafka&logoColor=FF4F00">
 
 <img alt="Next.js" src="https://img.shields.io/badge/Next.js-0B1526?style=flat-square&logo=nextdotjs&logoColor=FF4F00">
 <img alt="React" src="https://img.shields.io/badge/React-0B1526?style=flat-square&logo=react&logoColor=FF4F00">
@@ -52,18 +51,18 @@ The interesting parts are not the search box. They are the three places where mo
         └───┬───────────────┬───────────────┬─────────────┘
             │               │               │
             ▼               ▼               ▼
-      PostgreSQL         Redis           Kafka
+      PostgreSQL         Redis           Vercel Queues
       (Neon)             cache +         4 topics · 8 event types
       SQLModel           rate limits          │
       Alembic                                 ▼
-                                        consumer worker
+                                        subscriber function
                                         email · notifications
-                                        refunds · reminders
+                                        refunds
 
    Suppliers   Duffel (air · stays · cars) · Pesapal · Resend · OpenAI
 ```
 
-The API publishes events fire-and-forget and serves every request without a broker; what stops when Kafka is down is background work, not booking.
+The API publishes events fire-and-forget and serves every request without waiting on them; what stops when delivery stalls is background work, not booking.
 
 ### Stack
 
@@ -71,7 +70,7 @@ The API publishes events fire-and-forget and serves every request without a brok
 |---|---|
 | **Frontend** | Next.js 16, React 19, TanStack Query, Tailwind v4, GSAP, zod |
 | **Backend** | Python 3.12, FastAPI, SQLModel, Alembic, fastapi-guard |
-| **Data** | PostgreSQL 17 (Neon in deployed environments), Redis, Kafka |
+| **Data** | PostgreSQL 17 (Neon in deployed environments), Redis |
 | **AI** | pydantic-ai concierge, streamed over the Vercel AI SDK protocol |
 | **Infrastructure** | Vercel (functions, queues, cron), Neon, Docker for local |
 | **Observability** | Vercel observability; Prometheus, Grafana and Loki locally |
@@ -81,7 +80,7 @@ The API publishes events fire-and-forget and serves every request without a brok
 ```
 backend/      FastAPI service — routers, crud, models, schemas,
               external_services (Duffel, Pesapal, Uber, Resend, OpenAI),
-              workers (Kafka consumer), alembic (16 revisions)
+              queues (subscriber), workers (handlers), alembic (16 revisions)
 frontend/     Next.js app
 docs/         decision records, including where the backend runs and why
 ```
@@ -96,7 +95,7 @@ cp .env.example .env        # fill in the required values; see backend/config.py
 docker compose up -d --build
 ```
 
-The API is on `:8000`, Grafana on `:3001`, Kafka UI on `:8080`. Secrets come from `.env`, or from Doppler when `DOPPLER_TOKEN` is set — the entrypoint detects it rather than assuming it.
+The API is on `:8000` and Grafana on `:3001`. Secrets come from `.env`, or from Doppler when `DOPPLER_TOKEN` is set — the entrypoint detects it rather than assuming it.
 
 **Frontend**:
 

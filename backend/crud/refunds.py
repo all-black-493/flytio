@@ -123,7 +123,7 @@ async def initiate_refund(
     no row is written for a cancellation that was never going to return
     money.
 
-    Idempotent: the caller is a Kafka consumer with at-least-once
+    Idempotent: the caller is a queue subscriber with at-least-once
     delivery, so a redelivered booking_cancelled event must not refund
     anyone twice. Guarded both by an up-front lookup and by
     Refund.payment_id's unique constraint, which is what actually holds

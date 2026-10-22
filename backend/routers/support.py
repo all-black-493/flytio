@@ -9,7 +9,7 @@ future addition, not built here.
 from fastapi import APIRouter
 
 from backend.schemas.support import ContactRequest
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.guard import guard_deco
 from backend.utils.events import publish_event
 
@@ -33,11 +33,11 @@ async def contact_support(request: ContactRequest):
     creates (there isn't one - the form is stateless), so it's safe to
     publish the event immediately: the staff email, the customer
     autoreply, and the staff in-app notification (see
-    backend/workers/kafka_consumer.py) all happen out of the request path.
+    backend/queues/events.py) all happen out of the request path.
     """
     await publish_event(
-        KafkaTopics.SUPPORT_EVENTS,
-        KafkaEventTypes.SUPPORT_REQUEST_RECEIVED,
+        EventTopics.SUPPORT_EVENTS,
+        EventTypes.SUPPORT_REQUEST_RECEIVED,
         {
             "name": request.name,
             "email": request.email,

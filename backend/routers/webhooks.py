@@ -4,7 +4,7 @@ from sqlmodel import Session
 from backend.config import settings
 from backend.crud.bookings import record_airline_initiated_change
 from backend.crud.db import get_session
-from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.utils.constants import EventTypes, EventTopics
 from backend.utils.duffel_webhooks import verify_duffel_signature
 from backend.utils.events import publish_event
 from backend.utils.log_manager import get_app_logger
@@ -97,12 +97,12 @@ async def duffel_webhook(request: Request, session: Session = Depends(get_sessio
         return Response(status_code=status.HTTP_200_OK)
 
     # record_airline_initiated_change commits before this runs, so the
-    # booking row is already visible to the consumer (backend/workers/
-    # kafka_consumer.py) by the time it acts on this event.
+    # booking row is already visible to the subscriber
+    # (backend/queues/events.py) by the time it acts on this event.
     if booking.user_id:
         await publish_event(
-            KafkaTopics.BOOKING_EVENTS,
-            KafkaEventTypes.AIRLINE_CHANGE_DETECTED,
+            EventTopics.BOOKING_EVENTS,
+            EventTypes.AIRLINE_CHANGE_DETECTED,
             {"booking_id": booking.id, "user_id": booking.user_id},
         )
 

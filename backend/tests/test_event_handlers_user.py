@@ -1,7 +1,7 @@
 """Unit tests for workers/handlers/user.py - the poll loop itself talks
 to a real broker and isn't exercised here; this tests that the handler
 does the right thing given an event's `data` payload, the same shape
-utils/kafka.py's publish_event puts on the wire."""
+utils/events.py's publish_event puts on the wire."""
 
 import asyncio
 

@@ -2,12 +2,13 @@
 flight leaves within crud/reminders.py's LEAD_TIME.
 
 This is time-triggered, not event-triggered, which is why it doesn't live
-in workers/handlers/ with the Kafka event handlers - nothing *happens*
-three hours before a flight, the clock just reaches it. It runs as a tick
-inside the consumer's poll loop (workers/kafka_consumer.py) rather than
-under a separate scheduler, because that loop is already the one
-long-running process this app owns; adding Celery beat or a cron
-container to send one email would be a lot of infrastructure for it.
+in workers/handlers/ with the event handlers - nothing *happens* three
+hours before a flight, the clock just reaches it.
+
+It currently has no caller. The tick that used to drive it lived in the
+Kafka consumer's poll loop, which went away with the consumer: there is
+no long-running process on Vercel to hold one. Issue #34 gives it back a
+trigger as a scheduled function.
 
 Safe to run concurrently: each leg is claimed with a conditional UPDATE
 before anything is sent, so a second sweep finds nothing to do.
