@@ -1,0 +1,10 @@
+# Vercel configuration only. The backend's real project file is
+# backend/pyproject.toml; this exists because Vercel builds from the repository
+# root, which is also what `backend.*` imports require, and because the
+# entrypoint lives in a module rather than at a filename Vercel detects.
+#
+# Deliberately no [project] table: this is not a package, and adding one would
+# change how `uv run --project backend` resolves locally.
+
+[tool.vercel]
+entrypoint = "backend.main:app"
