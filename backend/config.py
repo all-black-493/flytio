@@ -201,10 +201,13 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """The one place a Redis connection string is built.
 
-        Two callers construct connections - the cache
-        (external_services/cache.py) and the rate limiter
-        (utils/guard.py) - and they used different forms, so a TLS
-        endpoint would have needed fixing twice and been half-fixed once.
+        Three callers construct connections - the cache
+        (external_services/cache.py), the rate limiter (utils/guard.py)
+        and the pub/sub client (utils/redis_client.py) - and they used
+        different forms, so a TLS endpoint would have needed fixing three
+        times and been part-fixed once. It was: redis_client.py was still
+        building its own from host and port when REDIS_URL arrived, and
+        so connected to localhost in production.
 
         `rediss://` (two s's) is the TLS scheme. `redis://` against a
         TLS-only endpoint fails at connect time, not at startup."""
