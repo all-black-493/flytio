@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     # cannot express a password at all. The pair stays for Compose, where
     # there is no auth and a bare host is simpler.
     REDIS_URL: str = ""
+
+    # Shared secret the scheduler presents to the endpoints in
+    # routers/jobs.py. Named for Vercel's convention, which sends it as
+    # `Authorization: Bearer $CRON_SECRET`, so moving from an external
+    # scheduler to Vercel Cron later needs no code change.
+    #
+    # Unset means the job endpoints refuse to run rather than run
+    # unauthenticated: a sweep that anyone can trigger is a way to send a
+    # traveller the same email repeatedly.
+    CRON_SECRET: str = ""
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     # Managed Redis (ElastiCache with transit encryption, Upstash, etc)

@@ -142,6 +142,15 @@ wheels = [
 ]
 
 [[package]]
+name = "airportsdata"
+version = "20260905"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/c2/69ec4b992746c4c7b076a7afffb11fc64267d684ed0cd3db00035f0f682b/airportsdata-20260905.tar.gz", hash = "sha256:a7e17469458ca356a5ca9971f49864b934a559d43e1587e19219cb981d364c45", size = 929470, upload-time = "2026-09-05T06:02:21.518Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/45/f8/65e9d476f84bb60ac7ff1fe525acdd60fe6b4b585ae6f074c947c6ad0fc1/airportsdata-20260905-py3-none-any.whl", hash = "sha256:d7eaa9a57d373b0adaaae0d52da2af0bb0edf73f7baa170f7c415d3342bf4868", size = 931164, upload-time = "2026-09-05T06:02:19.32Z" },
+]
+
+[[package]]
 name = "alembic"
 version = "1.18.5"
 source = { registry = "https://pypi.org/simple" }
@@ -639,6 +648,7 @@ dependencies = [
     { name = "aiohappyeyeballs" },
     { name = "aiohttp" },
     { name = "aiosignal" },
+    { name = "airportsdata" },
     { name = "alembic" },
     { name = "annotated-doc" },
     { name = "annotated-types" },
@@ -751,6 +761,7 @@ requires-dist = [
     { name = "aiohappyeyeballs", specifier = "==2.7.1" },
     { name = "aiohttp", specifier = "==3.14.3" },
     { name = "aiosignal", specifier = "==1.4.0" },
+    { name = "airportsdata", specifier = "==20260905" },
     { name = "alembic", specifier = "==1.18.5" },
     { name = "annotated-doc", specifier = "==0.0.4" },
     { name = "annotated-types", specifier = "==0.7.0" },

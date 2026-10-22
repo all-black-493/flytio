@@ -97,3 +97,26 @@ Vercel caught it, Vercel held no certificate for that name, and TLS failed
 with `unexpected eof` — so the API was unreachable while looking, from DNS
 alone, like it resolved fine. Worth remembering as a failure shape: a wildcard
 turns a deleted record into a confusing TLS error rather than NXDOMAIN.
+
+## Scheduling: why the sweep is not a Vercel Cron Job
+
+The departure-reminder sweep runs every fifteen minutes. Vercel Cron is the
+obvious home for it and cannot host it on this account: **Hobby cron jobs are
+limited to once per day**, and an expression that would run more often fails
+at deploy time rather than degrading. Hobby cron timing is also only accurate
+to the hour (±59 minutes), which a fifteen-minute window cannot absorb.
+
+The interval is not arbitrary. It is the sweep's worst-case lateness, so a
+reminder lands in [3h, 3h15m] before departure and never after it. A daily
+sweep cannot express that at all — it would change what the product promises
+from "three hours before" to "some time the day before".
+
+So the trigger is Upstash QStash, which already exists in this project for
+Redis, supports real cron expressions at minute precision, and costs nothing
+at this volume (96 calls a day against a 500/day free tier).
+
+The endpoint (`routers/jobs.py`) is deliberately scheduler-agnostic: it
+authenticates with `Authorization: Bearer $CRON_SECRET`, which is Vercel
+Cron's own convention. If this account moves to Pro, the scheduler can become
+a `crons` entry in `vercel.json` and no application code changes.
+
