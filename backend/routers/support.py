@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from backend.schemas.support import ContactRequest
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.guard import guard_deco
-from backend.utils.kafka import kafka_producer
+from backend.utils.events import publish_event
 
 router = APIRouter(prefix="/support", tags=["Support"])
 
@@ -35,7 +35,7 @@ async def contact_support(request: ContactRequest):
     autoreply, and the staff in-app notification (see
     backend/workers/kafka_consumer.py) all happen out of the request path.
     """
-    kafka_producer.publish_event(
+    await publish_event(
         KafkaTopics.SUPPORT_EVENTS,
         KafkaEventTypes.SUPPORT_REQUEST_RECEIVED,
         {

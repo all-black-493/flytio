@@ -18,6 +18,7 @@ from backend.models.bookings import Booking, BookingStatus
 from backend.models.users import UserInDB
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.security import create_access_token
+from backend.tests.event_helpers import recording_publisher
 
 engine = create_engine(
     "sqlite://",
@@ -226,9 +227,9 @@ def test_confirm_order_change_publishes_event(session, db_client, monkeypatch):
 
     published = []
     monkeypatch.setattr(
-        bookings_module.kafka_producer,
+        bookings_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     response = db_client.post(

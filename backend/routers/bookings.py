@@ -48,7 +48,7 @@ from backend.schemas.duffel_orders import (
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.duffel_errors import duffel_http_exception
 from backend.utils.itinerary_pdf import booking_qr_png, build_itinerary_pdf
-from backend.utils.kafka import kafka_producer
+from backend.utils.events import publish_event
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pagination import cursor_page
 from backend.utils.security import get_current_user
@@ -420,7 +420,7 @@ async def confirm_order_cancellation(
     # second, possibly-expired round trip to Duffel to find it out.
     mark_booking_cancelled(session, booking)
     quote = OrderCancellationQuote.model_validate(response["data"])
-    kafka_producer.publish_event(
+    await publish_event(
         KafkaTopics.BOOKING_EVENTS,
         KafkaEventTypes.BOOKING_CANCELLED,
         {
@@ -555,7 +555,7 @@ async def confirm_order_change(
     # this runs, and the event below doesn't need the resynced slices
     # anyway (just the reference text), so this is safe to publish even
     # when the resync above failed.
-    kafka_producer.publish_event(
+    await publish_event(
         KafkaTopics.BOOKING_EVENTS,
         KafkaEventTypes.BOOKING_CHANGE_CONFIRMED,
         {

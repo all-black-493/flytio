@@ -10,12 +10,10 @@ from backend.utils.constants import KafkaEventTypes, KafkaTopics
 def test_contact_support_publishes_event(api_client, monkeypatch):
     published = []
 
-    def fake_publish_event(topic, event_type, data):
+    async def fake_publish_event(topic, event_type, data):
         published.append((topic, event_type, data))
 
-    monkeypatch.setattr(
-        support_router.kafka_producer, "publish_event", fake_publish_event
-    )
+    monkeypatch.setattr(support_router, "publish_event", fake_publish_event)
 
     response = api_client.post(
         "/api/v1/support/contact",

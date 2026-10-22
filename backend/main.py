@@ -13,7 +13,6 @@ from backend.external_services.payment import pesapal_payment_service
 from backend.external_services.car import duffel_car_service
 from backend.external_services.stay import duffel_stay_service
 from backend.utils.guard import guard_deco, security_config
-from backend.utils.kafka import kafka_producer
 from backend.utils.log_manager import get_app_logger
 from backend.routers import notifications
 
@@ -40,9 +39,7 @@ async def lifespan(app: FastAPI):
     # Schema is now owned by Alembic migrations (see alembic/), run before
     # the app starts (compose.yaml's command) - not created/altered here.
     logger.info("flyt backend starting up")
-    kafka_producer.start()
     yield
-    kafka_producer.stop()
     await duffel_flight_service.aclose()
     await duffel_stay_service.aclose()
     await duffel_car_service.aclose()

@@ -34,6 +34,7 @@ from backend.schemas.duffel_orders import OrderPassenger
 from backend.schemas.payments import CheckoutRequest
 from backend.schemas.pesapal import PesapalTransactionStatusResponse
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
+from backend.tests.event_helpers import recording_publisher
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
 SQLModel.metadata.create_all(engine)
@@ -247,9 +248,9 @@ def test_finalize_payment_publishes_booking_confirmed(session, monkeypatch):
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(finalize_payment(session, payment))
@@ -285,9 +286,9 @@ def test_finalize_payment_publishes_booking_failed(session, monkeypatch):
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(finalize_payment(session, payment))
@@ -683,9 +684,9 @@ def test_confirm_card_payment_completed(session, monkeypatch):
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(confirm_card_payment(session, payment))
@@ -727,9 +728,9 @@ def test_confirm_card_payment_not_succeeded_marks_failed(session, monkeypatch):
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(confirm_card_payment(session, payment))
@@ -805,9 +806,9 @@ def test_create_admin_booking_completes_without_real_payment_collection(
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(
@@ -850,9 +851,9 @@ def test_create_admin_booking_booking_failed_when_duffel_errors(session, monkeyp
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(
@@ -1080,9 +1081,9 @@ def test_finalize_payment_publishes_discount_redemption_failed(session, monkeypa
 
     published = []
     monkeypatch.setattr(
-        payments_module.kafka_producer,
+        payments_module,
         "publish_event",
-        lambda topic, event_type, data: published.append((topic, event_type, data)),
+        recording_publisher(published),
     )
 
     result = asyncio.run(finalize_payment(session, payment))

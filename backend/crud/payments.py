@@ -17,7 +17,7 @@ from backend.models.payments import Payment, PaymentProvider, PaymentStatus
 from backend.schemas.duffel_orders import Order, OrderCreate, OrderPayment
 from backend.schemas.payments import CheckoutRequest
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
-from backend.utils.kafka import kafka_producer
+from backend.utils.events import publish_event
 from backend.utils.log_manager import get_app_logger
 from backend.utils.pricing import (
     apply_discount,
@@ -366,14 +366,14 @@ async def _complete_booking(session: Session, payment: Payment) -> bool:
     return discount_redemption_failed
 
 
-def _publish_booking_completion_events(
+async def _publish_booking_completion_events(
     payment: Payment, discount_redemption_failed: bool
 ) -> None:
     """Publishes whatever _complete_booking's outcome implies - call this
     only after the caller's own session.commit(), never before (see
     _complete_booking's docstring for why)."""
     if payment.status == PaymentStatus.COMPLETED:
-        kafka_producer.publish_event(
+        await publish_event(
             KafkaTopics.PAYMENT_EVENTS,
             KafkaEventTypes.BOOKING_CONFIRMED,
             {
@@ -383,7 +383,7 @@ def _publish_booking_completion_events(
             },
         )
     elif payment.status == PaymentStatus.BOOKING_FAILED:
-        kafka_producer.publish_event(
+        await publish_event(
             KafkaTopics.PAYMENT_EVENTS,
             KafkaEventTypes.BOOKING_FAILED,
             {
@@ -394,7 +394,7 @@ def _publish_booking_completion_events(
         )
 
     if discount_redemption_failed:
-        kafka_producer.publish_event(
+        await publish_event(
             KafkaTopics.PAYMENT_EVENTS,
             KafkaEventTypes.DISCOUNT_REDEMPTION_FAILED,
             {"payment_id": payment.id, "discount_code": payment.discount_code},
@@ -475,7 +475,7 @@ async def finalize_payment(session: Session, payment: Payment) -> Payment:
     # payment.status mean anything _publish_booking_completion_events
     # should act on, and only now (after commit) is it safe to.
     if discount_redemption_failed is not None:
-        _publish_booking_completion_events(payment, discount_redemption_failed)
+        await _publish_booking_completion_events(payment, discount_redemption_failed)
     return payment
 
 
@@ -545,7 +545,7 @@ async def confirm_card_payment(session: Session, payment: Payment) -> Payment:
     session.refresh(payment)
 
     if discount_redemption_failed is not None:
-        _publish_booking_completion_events(payment, discount_redemption_failed)
+        await _publish_booking_completion_events(payment, discount_redemption_failed)
     return payment
 
 
@@ -579,5 +579,5 @@ async def create_admin_booking(
     session.add(payment)
     session.commit()
     session.refresh(payment)
-    _publish_booking_completion_events(payment, discount_redemption_failed)
+    await _publish_booking_completion_events(payment, discount_redemption_failed)
     return payment

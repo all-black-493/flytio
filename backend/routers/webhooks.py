@@ -6,7 +6,7 @@ from backend.crud.bookings import record_airline_initiated_change
 from backend.crud.db import get_session
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.duffel_webhooks import verify_duffel_signature
-from backend.utils.kafka import kafka_producer
+from backend.utils.events import publish_event
 from backend.utils.log_manager import get_app_logger
 
 logger = get_app_logger(__name__)
@@ -100,7 +100,7 @@ async def duffel_webhook(request: Request, session: Session = Depends(get_sessio
     # booking row is already visible to the consumer (backend/workers/
     # kafka_consumer.py) by the time it acts on this event.
     if booking.user_id:
-        kafka_producer.publish_event(
+        await publish_event(
             KafkaTopics.BOOKING_EVENTS,
             KafkaEventTypes.AIRLINE_CHANGE_DETECTED,
             {"booking_id": booking.id, "user_id": booking.user_id},

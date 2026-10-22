@@ -31,7 +31,7 @@ from backend.schemas.users import UserCreate, UserRead
 from backend.utils.constants import KafkaEventTypes, KafkaTopics
 from backend.utils.email import send_email_async
 from backend.utils.guard import guard_deco
-from backend.utils.kafka import kafka_producer
+from backend.utils.events import publish_event
 from backend.utils.security import (
     authenticate_user,
     clear_auth_cookie,
@@ -108,7 +108,7 @@ async def register(
 
     # Fire-and-forget: the welcome email is sent by a separate consumer
     # (backend/workers/kafka_consumer.py), out of the request path.
-    kafka_producer.publish_event(
+    await publish_event(
         KafkaTopics.USER_EVENTS,
         KafkaEventTypes.USER_REGISTERED,
         {"user_id": user.id, "email": user.email},
